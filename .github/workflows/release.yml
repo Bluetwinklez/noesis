@@ -98,7 +98,8 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: |
           if ($env:HAS_UPDATER_KEY -eq 'true') {
-            npx tauri build --config '{\"bundle\":{\"createUpdaterArtifacts\":true}}'
+            # A file avoids PowerShell mangling quotes in inline JSON arguments.
+            npx tauri build --config src-tauri/tauri.updater.conf.json
           } else {
             Write-Host '::warning::TAURI_SIGNING_PRIVATE_KEY is not set: building without update signatures; installed apps cannot auto-update to this build.'
             npx tauri build
