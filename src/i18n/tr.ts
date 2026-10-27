@@ -258,7 +258,7 @@ export const tr: Record<keyof typeof en, string> = {
   'src.addToNotebook': 'Deftere ekle',
   'src.pasteTitle': 'Başlık',
   'src.pasteBody': 'Metni veya dökümü buraya yapıştır',
-  'src.supported': 'Desteklenenler: PDF, DOCX, TXT, Markdown, HTML, CSV, web bağlantıları; görseller (OCR) ve ses için AI sağlayıcı gerekir.',
+  'src.supported': 'Desteklenenler: PDF, DOCX, TXT, Markdown, HTML, CSV, web bağlantıları; görseller ve taranmış PDF’ler (çevrimdışı OCR); ses için AI sağlayıcı gerekir.',
   'src.kind.pdf': 'PDF',
   'src.kind.docx': 'Word',
   'src.kind.txt': 'Metin',
