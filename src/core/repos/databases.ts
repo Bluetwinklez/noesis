@@ -6,6 +6,7 @@ import type {
   DbView,
   PropertyOptions,
   PropertyType,
+  RollupFn,
   SelectOption,
   ViewConfig,
   ViewType,
@@ -43,6 +44,11 @@ interface RawView {
 const toProp = (r: RawProp): DbProperty => ({ ...r, options: parseJson<PropertyOptions>(r.options_json, {}) });
 const toRow = (r: RawRow): DbRow => ({ ...r, values: parseJson<Record<string, CellValue>>(r.values_json, {}) });
 const toView = (r: RawView): DbView => ({ ...r, config: parseJson<ViewConfig>(r.config_json, {}) });
+
+const ids = (v: CellValue | undefined): string[] => (Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : []);
+
+/** Rows and properties of the databases that relation properties point at (for titles and rollups). */
+export type RelatedData = Map<string, { props: DbProperty[]; rows: Map<string, DbRow> }>;
 
 const COLORS = ['gray', 'blue', 'green', 'amber', 'red', 'violet', 'pink', 'teal'];
 export const defaultStatusOptions = (): SelectOption[] => [
@@ -97,6 +103,30 @@ export class DatabaseRepo {
     return prop;
   }
 
+  /**
+   * Adds a relation to another database (or this one). Two-way relations also get a
+   * paired property in the target database; both sides are kept in sync on every edit.
+   */
+  async addRelation(databaseId: string, targetDatabaseId: string, name: string, backName: string | null): Promise<DbProperty> {
+    return this.db.transaction(async (tx) => {
+      const order = async (db: string) =>
+        ((await tx.get<{ m: number | null }>('SELECT MAX(sort_order) m FROM db_properties WHERE database_id = ?', [db]))?.m ?? 0) + 1;
+      const id = uid();
+      const back = backName === null ? null : uid();
+      const opts: PropertyOptions = { relationDatabaseId: targetDatabaseId, ...(back ? { relationPropertyId: back } : {}) };
+      const prop: DbProperty = { id, database_id: databaseId, name: name.trim() || 'Relation', type: 'relation', options: opts, sort_order: await order(databaseId) };
+      await tx.run('INSERT INTO db_properties(id, database_id, name, type, options_json, sort_order) VALUES (?,?,?,?,?,?)', [
+        id, databaseId, prop.name, 'relation', JSON.stringify(opts), prop.sort_order,
+      ]);
+      if (back)
+        await tx.run('INSERT INTO db_properties(id, database_id, name, type, options_json, sort_order) VALUES (?,?,?,?,?,?)', [
+          back, targetDatabaseId, backName!.trim() || 'Relation', 'relation',
+          JSON.stringify({ relationDatabaseId: databaseId, relationPropertyId: id }), await order(targetDatabaseId),
+        ]);
+      return prop;
+    });
+  }
+
   async updateProperty(id: string, patch: { name?: string; options?: PropertyOptions; type?: PropertyType }) {
     const cur = await this.db.get<RawProp>('SELECT * FROM db_properties WHERE id = ?', [id]);
     if (!cur) throw new Error('Property not found');
@@ -116,6 +146,14 @@ export class DatabaseRepo {
     if (cur.type === 'title') throw new Error('The title property cannot be deleted');
     await this.db.transaction(async (tx) => {
       await tx.run('DELETE FROM db_properties WHERE id = ?', [id]);
+      // The other side of a two-way relation stays, as a one-way relation.
+      const pair = parseJson<PropertyOptions>(cur.options_json, {}).relationPropertyId;
+      const other = pair ? await tx.get<RawProp>('SELECT * FROM db_properties WHERE id = ?', [pair]) : null;
+      if (other) {
+        const o = parseJson<PropertyOptions>(other.options_json, {});
+        delete o.relationPropertyId;
+        await tx.run('UPDATE db_properties SET options_json = ? WHERE id = ?', [JSON.stringify(o), other.id]);
+      }
       const rows = await tx.all<RawRow>('SELECT * FROM db_rows WHERE database_id = ?', [cur.database_id]);
       for (const r of rows) {
         const values = parseJson<Record<string, CellValue>>(r.values_json, {});
@@ -167,12 +205,33 @@ export class DatabaseRepo {
       const r = await tx.get<RawRow>('SELECT * FROM db_rows WHERE id = ?', [rowId]);
       if (!r) throw new Error('Row not found');
       const values = parseJson<Record<string, CellValue>>(r.values_json, {});
-      values[propertyId] = value;
+      const before = values[propertyId];
+      const raw = await tx.get<RawProp>('SELECT * FROM db_properties WHERE id = ?', [propertyId]);
+      const prop = raw ? toProp(raw) : null;
+      values[propertyId] = prop?.type === 'relation' ? [...new Set(ids(value))] : value;
       const t = now();
       await tx.run('UPDATE db_rows SET values_json = ?, updated_at = ? WHERE id = ?', [JSON.stringify(values), t, rowId]);
       const ws = await tx.get<{ workspace_id: string }>('SELECT workspace_id FROM pages WHERE id = ?', [r.database_id]);
       await this.indexRow(tx, { ...toRow(r), values }, ws!.workspace_id);
+      const pair = prop?.type === 'relation' ? prop.options.relationPropertyId : undefined;
+      if (pair) {
+        const old = new Set(ids(before));
+        const next = new Set(ids(values[propertyId]));
+        for (const id of next) if (!old.has(id)) await this.setLink(tx, id, pair, rowId, true);
+        for (const id of old) if (!next.has(id)) await this.setLink(tx, id, pair, rowId, false);
+      }
     });
+  }
+
+  /** Adds or removes `linkedId` in a relation cell of another row (the back-link side). */
+  private async setLink(tx: Parameters<typeof indexUpsert>[0], rowId: string, propertyId: string, linkedId: string, linked: boolean) {
+    const r = await tx.get<RawRow>('SELECT * FROM db_rows WHERE id = ?', [rowId]);
+    if (!r) return;
+    const values = parseJson<Record<string, CellValue>>(r.values_json, {});
+    const list = ids(values[propertyId]);
+    if (list.includes(linkedId) === linked) return;
+    values[propertyId] = linked ? [...list, linkedId] : list.filter((x) => x !== linkedId);
+    await tx.run('UPDATE db_rows SET values_json = ?, updated_at = ? WHERE id = ?', [JSON.stringify(values), now(), rowId]);
   }
 
   async moveRow(rowId: string, sortOrder: number) {
@@ -181,8 +240,16 @@ export class DatabaseRepo {
 
   async deleteRow(rowId: string) {
     await this.db.transaction(async (tx) => {
+      const r = await tx.get<{ database_id: string }>('SELECT database_id FROM db_rows WHERE id = ?', [rowId]);
       await tx.run('DELETE FROM db_rows WHERE id = ?', [rowId]);
       await indexRemove(tx, 'row', rowId);
+      if (!r) return;
+      // Drop the deleted row from every relation cell that pointed at it.
+      const rels = (await tx.all<RawProp>("SELECT * FROM db_properties WHERE type = 'relation'")).map(toProp).filter((p) => p.options.relationDatabaseId === r.database_id);
+      for (const p of rels) {
+        const linked = await tx.all<{ id: string }>("SELECT id FROM db_rows WHERE database_id = ? AND values_json LIKE '%' || ? || '%'", [p.database_id, rowId]);
+        for (const l of linked) await this.setLink(tx, l.id, p.id, rowId, false);
+      }
     });
   }
 
@@ -243,6 +310,24 @@ export class DatabaseRepo {
     const titleProp = props.find((p) => p.type === 'title');
     return (await this.rows(databaseId)).map((r) => ({ id: r.id, title: titleProp ? String(r.values[titleProp.id] ?? '') : r.id }));
   }
+
+  /** Loads every database the given relation properties point at. */
+  async relatedData(props: DbProperty[]): Promise<RelatedData> {
+    const out: RelatedData = new Map();
+    for (const p of props) {
+      const target = p.type === 'relation' ? p.options.relationDatabaseId : undefined;
+      if (!target || out.has(target)) continue;
+      const [tp, rows] = await Promise.all([this.properties(target), this.rows(target)]);
+      out.set(target, { props: tp, rows: new Map(rows.map((r) => [r.id, r])) });
+    }
+    return out;
+  }
+}
+
+/** Title of a row, for relation chips. */
+export function rowTitle(props: DbProperty[], row: DbRow): string {
+  const tp = props.find((p) => p.type === 'title');
+  return tp ? String(row.values[tp.id] ?? '') : '';
 }
 
 export function displayValue(prop: DbProperty, value: CellValue | undefined): string {
@@ -267,17 +352,52 @@ export function displayValue(prop: DbProperty, value: CellValue | undefined): st
   }
 }
 
-/** Evaluates formula cells for a row (formulas are computed, never stored). */
-export function computedValue(prop: DbProperty, row: DbRow, props: DbProperty[]): CellValue {
+/** Evaluates formula and rollup cells for a row (both are computed, never stored). */
+export function computedValue(prop: DbProperty, row: DbRow, props: DbProperty[], related?: RelatedData): CellValue {
+  if (prop.type === 'rollup') return rollupValue(prop, row, props, related);
   if (prop.type !== 'formula') return row.values[prop.id] ?? null;
   const result = evaluateFormula(prop.options.expression ?? '', (name) => {
     const p = props.find((x) => x.name.toLowerCase() === name.toLowerCase());
     if (!p || p.type === 'formula') return null;
+    if (p.type === 'rollup') return rollupValue(p, row, props, related);
     const v = row.values[p.id];
     if (p.type === 'select' || p.type === 'status') return displayValue(p, v);
     return v ?? null;
   });
   return result.ok ? result.value : `#ERR ${result.error}`;
+}
+
+export const ROLLUP_FNS: RollupFn[] = ['count', 'count_values', 'sum', 'average', 'min', 'max', 'show', 'percent_checked'];
+
+function rollupValue(prop: DbProperty, row: DbRow, props: DbProperty[], related?: RelatedData): CellValue {
+  const cfg = prop.options.rollup;
+  const rel = cfg && props.find((p) => p.id === cfg.relationPropertyId && p.type === 'relation');
+  const target = rel?.options.relationDatabaseId ? related?.get(rel.options.relationDatabaseId) : undefined;
+  if (!cfg || !rel || !target) return null;
+  const linked = ids(row.values[rel.id]).map((id) => target.rows.get(id)).filter((r): r is DbRow => !!r);
+  if (cfg.fn === 'count') return linked.length;
+  const tp = target.props.find((p) => p.id === cfg.targetPropertyId);
+  if (!tp) return null;
+  // Rollups of rollups are not followed (no related data one level down), which also rules out cycles.
+  const vals = linked.map((r) => computedValue(tp, r, target.props));
+  const filled = vals.filter((v) => v !== null && v !== '' && !(Array.isArray(v) && !v.length));
+  const nums = filled.map(Number).filter(Number.isFinite);
+  switch (cfg.fn) {
+    case 'count_values':
+      return filled.length;
+    case 'sum':
+      return nums.reduce((a, b) => a + b, 0);
+    case 'average':
+      return nums.length ? Math.round((nums.reduce((a, b) => a + b, 0) / nums.length) * 100) / 100 : null;
+    case 'min':
+      return nums.length ? Math.min(...nums) : null;
+    case 'max':
+      return nums.length ? Math.max(...nums) : null;
+    case 'percent_checked':
+      return linked.length ? `${Math.round((vals.filter((v) => v === true).length / linked.length) * 100)}%` : null;
+    case 'show':
+      return vals.map((v) => displayValue(tp, v ?? null)).filter(Boolean).join(', ');
+  }
 }
 
 function compare(a: CellValue, b: CellValue): number {
@@ -290,11 +410,11 @@ function compare(a: CellValue, b: CellValue): number {
 }
 
 /** Applies a view's filters and sorts. Pure, so it is unit-tested directly. */
-export function applyView(rows: DbRow[], props: DbProperty[], config: ViewConfig): DbRow[] {
+export function applyView(rows: DbRow[], props: DbProperty[], config: ViewConfig, related?: RelatedData): DbRow[] {
   const byId = new Map(props.map((p) => [p.id, p]));
   const valueOf = (row: DbRow, pid: string): CellValue => {
     const p = byId.get(pid);
-    return p ? computedValue(p, row, props) : null;
+    return p ? computedValue(p, row, props, related) : null;
   };
   let out = rows.filter((row) =>
     (config.filters ?? []).every((f) => {

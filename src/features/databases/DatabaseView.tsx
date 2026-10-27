@@ -23,12 +23,13 @@ import {
   CircleDot,
   Globe,
   Pencil,
+  Calculator,
 } from 'lucide-react';
 import { repos, useApp, wsId } from '../../app/state';
 import { useT, type MessageKey } from '../../i18n';
 import { Badge, Button, cx, IconButton, Input, MenuButton, Modal, Popover, promptDialog, Select, Spinner, Tabs, useAsync, type MenuItem } from '../../components/ui';
-import { applyView, computedValue, displayValue, groupRows } from '../../core/repos/databases';
-import type { CellValue, DbProperty, DbRow, DbView, FilterOp, PropertyType, ViewConfig, ViewType } from '../../core/types';
+import { applyView, computedValue, displayValue, groupRows, ROLLUP_FNS, rowTitle, type RelatedData } from '../../core/repos/databases';
+import type { CellValue, DbProperty, DbRow, DbView, FilterOp, PropertyType, RollupFn, ViewConfig, ViewType } from '../../core/types';
 import { reportError } from '../../app/services';
 import { openExternal } from '../../lib/platform';
 
@@ -44,6 +45,7 @@ const TYPE_ICON: Record<PropertyType, React.ReactNode> = {
   relation: <Link2 className="size-3.5" />,
   status: <CircleDot className="size-3.5" />,
   formula: <Sigma className="size-3.5" />,
+  rollup: <Calculator className="size-3.5" />,
 };
 const VIEW_ICON: Record<ViewType, React.ReactNode> = {
   table: <TableIcon className="size-3.5" />,
@@ -60,6 +62,7 @@ interface Ctx {
   rows: DbRow[];
   reload: () => void;
   relationTitles: Map<string, Map<string, string>>;
+  related: RelatedData;
 }
 
 export default function DatabaseView({ databaseId }: { databaseId: string }) {
@@ -70,17 +73,19 @@ export default function DatabaseView({ databaseId }: { databaseId: string }) {
   const { data } = useAsync(async () => {
     const r = repos().databases;
     const [props, rows, views] = await Promise.all([r.properties(databaseId), r.rows(databaseId), r.views(databaseId)]);
+    const related = await r.relatedData(props);
     const relationTitles = new Map<string, Map<string, string>>();
-    for (const p of props)
-      if (p.type === 'relation' && p.options.relationDatabaseId)
-        relationTitles.set(p.id, new Map((await r.rowTitles(p.options.relationDatabaseId)).map((x) => [x.id, x.title])));
-    return { props, rows, views, relationTitles };
+    for (const p of props) {
+      const target = p.type === 'relation' && p.options.relationDatabaseId ? related.get(p.options.relationDatabaseId) : undefined;
+      if (target) relationTitles.set(p.id, new Map([...target.rows.values()].map((row) => [row.id, rowTitle(target.props, row)])));
+    }
+    return { props, rows, views, relationTitles, related };
   }, [databaseId, version, n]);
   const [viewId, setViewId] = useState<string | null>(null);
   if (!data) return <div className="py-10"><Spinner /></div>;
   const view = data.views.find((v) => v.id === viewId) ?? data.views[0];
-  const ctx: Ctx = { props: data.props, rows: data.rows, reload, relationTitles: data.relationTitles };
-  const rows = applyView(data.rows, data.props, view.config);
+  const ctx: Ctx = { props: data.props, rows: data.rows, reload, relationTitles: data.relationTitles, related: data.related };
+  const rows = applyView(data.rows, data.props, view.config, data.related);
   const addRow = async (values: Record<string, CellValue> = {}) => {
     await repos().databases.addRow(databaseId, values).catch(reportError);
     reload();
@@ -278,7 +283,7 @@ function ViewToolbar({ view, props, reload, onDeleted }: { view: DbView; props: 
 // ---------------- cells ----------------
 function Cell({ prop, row, ctx, compact }: { prop: DbProperty; row: DbRow; ctx: Ctx; compact?: boolean }) {
   const t = useT();
-  const value = computedValue(prop, row, ctx.props);
+  const value = computedValue(prop, row, ctx.props, ctx.related);
   const [editing, setEditing] = useState(false);
   const [anchor, setAnchor] = useState<HTMLElement | null>(null);
   const set = async (v: CellValue) => {
@@ -299,6 +304,7 @@ function Cell({ prop, row, ctx, compact }: { prop: DbProperty; row: DbRow; ctx: 
         </div>
       );
     case 'formula':
+    case 'rollup':
       return <div className={cx(base, 'text-muted')}>{value === null ? '' : String(value)}</div>;
     case 'select':
     case 'status':
@@ -481,6 +487,15 @@ function PropertyHeader({ prop, ctx }: { prop: DbProperty; ctx: Ctx }) {
           },
         ]
       : []),
+    ...(prop.type === 'rollup'
+      ? [
+          {
+            label: t('db.rollup.configure'),
+            icon: <Calculator className="size-3.5" />,
+            onSelect: () => setOpen(true),
+          },
+        ]
+      : []),
     ...(prop.type === 'title'
       ? []
       : [
@@ -502,7 +517,11 @@ function PropertyHeader({ prop, ctx }: { prop: DbProperty; ctx: Ctx }) {
       <MenuButton items={items} label={`${prop.name} options`} className="size-5 opacity-0 group-hover/th:opacity-100">
         <MoreHorizontal className="size-3.5" />
       </MenuButton>
-      <FormulaDialog prop={prop} open={open} onClose={() => setOpen(false)} reload={ctx.reload} />
+      {prop.type === 'rollup' ? (
+        <RollupDialog prop={prop} props={ctx.props} open={open} onClose={() => setOpen(false)} reload={ctx.reload} />
+      ) : (
+        <FormulaDialog prop={prop} open={open} onClose={() => setOpen(false)} reload={ctx.reload} />
+      )}
     </div>
   );
 }
@@ -534,10 +553,66 @@ function FormulaDialog({ prop, open, onClose, reload }: { prop: DbProperty; open
   );
 }
 
+function RollupDialog({ prop, props, open, onClose, reload }: { prop: DbProperty; props: DbProperty[]; open: boolean; onClose: () => void; reload: () => void }) {
+  const t = useT();
+  const relations = props.filter((p) => p.type === 'relation' && p.options.relationDatabaseId);
+  const [relId, setRelId] = useState(prop.options.rollup?.relationPropertyId ?? relations[0]?.id ?? '');
+  const [targetId, setTargetId] = useState(prop.options.rollup?.targetPropertyId ?? '');
+  const [fn, setFn] = useState<RollupFn>(prop.options.rollup?.fn ?? 'count');
+  const targetDb = relations.find((p) => p.id === relId)?.options.relationDatabaseId;
+  const { data: targetProps } = useAsync(async () => (open && targetDb ? repos().databases.properties(targetDb) : []), [open, targetDb]);
+  return (
+    <Modal
+      open={open}
+      onClose={onClose}
+      title={`${prop.name} · ${t('db.type.rollup')}`}
+      footer={
+        <Button
+          variant="primary"
+          disabled={!relId}
+          onClick={async () => {
+            await repos().databases.updateProperty(prop.id, { options: { ...prop.options, rollup: { relationPropertyId: relId, targetPropertyId: targetId || null, fn } } });
+            reload();
+            onClose();
+          }}
+        >
+          {t('common.save')}
+        </Button>
+      }
+    >
+      {relations.length === 0 ? (
+        <p className="text-sm text-muted">{t('db.rollup.noRelation')}</p>
+      ) : (
+        <div className="grid gap-3 text-sm">
+          <label className="grid gap-1">
+            {t('db.rollup.relation')}
+            <Select ariaLabel={t('db.rollup.relation')} value={relId} onChange={(v) => (setRelId(v), setTargetId(''))} options={relations.map((p) => ({ value: p.id, label: p.name }))} />
+          </label>
+          <label className="grid gap-1">
+            {t('db.rollup.property')}
+            <Select
+              ariaLabel={t('db.rollup.property')}
+              value={targetId}
+              onChange={setTargetId}
+              options={[{ value: '', label: '—' }, ...(targetProps ?? []).filter((p) => p.type !== 'rollup').map((p) => ({ value: p.id, label: p.name }))]}
+            />
+          </label>
+          <label className="grid gap-1">
+            {t('db.rollup.fn')}
+            <Select ariaLabel={t('db.rollup.fn')} value={fn} onChange={(v) => setFn(v as RollupFn)} options={ROLLUP_FNS.map((f) => ({ value: f, label: t(`db.rollup.fn.${f}` as MessageKey) }))} />
+          </label>
+        </div>
+      )}
+    </Modal>
+  );
+}
+
 function AddPropertyButton({ databaseId, reload }: { databaseId: string; reload: () => void }) {
   const t = useT();
-  const types: PropertyType[] = ['text', 'number', 'date', 'checkbox', 'select', 'multi_select', 'status', 'url', 'relation', 'formula'];
+  const types: PropertyType[] = ['text', 'number', 'date', 'checkbox', 'select', 'multi_select', 'status', 'url', 'relation', 'rollup', 'formula'];
   const [relOpen, setRelOpen] = useState(false);
+  const [twoWay, setTwoWay] = useState(true);
+  const [rollup, setRollup] = useState<{ prop: DbProperty; props: DbProperty[] } | null>(null);
   const { data: dbs } = useAsync(async () => (relOpen ? repos().databases.listDatabases(wsId()) : []), [relOpen]);
   return (
     <>
@@ -549,20 +624,27 @@ function AddPropertyButton({ databaseId, reload }: { databaseId: string; reload:
           icon: TYPE_ICON[type],
           onSelect: async () => {
             if (type === 'relation') return setRelOpen(true);
-            await repos().databases.addProperty(databaseId, t(`db.type.${type}` as MessageKey), type);
+            const prop = await repos().databases.addProperty(databaseId, t(`db.type.${type}` as MessageKey), type);
             reload();
+            if (type === 'rollup') setRollup({ prop, props: await repos().databases.properties(databaseId) });
           },
         }))}
       >
         <Plus className="size-4" />
       </MenuButton>
+      {rollup && <RollupDialog prop={rollup.prop} props={rollup.props} open onClose={() => setRollup(null)} reload={reload} />}
       <Modal open={relOpen} onClose={() => setRelOpen(false)} title={t('db.relationTarget')}>
+        <label className="mb-2 flex items-center gap-2 text-sm text-muted">
+          <input type="checkbox" checked={twoWay} onChange={(e) => setTwoWay(e.target.checked)} className="accent-[var(--accent)]" />
+          {t('db.twoWay')}
+        </label>
         {dbs?.map((d) => (
           <button
             key={d.id}
             className="block w-full rounded px-2 py-1.5 text-left text-sm hover:bg-hover"
             onClick={async () => {
-              await repos().databases.addProperty(databaseId, d.title || t('db.type.relation'), 'relation', { relationDatabaseId: d.id });
+              const self = await repos().pages.get(databaseId);
+              await repos().databases.addRelation(databaseId, d.id, d.title || t('db.type.relation'), twoWay ? self?.title || t('db.type.relation') : null);
               setRelOpen(false);
               reload();
             }}
