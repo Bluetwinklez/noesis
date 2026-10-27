@@ -314,6 +314,8 @@ test('quick capture saves a note to the Inbox', async ({ page }) => {
   await expect(page.getByText('Saved to Inbox.')).toBeVisible();
   await page.getByRole('treeitem', { name: /Inbox/ }).getByRole('button', { name: 'Expand' }).click();
   await page.getByRole('treeitem', { name: /Idea/ }).click();
+  await expect(page.getByLabel('Page title')).toHaveValue('Idea');
+  await expect(editor(page)).toContainText('call the printer');
   await expect(editor(page).locator('strong')).toHaveText('buy');
 });
 
