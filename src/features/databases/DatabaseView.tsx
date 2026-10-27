@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import {
   ArrowDownUp,
   Calendar as CalendarIcon,
+  GanttChart,
   CheckSquare,
   ChevronLeft,
   ChevronRight,
@@ -22,12 +23,13 @@ import {
   CircleDot,
   Globe,
   Pencil,
+  Calculator,
 } from 'lucide-react';
 import { repos, useApp, wsId } from '../../app/state';
 import { useT, type MessageKey } from '../../i18n';
 import { Badge, Button, cx, IconButton, Input, MenuButton, Modal, Popover, promptDialog, Select, Spinner, Tabs, useAsync, type MenuItem } from '../../components/ui';
-import { applyView, computedValue, displayValue, groupRows } from '../../core/repos/databases';
-import type { CellValue, DbProperty, DbRow, DbView, FilterOp, PropertyType, ViewConfig, ViewType } from '../../core/types';
+import { applyView, computedValue, displayValue, groupRows, ROLLUP_FNS, rowTitle, type RelatedData } from '../../core/repos/databases';
+import type { CellValue, DbProperty, DbRow, DbView, FilterOp, PropertyType, RollupFn, ViewConfig, ViewType } from '../../core/types';
 import { reportError } from '../../app/services';
 import { openExternal } from '../../lib/platform';
 
@@ -43,6 +45,7 @@ const TYPE_ICON: Record<PropertyType, React.ReactNode> = {
   relation: <Link2 className="size-3.5" />,
   status: <CircleDot className="size-3.5" />,
   formula: <Sigma className="size-3.5" />,
+  rollup: <Calculator className="size-3.5" />,
 };
 const VIEW_ICON: Record<ViewType, React.ReactNode> = {
   table: <TableIcon className="size-3.5" />,
@@ -50,6 +53,7 @@ const VIEW_ICON: Record<ViewType, React.ReactNode> = {
   calendar: <CalendarIcon className="size-3.5" />,
   list: <ListIcon className="size-3.5" />,
   gallery: <GalleryHorizontalEnd className="size-3.5" />,
+  timeline: <GanttChart className="size-3.5" />,
 };
 const OPS: FilterOp[] = ['contains', 'not_contains', 'equals', 'not_equals', 'gt', 'lt', 'is_empty', 'is_not_empty', 'is_checked', 'is_not_checked'];
 
@@ -58,6 +62,7 @@ interface Ctx {
   rows: DbRow[];
   reload: () => void;
   relationTitles: Map<string, Map<string, string>>;
+  related: RelatedData;
 }
 
 export default function DatabaseView({ databaseId }: { databaseId: string }) {
@@ -68,17 +73,19 @@ export default function DatabaseView({ databaseId }: { databaseId: string }) {
   const { data } = useAsync(async () => {
     const r = repos().databases;
     const [props, rows, views] = await Promise.all([r.properties(databaseId), r.rows(databaseId), r.views(databaseId)]);
+    const related = await r.relatedData(props);
     const relationTitles = new Map<string, Map<string, string>>();
-    for (const p of props)
-      if (p.type === 'relation' && p.options.relationDatabaseId)
-        relationTitles.set(p.id, new Map((await r.rowTitles(p.options.relationDatabaseId)).map((x) => [x.id, x.title])));
-    return { props, rows, views, relationTitles };
+    for (const p of props) {
+      const target = p.type === 'relation' && p.options.relationDatabaseId ? related.get(p.options.relationDatabaseId) : undefined;
+      if (target) relationTitles.set(p.id, new Map([...target.rows.values()].map((row) => [row.id, rowTitle(target.props, row)])));
+    }
+    return { props, rows, views, relationTitles, related };
   }, [databaseId, version, n]);
   const [viewId, setViewId] = useState<string | null>(null);
   if (!data) return <div className="py-10"><Spinner /></div>;
   const view = data.views.find((v) => v.id === viewId) ?? data.views[0];
-  const ctx: Ctx = { props: data.props, rows: data.rows, reload, relationTitles: data.relationTitles };
-  const rows = applyView(data.rows, data.props, view.config);
+  const ctx: Ctx = { props: data.props, rows: data.rows, reload, relationTitles: data.relationTitles, related: data.related };
+  const rows = applyView(data.rows, data.props, view.config, data.related);
   const addRow = async (values: Record<string, CellValue> = {}) => {
     await repos().databases.addRow(databaseId, values).catch(reportError);
     reload();
@@ -89,7 +96,7 @@ export default function DatabaseView({ databaseId }: { databaseId: string }) {
         <Tabs value={view.id} onChange={setViewId} tabs={data.views.map((v) => ({ value: v.id, label: <>{VIEW_ICON[v.type]}{v.name}</> }))} />
         <MenuButton
           label={t('db.addView')}
-          items={(['table', 'board', 'calendar', 'list', 'gallery'] as ViewType[]).map((type) => ({
+          items={(['table', 'board', 'calendar', 'timeline', 'list', 'gallery'] as ViewType[]).map((type) => ({
             label: t(`db.view.${type}` as MessageKey),
             icon: VIEW_ICON[type],
             onSelect: async () => {
@@ -97,7 +104,7 @@ export default function DatabaseView({ databaseId }: { databaseId: string }) {
               const date = data.props.find((p) => p.type === 'date');
               const v = await repos().databases.addView(databaseId, t(`db.view.${type}` as MessageKey), type, {
                 groupBy: type === 'board' ? status?.id : undefined,
-                dateProperty: type === 'calendar' ? date?.id : undefined,
+                dateProperty: type === 'calendar' || type === 'timeline' ? date?.id : undefined,
               });
               setViewId(v.id);
               reload();
@@ -116,6 +123,7 @@ export default function DatabaseView({ databaseId }: { databaseId: string }) {
       {view.type === 'table' && <TableView ctx={ctx} rows={rows} databaseId={databaseId} config={view.config} />}
       {view.type === 'board' && <BoardView ctx={ctx} rows={rows} view={view} addRow={addRow} />}
       {view.type === 'calendar' && <CalendarView ctx={ctx} rows={rows} view={view} addRow={addRow} />}
+      {view.type === 'timeline' && <TimelineView ctx={ctx} rows={rows} view={view} />}
       {view.type === 'list' && <ListView ctx={ctx} rows={rows} />}
       {view.type === 'gallery' && <GalleryView ctx={ctx} rows={rows} />}
     </div>
@@ -151,13 +159,22 @@ function ViewToolbar({ view, props, reload, onDeleted }: { view: DbView; props: 
           options={[{ value: '', label: `${t('db.group')}…` }, ...groupable.map((p) => ({ value: p.id, label: p.name }))]}
         />
       )}
-      {view.type === 'calendar' && (
+      {(view.type === 'calendar' || view.type === 'timeline') && (
         <Select
-          ariaLabel="Date property"
+          ariaLabel={view.type === 'timeline' ? t('db.timeline.start') : 'Date property'}
           value={cfg.dateProperty ?? ''}
           onChange={(v) => void save({ ...cfg, dateProperty: v || undefined })}
           className="h-7 text-xs"
           options={[{ value: '', label: '—' }, ...props.filter((p) => p.type === 'date').map((p) => ({ value: p.id, label: p.name }))]}
+        />
+      )}
+      {view.type === 'timeline' && (
+        <Select
+          ariaLabel={t('db.timeline.end')}
+          value={cfg.endDateProperty ?? ''}
+          onChange={(v) => void save({ ...cfg, endDateProperty: v || undefined })}
+          className="h-7 text-xs"
+          options={[{ value: '', label: `${t('db.timeline.end')}: —` }, ...props.filter((p) => p.type === 'date').map((p) => ({ value: p.id, label: `${t('db.timeline.end')}: ${p.name}` }))]}
         />
       )}
       <MenuButton
@@ -266,7 +283,7 @@ function ViewToolbar({ view, props, reload, onDeleted }: { view: DbView; props: 
 // ---------------- cells ----------------
 function Cell({ prop, row, ctx, compact }: { prop: DbProperty; row: DbRow; ctx: Ctx; compact?: boolean }) {
   const t = useT();
-  const value = computedValue(prop, row, ctx.props);
+  const value = computedValue(prop, row, ctx.props, ctx.related);
   const [editing, setEditing] = useState(false);
   const [anchor, setAnchor] = useState<HTMLElement | null>(null);
   const set = async (v: CellValue) => {
@@ -287,6 +304,7 @@ function Cell({ prop, row, ctx, compact }: { prop: DbProperty; row: DbRow; ctx: 
         </div>
       );
     case 'formula':
+    case 'rollup':
       return <div className={cx(base, 'text-muted')}>{value === null ? '' : String(value)}</div>;
     case 'select':
     case 'status':
@@ -469,6 +487,15 @@ function PropertyHeader({ prop, ctx }: { prop: DbProperty; ctx: Ctx }) {
           },
         ]
       : []),
+    ...(prop.type === 'rollup'
+      ? [
+          {
+            label: t('db.rollup.configure'),
+            icon: <Calculator className="size-3.5" />,
+            onSelect: () => setOpen(true),
+          },
+        ]
+      : []),
     ...(prop.type === 'title'
       ? []
       : [
@@ -490,7 +517,11 @@ function PropertyHeader({ prop, ctx }: { prop: DbProperty; ctx: Ctx }) {
       <MenuButton items={items} label={`${prop.name} options`} className="size-5 opacity-0 group-hover/th:opacity-100">
         <MoreHorizontal className="size-3.5" />
       </MenuButton>
-      <FormulaDialog prop={prop} open={open} onClose={() => setOpen(false)} reload={ctx.reload} />
+      {prop.type === 'rollup' ? (
+        <RollupDialog prop={prop} props={ctx.props} open={open} onClose={() => setOpen(false)} reload={ctx.reload} />
+      ) : (
+        <FormulaDialog prop={prop} open={open} onClose={() => setOpen(false)} reload={ctx.reload} />
+      )}
     </div>
   );
 }
@@ -522,10 +553,66 @@ function FormulaDialog({ prop, open, onClose, reload }: { prop: DbProperty; open
   );
 }
 
+function RollupDialog({ prop, props, open, onClose, reload }: { prop: DbProperty; props: DbProperty[]; open: boolean; onClose: () => void; reload: () => void }) {
+  const t = useT();
+  const relations = props.filter((p) => p.type === 'relation' && p.options.relationDatabaseId);
+  const [relId, setRelId] = useState(prop.options.rollup?.relationPropertyId ?? relations[0]?.id ?? '');
+  const [targetId, setTargetId] = useState(prop.options.rollup?.targetPropertyId ?? '');
+  const [fn, setFn] = useState<RollupFn>(prop.options.rollup?.fn ?? 'count');
+  const targetDb = relations.find((p) => p.id === relId)?.options.relationDatabaseId;
+  const { data: targetProps } = useAsync(async () => (open && targetDb ? repos().databases.properties(targetDb) : []), [open, targetDb]);
+  return (
+    <Modal
+      open={open}
+      onClose={onClose}
+      title={`${prop.name} · ${t('db.type.rollup')}`}
+      footer={
+        <Button
+          variant="primary"
+          disabled={!relId}
+          onClick={async () => {
+            await repos().databases.updateProperty(prop.id, { options: { ...prop.options, rollup: { relationPropertyId: relId, targetPropertyId: targetId || null, fn } } });
+            reload();
+            onClose();
+          }}
+        >
+          {t('common.save')}
+        </Button>
+      }
+    >
+      {relations.length === 0 ? (
+        <p className="text-sm text-muted">{t('db.rollup.noRelation')}</p>
+      ) : (
+        <div className="grid gap-3 text-sm">
+          <label className="grid gap-1">
+            {t('db.rollup.relation')}
+            <Select ariaLabel={t('db.rollup.relation')} value={relId} onChange={(v) => (setRelId(v), setTargetId(''))} options={relations.map((p) => ({ value: p.id, label: p.name }))} />
+          </label>
+          <label className="grid gap-1">
+            {t('db.rollup.property')}
+            <Select
+              ariaLabel={t('db.rollup.property')}
+              value={targetId}
+              onChange={setTargetId}
+              options={[{ value: '', label: '—' }, ...(targetProps ?? []).filter((p) => p.type !== 'rollup').map((p) => ({ value: p.id, label: p.name }))]}
+            />
+          </label>
+          <label className="grid gap-1">
+            {t('db.rollup.fn')}
+            <Select ariaLabel={t('db.rollup.fn')} value={fn} onChange={(v) => setFn(v as RollupFn)} options={ROLLUP_FNS.map((f) => ({ value: f, label: t(`db.rollup.fn.${f}` as MessageKey) }))} />
+          </label>
+        </div>
+      )}
+    </Modal>
+  );
+}
+
 function AddPropertyButton({ databaseId, reload }: { databaseId: string; reload: () => void }) {
   const t = useT();
-  const types: PropertyType[] = ['text', 'number', 'date', 'checkbox', 'select', 'multi_select', 'status', 'url', 'relation', 'formula'];
+  const types: PropertyType[] = ['text', 'number', 'date', 'checkbox', 'select', 'multi_select', 'status', 'url', 'relation', 'rollup', 'formula'];
   const [relOpen, setRelOpen] = useState(false);
+  const [twoWay, setTwoWay] = useState(true);
+  const [rollup, setRollup] = useState<{ prop: DbProperty; props: DbProperty[] } | null>(null);
   const { data: dbs } = useAsync(async () => (relOpen ? repos().databases.listDatabases(wsId()) : []), [relOpen]);
   return (
     <>
@@ -537,20 +624,27 @@ function AddPropertyButton({ databaseId, reload }: { databaseId: string; reload:
           icon: TYPE_ICON[type],
           onSelect: async () => {
             if (type === 'relation') return setRelOpen(true);
-            await repos().databases.addProperty(databaseId, t(`db.type.${type}` as MessageKey), type);
+            const prop = await repos().databases.addProperty(databaseId, t(`db.type.${type}` as MessageKey), type);
             reload();
+            if (type === 'rollup') setRollup({ prop, props: await repos().databases.properties(databaseId) });
           },
         }))}
       >
         <Plus className="size-4" />
       </MenuButton>
+      {rollup && <RollupDialog prop={rollup.prop} props={rollup.props} open onClose={() => setRollup(null)} reload={reload} />}
       <Modal open={relOpen} onClose={() => setRelOpen(false)} title={t('db.relationTarget')}>
+        <label className="mb-2 flex items-center gap-2 text-sm text-muted">
+          <input type="checkbox" checked={twoWay} onChange={(e) => setTwoWay(e.target.checked)} className="accent-[var(--accent)]" />
+          {t('db.twoWay')}
+        </label>
         {dbs?.map((d) => (
           <button
             key={d.id}
             className="block w-full rounded px-2 py-1.5 text-left text-sm hover:bg-hover"
             onClick={async () => {
-              await repos().databases.addProperty(databaseId, d.title || t('db.type.relation'), 'relation', { relationDatabaseId: d.id });
+              const self = await repos().pages.get(databaseId);
+              await repos().databases.addRelation(databaseId, d.id, d.title || t('db.type.relation'), twoWay ? self?.title || t('db.type.relation') : null);
               setRelOpen(false);
               reload();
             }}
@@ -780,6 +874,114 @@ function CalendarView({ ctx, rows, view, addRow }: { ctx: Ctx; rows: DbRow[]; vi
             </div>
           );
         })}
+      </div>
+    </div>
+  );
+}
+
+const DAY_MS = 86_400_000;
+const isoDay = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+const parseDay = (v: CellValue) => (typeof v === 'string' && /^\d{4}-\d{2}-\d{2}/.test(v) ? new Date(`${v.slice(0, 10)}T00:00:00`) : null);
+
+/** Gantt-style timeline: bars from the start date to the (optional) end date; drag to move, drag the right edge to resize. */
+function TimelineView({ ctx, rows, view }: { ctx: Ctx; rows: DbRow[]; view: DbView }) {
+  const t = useT();
+  const lang = useApp((s) => s.lang);
+  const startProp = ctx.props.find((p) => p.id === view.config.dateProperty) ?? ctx.props.find((p) => p.type === 'date');
+  const endProp = ctx.props.find((p) => p.id === view.config.endDateProperty && p.type === 'date');
+  const DAYS = 42;
+  const COL = 30;
+  const [from, setFrom] = useState(() => {
+    const d = new Date();
+    d.setHours(0, 0, 0, 0);
+    d.setDate(d.getDate() - ((d.getDay() + 6) % 7) - 7); // Monday of last week
+    return d;
+  });
+  const [drag, setDrag] = useState<{ id: string; mode: 'move' | 'end'; x0: number; dx: number } | null>(null);
+  if (!startProp) return <p className="py-8 text-center text-sm text-muted">{t('db.noDate')}</p>;
+  const days = Array.from({ length: DAYS }, (_, i) => new Date(from.getFullYear(), from.getMonth(), from.getDate() + i));
+  const today = isoDay(new Date());
+  const dated = rows.filter((r) => parseDay(r.values[startProp.id]));
+  const undated = rows.length - dated.length;
+  const shiftDays = (dx: number) => Math.round(dx / COL);
+  const commit = async (r: DbRow, mode: 'move' | 'end', delta: number) => {
+    if (!delta) return;
+    const s = parseDay(r.values[startProp.id])!;
+    const e = endProp ? parseDay(r.values[endProp.id]) : null;
+    const add = (d: Date, n: number) => isoDay(new Date(d.getFullYear(), d.getMonth(), d.getDate() + n));
+    if (mode === 'move') {
+      await repos().databases.updateCell(r.id, startProp.id, add(s, delta));
+      if (endProp && e) await repos().databases.updateCell(r.id, endProp.id, add(e, delta));
+    } else if (endProp) {
+      const end = new Date(Math.max(s.getTime(), (e ?? s).getTime() + delta * DAY_MS));
+      await repos().databases.updateCell(r.id, endProp.id, isoDay(end));
+    }
+    ctx.reload();
+  };
+  return (
+    <div>
+      <div className="mb-2 flex items-center gap-2">
+        <IconButton label="Previous" onClick={() => setFrom(new Date(from.getFullYear(), from.getMonth(), from.getDate() - 28))}>
+          <ChevronLeft className="size-4" />
+        </IconButton>
+        <div className="min-w-48 text-center text-sm font-semibold">
+          {days[0].toLocaleDateString(lang, { day: 'numeric', month: 'short' })} – {days[DAYS - 1].toLocaleDateString(lang, { day: 'numeric', month: 'short', year: 'numeric' })}
+        </div>
+        <IconButton label="Next" onClick={() => setFrom(new Date(from.getFullYear(), from.getMonth(), from.getDate() + 28))}>
+          <ChevronRight className="size-4" />
+        </IconButton>
+        {undated > 0 && <span className="ml-auto text-xs text-faint">{t('db.timeline.undated', { n: undated })}</span>}
+      </div>
+      <div className="overflow-x-auto rounded-lg border border-line" role="grid" aria-label={t('db.view.timeline')}>
+        <div style={{ width: 200 + DAYS * COL }}>
+          <div className="flex border-b border-line bg-inset text-[10px] text-faint">
+            <div className="w-[200px] shrink-0 px-2 py-1">{startProp.name}</div>
+            {days.map((d) => (
+              <div key={d.toString()} style={{ width: COL }} className={cx('shrink-0 py-1 text-center', isoDay(d) === today && 'font-semibold text-accent', d.getDay() === 1 && 'border-l border-line')}>
+                {d.getDay() === 1 || d.getDate() === 1 ? d.toLocaleDateString(lang, { day: 'numeric', month: 'short' }) : d.getDate()}
+              </div>
+            ))}
+          </div>
+          {dated.map((r) => {
+            const s = parseDay(r.values[startProp.id])!;
+            const e = (endProp && parseDay(r.values[endProp.id])) || s;
+            const delta = drag?.id === r.id ? shiftDays(drag.dx) : 0;
+            const startIdx = Math.round((s.getTime() - from.getTime()) / DAY_MS) + (drag?.id === r.id && drag.mode === 'move' ? delta : 0);
+            const span = Math.max(1, Math.round((Math.max(e.getTime(), s.getTime()) - s.getTime()) / DAY_MS) + 1 + (drag?.id === r.id && drag.mode === 'end' ? delta : 0));
+            const visible = startIdx + span > 0 && startIdx < DAYS;
+            return (
+              <div key={r.id} role="row" className="relative flex h-9 items-center border-b border-line last:border-b-0">
+                <div className="w-[200px] shrink-0 truncate px-2 text-sm">{titleOf(r, ctx.props) || t('common.untitled')}</div>
+                <div className="relative h-full flex-1">
+                  {days.map((d, i) => isoDay(d) === today && <div key={i} className="absolute inset-y-0 w-px bg-accent/40" style={{ left: i * COL + COL / 2 }} />)}
+                  {visible && (
+                    <div
+                      role="gridcell"
+                      aria-label={`${titleOf(r, ctx.props)}: ${isoDay(s)} – ${isoDay(e)}`}
+                      className={cx('absolute top-1.5 flex h-6 cursor-grab items-center overflow-hidden rounded-md bg-accent px-2 text-xs text-white shadow-sm', drag?.id === r.id && 'cursor-grabbing opacity-90')}
+                      style={{ left: Math.max(0, startIdx) * COL + 2, width: Math.max(COL - 4, (Math.min(DAYS, startIdx + span) - Math.max(0, startIdx)) * COL - 4) }}
+                      onPointerDown={(ev) => {
+                        (ev.target as HTMLElement).setPointerCapture(ev.pointerId);
+                        setDrag({ id: r.id, mode: (ev.target as HTMLElement).dataset.handle === 'end' ? 'end' : 'move', x0: ev.clientX, dx: 0 });
+                      }}
+                      onPointerMove={(ev) => drag?.id === r.id && setDrag({ ...drag, dx: ev.clientX - drag.x0 })}
+                      onPointerUp={() => {
+                        if (drag?.id !== r.id) return;
+                        const d = drag;
+                        setDrag(null);
+                        void commit(r, d.mode, shiftDays(d.dx)).catch(reportError);
+                      }}
+                    >
+                      <span className="truncate">{titleOf(r, ctx.props)}</span>
+                      {endProp && <span data-handle="end" className="absolute inset-y-0 right-0 w-2 cursor-ew-resize bg-white/30" />}
+                    </div>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+          {!dated.length && <p className="py-6 text-center text-sm text-muted">{t('db.timeline.empty')}</p>}
+        </div>
       </div>
     </div>
   );

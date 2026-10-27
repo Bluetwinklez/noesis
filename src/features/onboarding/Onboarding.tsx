@@ -6,6 +6,7 @@ import { Button, Input, cx, Kbd } from '../../components/ui';
 import { ingestion, reportError, saveLang, savePrefs, setWorkspace } from '../../app/services';
 import { AiSettings } from '../settings/SettingsPage';
 import { seedSampleContent } from './sample';
+import { PalettePicker } from '../../components/PalettePicker';
 
 const STEPS = ['welcome', 'workspace', 'appearance', 'ai', 'sample', 'editor', 'notebook'] as const;
 type Step = (typeof STEPS)[number];
@@ -102,6 +103,9 @@ export function Onboarding() {
                   {t(`settings.theme.${th}`)}
                 </button>
               ))}
+            </div>
+            <div className="mt-4">
+              <PalettePicker compact />
             </div>
             <div className="mt-4 flex justify-center gap-2">
               {[252, 220, 160, 30, 0, 330].map((h) => (

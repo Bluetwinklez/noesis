@@ -29,6 +29,11 @@ export interface PipelineDeps {
   /** Returns the provider only if the user consented to sending content to it. */
   getProvider: (purpose: 'embeddings' | 'ocr' | 'transcription') => Promise<AiProvider | null>;
   fetchUrl: (url: string, signal?: AbortSignal) => Promise<Response>;
+  /** Offline OCR (Tesseract in the app). Absent in tests/Node: AI vision is used instead. */
+  ocr?: {
+    image(bytes: Uint8Array, mime: string, signal: AbortSignal): Promise<string>;
+    pdf(bytes: Uint8Array, signal: AbortSignal): Promise<{ pageNumber: number; text: string }[]>;
+  };
   onProgress?: (sourceId: string, stage: PipelineStage, detail?: string) => void;
 }
 
@@ -201,20 +206,36 @@ export class IngestionPipeline {
       case 'csv':
         return extractCsv(bytes!);
       case 'pdf':
-        return extractPdf(bytes!, signal);
+        try {
+          return await extractPdf(bytes!, signal);
+        } catch (e) {
+          // Scanned PDF without a text layer: recognise the rendered pages offline.
+          if (!(e instanceof IngestionError) || e.code !== 'empty' || !this.deps.ocr) throw e;
+          this.deps.onProgress?.(src.id, 'extraction', 'ocr');
+          const pages = await this.deps.ocr.pdf(bytes!, signal);
+          if (pages.reduce((n, p) => n + p.text.trim().length, 0) < 20) throw e;
+          return { pages, pageCount: pages.length, metadata: { ocr: 'Tesseract (offline)' } };
+        }
       case 'docx':
         return extractDocx(bytes!);
       case 'url':
         return this.extractUrl(src.origin, signal);
       case 'image': {
+        const mimeGuess = src.mime || (bytes![0] === 0x89 ? 'image/png' : 'image/jpeg');
+        if (this.deps.ocr) {
+          const local = await this.deps.ocr.image(bytes!, mimeGuess, signal);
+          if (local.replace(/\s/g, '').length >= 3) return { pages: [{ pageNumber: null, text: local }], pageCount: null, metadata: { ocr: 'Tesseract (offline)' } };
+        }
+        // Handwriting or unusual layouts: fall back to a vision-capable AI provider if the user set one up.
         const provider = await this.deps.getProvider('ocr');
+        if (!provider?.capabilities.vision && this.deps.ocr) throw new IngestionError('No text was recognised in the image.', 'extraction', 'empty');
         if (!provider?.capabilities.vision)
           throw new IngestionError(
             'Image OCR needs a vision-capable AI provider (OpenAI, Gemini or Anthropic) with permission to upload content. Configure one in Settings.',
             'extraction',
             'requires_provider',
           );
-        const mime = src.mime || (bytes![0] === 0x89 ? 'image/png' : 'image/jpeg');
+        const mime = mimeGuess;
         const text = await provider.chat({
           system: 'You are an OCR engine. Transcribe all text visible in the image exactly, preserving reading order and line breaks. Output only the text. If there is no text, output NO_TEXT.',
           messages: [{ role: 'user', content: 'Transcribe the text in this image.', image: { mime, base64: toBase64(bytes!) } }],

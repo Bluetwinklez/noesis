@@ -11,6 +11,7 @@ import {
   Keyboard,
   Palette,
   RefreshCw,
+  Plug,
   Shield,
   Stethoscope,
   Upload,
@@ -23,21 +24,26 @@ import { repos, useApp } from '../../app/state';
 import { LANGUAGES, useT, type MessageKey } from '../../i18n';
 import { Badge, Button, confirmDialog, cx, Input, Kbd, promptDialog, Select, Switch, useAsync } from '../../components/ui';
 import { activeProvider, apiKeyName, configForProvider, errorMessage, reportError, saveAiConfig, saveLang, savePrefs, setWorkspace } from '../../app/services';
+import { McpSettings } from '../mcp/McpSettings';
+import { runImport } from '../import/runImport';
+import { PalettePicker } from '../../components/PalettePicker';
+import { checkForUpdates, installUpdate, setUpdatePrefs, useUpdates } from '../../app/updater';
 import { appInfo, isTauri, notify, pickFiles, revealDataDir, saveFile, secrets, blobStore } from '../../lib/platform';
 import { createBackup, rebuildSearchIndex, restoreBackup } from '../../core/backup';
 import { integrityCheck, LATEST_VERSION } from '../../core/db/migrations';
 import type { ProviderId } from '../../ai/types';
-import { formatBytes, safeFileName } from '../../lib/util';
+import { formatBytes, relativeTime, safeFileName } from '../../lib/util';
 import { docToHtml } from '../../editor/serialize';
 import { htmlToMarkdown } from '../../editor/markdown';
 import type { DocNode } from '../../core/doc';
 
-const APP_VERSION = '0.1.0';
+const APP_VERSION: string = import.meta.env.VITE_APP_VERSION ?? '0.1.0';
 
 const SECTIONS: { id: string; label: MessageKey; icon: React.ReactNode }[] = [
   { id: 'appearance', label: 'settings.appearance', icon: <Palette className="size-4" /> },
   { id: 'language', label: 'settings.language', icon: <Globe className="size-4" /> },
   { id: 'ai', label: 'settings.ai', icon: <Bot className="size-4" /> },
+  { id: 'mcp', label: 'mcp.title', icon: <Plug className="size-4" /> },
   { id: 'workspaces', label: 'settings.workspaces', icon: <Layers className="size-4" /> },
   { id: 'storage', label: 'settings.storage', icon: <HardDrive className="size-4" /> },
   { id: 'shortcuts', label: 'settings.shortcuts', icon: <Keyboard className="size-4" /> },
@@ -73,6 +79,7 @@ export default function SettingsPage({ section }: { section?: string }) {
         {cur === 'appearance' && <Appearance />}
         {cur === 'language' && <Language />}
         {cur === 'ai' && <AiSettings />}
+        {cur === 'mcp' && <McpSettings />}
         {cur === 'workspaces' && <Workspaces />}
         {cur === 'storage' && <Storage />}
         {cur === 'shortcuts' && <Shortcuts />}
@@ -113,6 +120,11 @@ export function Appearance() {
           ))}
         </div>
       </Row>
+      <div className="border-b border-line py-4">
+        <div className="mb-1 font-medium">{t('settings.palette')}</div>
+        <p className="mb-3 text-xs text-muted">{t('settings.paletteHint')}</p>
+        <PalettePicker />
+      </div>
       <Row label={t('settings.accent')}>
         <div className="flex gap-1.5">
           {ACCENTS.map((h) => (
@@ -425,6 +437,11 @@ function Storage() {
           {t('settings.backupNow')}
         </Button>
       </Row>
+      <Row label={t('import.title')} hint={t('import.hint')}>
+        <Button size="sm" icon={<Upload className="size-3.5" />} loading={busy === 'import'} onClick={wrap('import', runImport)}>
+          {t('import.button')}
+        </Button>
+      </Row>
       <Row label={t('settings.restore')} hint={t('settings.restoreConfirm')}>
         <Button
           size="sm"
@@ -488,6 +505,7 @@ function Shortcuts() {
   const t = useT();
   const list: [MessageKey, string][] = [
     ['shortcut.palette', 'Ctrl K'],
+    ['capture.shortcut', 'Ctrl Shift Space'],
     ['shortcut.newPage', 'Ctrl Alt N'],
     ['shortcut.search', 'Ctrl Shift F'],
     ['shortcut.sidebar', 'Ctrl \\'],
@@ -560,10 +578,48 @@ function Notifications() {
 
 function Updates() {
   const t = useT();
+  const lang = useApp((s) => s.lang);
+  const prefs = useApp((s) => s.prefs);
+  const u = useUpdates();
+  if (u.status === 'unsupported')
+    return (
+      <section className="space-y-2 text-sm">
+        <div className="font-medium">{t('settings.version', { v: APP_VERSION })}</div>
+        <p className="text-muted">{t('upd.preview')}</p>
+      </section>
+    );
   return (
-    <section className="space-y-2 text-sm">
-      <div className="font-medium">{t('settings.version', { v: APP_VERSION })}</div>
-      <p className="text-muted">{t('settings.updatesManual')}</p>
+    <section className="space-y-4 text-sm">
+      <div className="flex flex-wrap items-center gap-3">
+        <div className="font-medium">{t('settings.version', { v: u.current ?? APP_VERSION })}</div>
+        <Button onClick={() => void checkForUpdates({ manual: true })} disabled={u.status === 'checking' || u.status === 'downloading'}>
+          <RefreshCw className="size-3.5" /> {u.status === 'checking' ? t('upd.checking') : t('upd.check')}
+        </Button>
+        {u.status === 'ready' && u.available && (
+          <Button variant="primary" onClick={() => void installUpdate()}>
+            {t('upd.restart')} ({u.available.version})
+          </Button>
+        )}
+      </div>
+      <div className="text-muted">
+        {u.status === 'up-to-date' && t('upd.upToDate')}
+        {u.status === 'downloading' && u.available && t('upd.downloading', { v: u.available.version, p: Math.round(u.progress * 100) })}
+        {u.status === 'ready' && u.available && t('upd.ready', { v: u.available.version })}
+        {u.status === 'error' && t('upd.failed', { e: u.error ?? '' })}
+        {u.checkedAt && <span className="ml-2 text-faint">· {t('upd.lastChecked', { t: relativeTime(u.checkedAt, lang) })}</span>}
+      </div>
+      {u.available?.notes && (
+        <details className="rounded-md border border-line p-3">
+          <summary className="cursor-pointer font-medium">{t('upd.notes')}</summary>
+          <pre className="mt-2 whitespace-pre-wrap font-sans text-xs text-muted">{u.available.notes}</pre>
+        </details>
+      )}
+      <Row label={t('upd.auto')} hint={t('upd.autoHint')}>
+        <Switch checked={prefs.checkUpdates} onChange={(v) => void setUpdatePrefs({ checkUpdates: v })} label={t('upd.auto')} />
+      </Row>
+      <Row label={t('upd.autoInstall')} hint={t('upd.autoInstallHint')}>
+        <Switch checked={prefs.autoInstallUpdates} onChange={(v) => void setUpdatePrefs({ autoInstallUpdates: v })} label={t('upd.autoInstall')} />
+      </Row>
     </section>
   );
 }

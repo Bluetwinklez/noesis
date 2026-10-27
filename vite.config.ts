@@ -3,12 +3,17 @@ import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import tailwindcss from '@tailwindcss/vite';
 import path from 'node:path';
+import { readFileSync } from 'node:fs';
+
+const pkg = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8')) as { version: string };
 
 const host = process.env.TAURI_DEV_HOST;
 
 export default defineConfig({
   plugins: [react(), tailwindcss()],
   resolve: { alias: { '@': path.resolve(import.meta.dirname, 'src') } },
+  // CI stamps the build number into package.json, so the UI and backups know the exact version.
+  define: { 'import.meta.env.VITE_APP_VERSION': JSON.stringify(pkg.version) },
   clearScreen: false,
   server: {
     port: 1420,
@@ -17,7 +22,8 @@ export default defineConfig({
     // sqlite-wasm (browser preview mode) needs cross-origin isolation for OPFS; we use in-memory + IndexedDB so plain headers suffice.
     watch: { ignored: ['**/src-tauri/**'] },
   },
-  optimizeDeps: { exclude: ['@sqlite.org/sqlite-wasm'] },
+  // Lazily imported exporters are pre-bundled so first use in dev/E2E does not trigger a re-optimisation reload.
+  optimizeDeps: { exclude: ['@sqlite.org/sqlite-wasm'], include: ['docx', 'pdfmake/build/pdfmake', 'pdfmake/build/vfs_fonts'] },
   envPrefix: ['VITE_', 'TAURI_ENV_'],
   build: {
     target: 'es2022',

@@ -5,7 +5,7 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 
 pub const MAX_ATTACHMENT_BYTES: usize = 200 * 1024 * 1024;
-pub const EXPORT_EXTENSIONS: &[&str] = &["md", "html", "pdf", "json", "csv", "txt", "wav", "mp3", "noesisbak", "zip", "db"];
+pub const EXPORT_EXTENSIONS: &[&str] = &["md", "html", "docx", "pdf", "json", "csv", "txt", "wav", "mp3", "noesisbak", "zip", "db"];
 
 /// Removes characters Windows forbids in file names and caps the length.
 pub fn sanitize_file_name(name: &str) -> String {

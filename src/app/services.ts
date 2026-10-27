@@ -1,8 +1,10 @@
 import { useApp, repos, wsId, DEFAULT_PREFS, type Prefs } from './state';
 import { createProvider } from '../ai/providers';
 import { AiError, DEFAULT_AI_CONFIG, PROVIDER_DEFAULTS, type AiConfig, type AiProvider, type ProviderId } from '../ai/types';
-import { blobStore, httpFetch, notify, secrets } from '../lib/platform';
+import { blobStore, fetchPublicUrl, notify, secrets } from '../lib/platform';
 import { IngestionPipeline } from '../ingestion/pipeline';
+import { getPdfJsLoader } from '../ingestion/extractors';
+import { applyPalette } from './palettes';
 import { t } from '../i18n';
 import type { Lang } from '../i18n';
 
@@ -48,6 +50,7 @@ export function applyTheme(prefs: Prefs) {
   const root = document.documentElement;
   const dark = prefs.theme === 'dark' || (prefs.theme === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
   root.classList.toggle('dark', dark);
+  applyPalette(root, prefs.palette, dark);
   root.style.setProperty('--accent-h', String(prefs.accentHue));
   root.style.setProperty('--editor-font-size', `${prefs.editorFontSize}px`);
 }
@@ -103,7 +106,16 @@ export function ingestion(): IngestionPipeline {
           return null;
         }
       },
-      fetchUrl: (url, signal) => httpFetch(url, { signal, headers: { Accept: 'text/html,application/xhtml+xml,application/pdf;q=0.9,*/*;q=0.5' } }),
+      fetchUrl: (url, signal) => fetchPublicUrl(url, { signal, headers: { Accept: 'text/html,application/xhtml+xml,application/pdf;q=0.9,*/*;q=0.5' } }),
+      ocr: {
+        image: async (bytes, mime, signal) => (await (await import('../ingestion/ocr')).ocrImage(new Blob([bytes as BlobPart], { type: mime }), signal)).text,
+        pdf: async (bytes, signal) => {
+          const loader = getPdfJsLoader();
+          if (!loader) return [];
+          const pages = await (await import('../ingestion/ocr')).ocrPdf(bytes, loader as never, signal);
+          return pages.map((p) => ({ pageNumber: p.pageNumber ?? 0, text: p.text }));
+        },
+      },
       onProgress: () => useApp.getState().bump(),
     });
   }

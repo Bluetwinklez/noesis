@@ -1,0 +1,41 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <style>
+      :root { color-scheme: light dark; --accent: #5b5bd6; font: 13px/1.4 system-ui, 'Segoe UI', sans-serif; }
+      body { margin: 0; width: 320px; padding: 14px; }
+      h1 { font-size: 14px; margin: 0 0 10px; display: flex; gap: 8px; align-items: center; }
+      h1 img { width: 18px; height: 18px; }
+      label { display: block; margin: 8px 0 3px; font-weight: 600; font-size: 12px; }
+      input { box-sizing: border-box; width: 100%; padding: 6px 8px; border: 1px solid #8884; border-radius: 6px; font: inherit; background: transparent; color: inherit; }
+      button { margin-top: 10px; width: 100%; padding: 8px; border: 0; border-radius: 6px; background: var(--accent); color: #fff; font: inherit; font-weight: 600; cursor: pointer; }
+      button.ghost { background: transparent; color: inherit; border: 1px solid #8884; font-weight: 400; }
+      button:disabled { opacity: 0.6; cursor: default; }
+      .muted { opacity: 0.7; font-size: 12px; }
+      .status { margin-top: 10px; font-size: 12px; min-height: 16px; }
+      .ok { color: #2f9e44; } .err { color: #d6336c; }
+      [hidden] { display: none !important; }
+    </style>
+  </head>
+  <body>
+    <h1><img src="icons/32.png" alt="" /> Save to Noesis</h1>
+    <section id="setup" hidden>
+      <p class="muted">In Noesis open <b>Settings → AI connections</b>, turn the connection on and copy the <b>web clipper key</b>.</p>
+      <label for="key">Web clipper key</label>
+      <input id="key" autocomplete="off" spellcheck="false" />
+      <label for="port">Port</label>
+      <input id="port" inputmode="numeric" value="47816" />
+      <button id="saveSettings">Save</button>
+    </section>
+    <section id="clip" hidden>
+      <label for="title">Title</label>
+      <input id="title" />
+      <p class="muted" id="what"></p>
+      <button id="save">Save page</button>
+      <button id="settings" class="ghost">Change key…</button>
+    </section>
+    <div class="status" id="status" role="status"></div>
+    <script src="popup.js"></script>
+  </body>
+</html>

@@ -1,5 +1,31 @@
 # Releasing
 
+## Automatic updates (every change)
+
+Every push to `main` runs the **Release** workflow:
+
+1. It stamps the version `<major>.<minor>.<run number>` (for example `0.1.12`) with `scripts/set-version.mjs`. To start a new series, bump major/minor in `package.json`.
+2. It runs the full test suite, then builds and smoke-tests the Windows installer.
+3. It signs the update with the updater key and writes `latest.json` (`scripts/make-latest-json.mjs`).
+4. It publishes the build as the **latest** GitHub release.
+
+Installed copies check `https://github.com/Bluetwinklez/noesis/releases/latest/download/latest.json` on start and every 4 hours. If a newer build exists, they download it in the background. The update is installed when the app closes; you can also click **Restart now** in the banner (Settings → Updates). The update signature is verified against the public key in `tauri.conf.json` before anything is installed.
+
+### One-time setup: the updater signing key
+
+The workflow publishes nothing until the private key is stored as a repository secret:
+
+1. GitHub → repository **Settings → Secrets and variables → Actions → New repository secret**.
+2. Name: `TAURI_SIGNING_PRIVATE_KEY`. Value: the full contents of the private key file that matches the `pubkey` in `src-tauri/tauri.conf.json`.
+3. If the key has a password, add it as `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`. The current key has none.
+
+Anyone with this key can push updates to every installed copy, so never commit it or share it. If it leaks or is lost, generate a new pair with `npx tauri signer generate -w noesis-updater.key`, put the new public key in `tauri.conf.json`, update the secret, and ship one manual release. Copies installed with the old key must be reinstalled once.
+
+The updater key is **not** Authenticode code signing: Windows SmartScreen still warns on first install.
+
+## Manual releases (tags)
+
+
 1. Bump `version` in `package.json`, `src-tauri/tauri.conf.json` and `src-tauri/Cargo.toml`.
 2. Add `docs/releases/vX.Y.Z.md`. The release workflow picks it up from the tag name and fails if it is missing.
 3. Tag and push: `git tag vX.Y.Z && git push origin vX.Y.Z`.

@@ -1,4 +1,4 @@
-import type { Database } from '../db/driver';
+import type { Database, Executor } from '../db/driver';
 import type { Recurrence, Task, TaskStatus } from '../types';
 import { now, uid } from '../../lib/util';
 import { indexRemove, indexUpsert } from './search-index';
@@ -17,28 +17,23 @@ export interface TaskInput {
   status?: TaskStatus;
 }
 
-export function nextOccurrence(ts: number, rule: Recurrence): number {
+/** Adds `n` recurrence steps to `ts`, always measured from the original date so month-end clamping does not drift. */
+export function addOccurrences(ts: number, rule: Recurrence, n: number): number {
   const d = new Date(ts);
   switch (rule) {
     case 'daily':
-      d.setDate(d.getDate() + 1);
+      d.setDate(d.getDate() + n);
       break;
     case 'weekly':
-      d.setDate(d.getDate() + 7);
+      d.setDate(d.getDate() + 7 * n);
       break;
-    case 'monthly': {
-      const day = d.getDate();
-      d.setDate(1);
-      d.setMonth(d.getMonth() + 1);
-      const last = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
-      d.setDate(Math.min(day, last));
-      break;
-    }
+    case 'monthly':
     case 'yearly': {
-      // Feb 29 → Feb 28 in non-leap years (instead of overflowing into March).
+      // Clamp to the last day of the target month: Jan 31 → Feb 28, Feb 29 → Feb 28.
       const day = d.getDate();
       d.setDate(1);
-      d.setFullYear(d.getFullYear() + 1);
+      if (rule === 'monthly') d.setMonth(d.getMonth() + n);
+      else d.setFullYear(d.getFullYear() + n);
       const last = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
       d.setDate(Math.min(day, last));
       break;
@@ -47,10 +42,36 @@ export function nextOccurrence(ts: number, rule: Recurrence): number {
   return d.getTime();
 }
 
+export function nextOccurrence(ts: number, rule: Recurrence): number {
+  return addOccurrences(ts, rule, 1);
+}
+
+/**
+ * First occurrence after `ts` that is not before today. Completing an overdue
+ * recurring task should schedule the next real occurrence, not another past date.
+ */
+export function upcomingOccurrence(ts: number, rule: Recurrence, today = startOfDay(now())): number {
+  for (let n = 1; n <= 10_000; n++) {
+    const next = addOccurrences(ts, rule, n);
+    if (next >= today) return next;
+  }
+  return addOccurrences(ts, rule, 1);
+}
+
+function startOfDay(ts: number) {
+  const d = new Date(ts);
+  d.setHours(0, 0, 0, 0);
+  return d.getTime();
+}
+
 export class TaskRepo {
   constructor(private db: Database) {}
 
-  async create(input: TaskInput): Promise<Task> {
+  create(input: TaskInput): Promise<Task> {
+    return this.db.transaction((tx) => this.createIn(tx, input));
+  }
+
+  async createIn(tx: Executor, input: TaskInput): Promise<Task> {
     const title = input.title.trim();
     if (!title) throw new Error('Task title is required');
     const t = now();
@@ -73,18 +94,16 @@ export class TaskRepo {
       created_at: t,
       updated_at: t,
     };
-    await this.db.transaction(async (tx) => {
-      await tx.run(
-        `INSERT INTO tasks(id, workspace_id, parent_id, project_page_id, source_page_id, title, notes, status, priority,
-          due_at, remind_at, notified_at, recurrence, completed_at, sort_order, created_at, updated_at)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-        [
-          task.id, task.workspace_id, task.parent_id, task.project_page_id, task.source_page_id, task.title, task.notes,
-          task.status, task.priority, task.due_at, task.remind_at, null, task.recurrence, null, task.sort_order, t, t,
-        ],
-      );
-      await indexUpsert(tx, 'task', task.id, task.workspace_id, task.parent_id, task.title, task.notes);
-    });
+    await tx.run(
+      `INSERT INTO tasks(id, workspace_id, parent_id, project_page_id, source_page_id, title, notes, status, priority,
+        due_at, remind_at, notified_at, recurrence, completed_at, sort_order, created_at, updated_at)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+      [
+        task.id, task.workspace_id, task.parent_id, task.project_page_id, task.source_page_id, task.title, task.notes,
+        task.status, task.priority, task.due_at, task.remind_at, null, task.recurrence, null, task.sort_order, t, t,
+      ],
+    );
+    await indexUpsert(tx, 'task', task.id, task.workspace_id, task.parent_id, task.title, task.notes);
     return task;
   }
 
@@ -129,25 +148,33 @@ export class TaskRepo {
    * Completes a task. Recurring tasks spawn the next occurrence so history is
    * preserved. Returns the follow-up task when one was created.
    */
-  async complete(id: string): Promise<Task | null> {
-    const cur = await this.get(id);
-    if (!cur) throw new Error('Task not found');
-    // Completing twice (double click, two windows) must not spawn a second occurrence.
-    if (cur.status === 'done') return null;
-    await this.update(id, { status: 'done', completed_at: now() });
-    if (!cur.recurrence) return null;
-    const base = cur.due_at ?? now();
-    const due = nextOccurrence(base, cur.recurrence);
-    return this.create({
-      workspaceId: cur.workspace_id,
-      title: cur.title,
-      notes: cur.notes,
-      parentId: cur.parent_id,
-      projectPageId: cur.project_page_id,
-      priority: cur.priority,
-      dueAt: due,
-      remindAt: cur.remind_at ? due - (base - cur.remind_at) : null,
-      recurrence: cur.recurrence,
+  complete(id: string): Promise<Task | null> {
+    // One transaction: a crash can never leave a recurring task done without its next occurrence.
+    return this.db.transaction(async (tx) => {
+      const cur = await tx.get<Task>('SELECT * FROM tasks WHERE id = ?', [id]);
+      if (!cur) throw new Error('Task not found');
+      // Completing twice (double click, two windows) must not spawn a second occurrence.
+      if (cur.status === 'done') return null;
+      const t = now();
+      await tx.run('UPDATE tasks SET status = ?, completed_at = ?, updated_at = ? WHERE id = ?', ['done', t, t, id]);
+      if (!cur.recurrence) return null;
+      // Reopened and completed again: the occurrence it already spawned still stands.
+      if (cur.next_task_id && (await tx.get('SELECT 1 FROM tasks WHERE id = ?', [cur.next_task_id]))) return null;
+      const base = cur.due_at ?? t;
+      const due = upcomingOccurrence(base, cur.recurrence);
+      const next = await this.createIn(tx, {
+        workspaceId: cur.workspace_id,
+        title: cur.title,
+        notes: cur.notes,
+        parentId: cur.parent_id,
+        projectPageId: cur.project_page_id,
+        priority: cur.priority,
+        dueAt: due,
+        remindAt: cur.remind_at ? due - (base - cur.remind_at) : null,
+        recurrence: cur.recurrence,
+      });
+      await tx.run('UPDATE tasks SET next_task_id = ? WHERE id = ?', [next.id, id]);
+      return next;
     });
   }
 

@@ -94,7 +94,7 @@ describe('structured databases', () => {
 
 describe('tasks', () => {
   it('handles subtasks, completion and recurring tasks', async () => {
-    const due = new Date(2026, 0, 31, 9).getTime();
+    const due = new Date(new Date().getFullYear() + 1, 0, 31, 9).getTime();
     const t = await s.tasks.create({ workspaceId: ws, title: 'Pay rent', dueAt: due, recurrence: 'monthly', priority: 3 });
     const sub = await s.tasks.create({ workspaceId: ws, title: 'Check bank', parentId: t.id });
     expect(sub.parent_id).toBe(t.id);
@@ -103,11 +103,35 @@ describe('tasks', () => {
     expect(next).not.toBeNull();
     expect(new Date(next!.due_at!).getMonth()).toBe(1);
     expect(new Date(next!.due_at!).getDate()).toBe(28); // clamps Jan 31 → Feb 28
-    // A second "complete" on the same task must not create another occurrence.
+    // A second "complete" on the same task must not create another occurrence…
+    expect(await s.tasks.complete(t.id)).toBeNull();
+    // …and neither may reopen + complete again.
+    await s.tasks.reopen(t.id);
     expect(await s.tasks.complete(t.id)).toBeNull();
     expect((await s.tasks.list(ws)).filter((x) => x.title === 'Pay rent')).toHaveLength(2);
     await expect(s.tasks.update(t.id, { parent_id: t.id })).rejects.toThrow();
     await expect(s.tasks.create({ workspaceId: ws, title: '   ' })).rejects.toThrow();
+  });
+
+  it('schedules an overdue recurring task in the future, without month-end drift', async () => {
+    const lastYear = new Date().getFullYear() - 1;
+    const t = await s.tasks.create({ workspaceId: ws, title: 'Invoice', dueAt: new Date(lastYear, 0, 31, 9).getTime(), recurrence: 'monthly' });
+    const next = await s.tasks.complete(t.id);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    expect(next!.due_at!).toBeGreaterThanOrEqual(today.getTime());
+    const d = new Date(next!.due_at!);
+    const last = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
+    expect(d.getDate()).toBe(Math.min(31, last)); // still anchored to the 31st, not drifted to the 28th
+  });
+
+  it('does not create a duplicate when the spawned occurrence was deleted and the task re-completed', async () => {
+    const t = await s.tasks.create({ workspaceId: ws, title: 'Water plants', dueAt: Date.now() + 86_400_000, recurrence: 'weekly' });
+    const next = await s.tasks.complete(t.id);
+    await s.tasks.remove(next!.id);
+    await s.tasks.reopen(t.id);
+    // The spawned occurrence is gone, so completing again legitimately schedules a new one.
+    expect(await s.tasks.complete(t.id)).not.toBeNull();
   });
 
   it('returns due reminders once', async () => {
@@ -131,5 +155,69 @@ describe('tasks', () => {
     await s.tasks.create({ workspaceId: ws, title: 'Child', parentId: t.id });
     await s.tasks.remove(t.id);
     expect(await s.tasks.list(ws)).toHaveLength(0);
+  });
+});
+
+describe('two-way relations and rollups', () => {
+  async function setup() {
+    const projects = await s.databases.createDatabase(ws, 'Projects');
+    const tasks = await s.databases.createDatabase(ws, 'Tasks');
+    const pTitle = (await s.databases.properties(projects.id)).find((p) => p.type === 'title')!;
+    const tTitle = (await s.databases.properties(tasks.id)).find((p) => p.type === 'title')!;
+    const hours = await s.databases.addProperty(tasks.id, 'Hours', 'number');
+    const done = await s.databases.addProperty(tasks.id, 'Done', 'checkbox');
+    const rel = await s.databases.addRelation(projects.id, tasks.id, 'Tasks', 'Project');
+    const back = (await s.databases.properties(tasks.id)).find((p) => p.type === 'relation')!;
+    const site = await s.databases.addRow(projects.id, { [pTitle.id]: 'Website' });
+    const a = await s.databases.addRow(tasks.id, { [tTitle.id]: 'Design', [hours.id]: 3, [done.id]: true });
+    const b = await s.databases.addRow(tasks.id, { [tTitle.id]: 'Build', [hours.id]: 5, [done.id]: false });
+    return { projects, tasks, rel, back, site, a, b, hours, done, tTitle };
+  }
+  const values = async (dbId: string, rowId: string) => (await s.databases.rows(dbId)).find((r) => r.id === rowId)!.values;
+
+  it('creates a paired property and keeps both sides in sync', async () => {
+    const { projects, tasks, rel, back, site, a, b } = await setup();
+    expect(rel.options.relationPropertyId).toBe(back.id);
+    expect(back.options).toEqual({ relationDatabaseId: projects.id, relationPropertyId: rel.id });
+    await s.databases.updateCell(site.id, rel.id, [a.id, b.id]);
+    expect((await values(tasks.id, a.id))[back.id]).toEqual([site.id]);
+    expect((await values(tasks.id, b.id))[back.id]).toEqual([site.id]);
+    // Editing from the other side updates this side too.
+    await s.databases.updateCell(b.id, back.id, []);
+    expect((await values(projects.id, site.id))[rel.id]).toEqual([a.id]);
+    // Deleting a linked row removes it from every relation cell.
+    await s.databases.deleteRow(a.id);
+    expect((await values(projects.id, site.id))[rel.id]).toEqual([]);
+  });
+
+  it('removing one side leaves the other as a one-way relation', async () => {
+    const { rel, back } = await setup();
+    await s.databases.removeProperty(rel.id);
+    const remaining = (await s.databases.properties(back.database_id)).find((p) => p.id === back.id)!;
+    expect(remaining.options.relationPropertyId).toBeUndefined();
+  });
+
+  it('computes rollups over linked rows', async () => {
+    const { projects, rel, site, a, b, hours, done, tTitle } = await setup();
+    await s.databases.updateCell(site.id, rel.id, [a.id, b.id]);
+    const props = await s.databases.properties(projects.id);
+    const related = await s.databases.relatedData(props);
+    const row = (await s.databases.rows(projects.id))[0];
+    const roll = (fn: import('../../src/core/types').RollupFn, target: string | null) =>
+      computedValue({ id: 'r', database_id: projects.id, name: 'R', type: 'rollup', sort_order: 9, options: { rollup: { relationPropertyId: rel.id, targetPropertyId: target, fn } } }, row, props, related);
+    expect(roll('count', null)).toBe(2);
+    expect(roll('sum', hours.id)).toBe(8);
+    expect(roll('average', hours.id)).toBe(4);
+    expect(roll('max', hours.id)).toBe(5);
+    expect(roll('percent_checked', done.id)).toBe('50%');
+    expect(roll('show', tTitle.id)).toBe('Design, Build');
+    expect(computedValue({ ...props[0], type: 'rollup', options: {} }, row, props, related)).toBeNull();
+  });
+});
+
+describe('migration v4', () => {
+  it('accepts the rollup property type', async () => {
+    const dbPage = await s.databases.createDatabase(ws, 'X');
+    await expect(s.databases.addProperty(dbPage.id, 'R', 'rollup')).resolves.toMatchObject({ type: 'rollup' });
   });
 });
