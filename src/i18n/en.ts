@@ -481,7 +481,6 @@ export const en = {
   'settings.restoreConfirm': 'Restoring replaces ALL current data with the backup. A safety backup of the current data is downloaded first. Continue?',
   'settings.restored': 'Backup restored ({pages} pages).',
   'settings.backupDone': 'Backup saved.',
-  'settings.exportWorkspace': 'Export workspace as Markdown (zip)',
   'settings.autoBackup': 'Automatic daily backup reminder',
   'settings.integrity': 'Check database integrity',
   'settings.integrityOk': 'Database integrity: OK',

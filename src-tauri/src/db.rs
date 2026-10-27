@@ -56,6 +56,8 @@ pub fn install_guard(conn: &Connection) {
 }
 
 /// Runs `f` with the guard lifted, for trusted Rust-side maintenance (e.g. VACUUM INTO snapshots).
+/// No command needs it today; the tests use it to show the guard can be lifted deliberately.
+#[cfg(test)]
 pub fn unguarded<T>(conn: &Connection, f: impl FnOnce(&Connection) -> T) -> T {
     conn.authorizer(None::<fn(rusqlite::hooks::AuthContext<'_>) -> rusqlite::hooks::Authorization>);
     let out = f(conn);

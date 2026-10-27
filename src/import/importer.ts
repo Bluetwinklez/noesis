@@ -50,6 +50,9 @@ export interface ImportResult {
 const NOTION_ID = /\s+[0-9a-f]{32}$/i;
 const IMAGE_EXT = /\.(png|jpe?g|gif|webp|svg|bmp)$/i;
 const MAX_FILES = 20_000;
+/** Decompressed size limits, so a crafted archive ("zip bomb") cannot exhaust memory. */
+const MAX_ENTRY_BYTES = 300 * 1024 * 1024;
+const MAX_TOTAL_BYTES = 2 * 1024 * 1024 * 1024;
 
 const decoder = new TextDecoder();
 const base = (p: string) => p.split('/').pop() ?? p;
@@ -62,13 +65,23 @@ const keyOf = (p: string) => decodeURIComponent(p).replace(/\\/g, '/').replace(/
 /** Expands zip archives (one nesting level: Notion wraps large exports in an outer zip). */
 export async function expandInputs(files: ImportFile[]): Promise<ImportFile[]> {
   const out: ImportFile[] = [];
+  let total = 0;
+  const tooBig = () => new Error('This archive unpacks to more data than Noesis can import at once.');
   const expand = async (f: ImportFile, depth: number) => {
     if (/\.zip$/i.test(f.path) && depth < 2) {
       const zip = await JSZip.loadAsync(f.bytes);
       const entries = Object.values(zip.files).filter((e) => !e.dir && !/(^|\/)(__MACOSX|\.obsidian|\.trash)\//.test(e.name) && !base(e.name).startsWith('.'));
+      if (entries.length > MAX_FILES) throw new Error('This archive has too many files to import at once.');
+      // Sizes declared in the archive are checked before unpacking, actual sizes after.
+      const sizeOf = (e: JSZip.JSZipObject) => (e as unknown as { _data?: { uncompressedSize?: number } })._data?.uncompressedSize ?? 0;
+      if (entries.some((e) => sizeOf(e) > MAX_ENTRY_BYTES) || entries.reduce((n, e) => n + sizeOf(e), 0) > MAX_TOTAL_BYTES - total) throw tooBig();
       for (const e of entries) {
         if (out.length > MAX_FILES) throw new Error('This archive has too many files to import at once.');
-        await expand({ path: e.name.replace(/\\/g, '/'), bytes: await e.async('uint8array') }, depth + 1);
+        const bytes = await e.async('uint8array');
+        if (bytes.byteLength > MAX_ENTRY_BYTES) throw tooBig();
+        if (!/\.zip$/i.test(e.name)) total += bytes.byteLength;
+        if (total > MAX_TOTAL_BYTES) throw tooBig();
+        await expand({ path: e.name.replace(/\\/g, '/'), bytes }, depth + 1);
       }
     } else out.push(f);
   };
@@ -163,8 +176,13 @@ export async function importWorkspace(
   let databases = 0;
   for (const f of ordered) {
     const parentId = await ensureFolder(dir(f.path));
-    const known = meta.get(keyOf(f.path));
-    const title = known?.title ?? cleanName(base(f.path));
+    const found = meta.get(keyOf(f.path));
+    const known = found && {
+      title: String(found.title ?? '').slice(0, 500),
+      // Icons are emoji; anything long is not one.
+      icon: typeof found.icon === 'string' && found.icon.length <= 16 ? found.icon : null,
+    };
+    const title = known?.title || cleanName(base(f.path));
     if (/\.csv$/i.test(f.path)) {
       const db = await repos.databases.createDatabase(workspaceId, title, parentId);
       if (known?.icon) await repos.pages.updateMeta(db.id, { icon: known.icon });
@@ -277,7 +295,8 @@ export async function importWorkspace(
           const pid = columnProps[c];
           if (!pid) return;
           const type = types.find((p) => p.id === pid)?.type;
-          const raw = v.trim();
+          // Noesis exports prefix spreadsheet-formula-like cells with ' (see exporter); undo that.
+          const raw = manifest ? v.trim().replace(/^'(?=[=+\-@\t\r])/, '') : v.trim();
           if (c === statusCol) return; // set below through the option list
           values[pid] = type === 'number' ? (raw ? Number(raw.replace(',', '.')) : null) : type === 'checkbox' ? /^(yes|true)$/i.test(raw) : raw;
         });
@@ -291,24 +310,27 @@ export async function importWorkspace(
   // Tasks of a Noesis export: parents first, project links follow the page paths.
   let taskCount = 0;
   if (manifest) {
-    const list = dataJson<ExportedTask[]>('tasks.json', []);
+    const raw = dataJson<unknown>('tasks.json', []);
+    const list = (Array.isArray(raw) ? raw : []).filter((t): t is ExportedTask => !!t && typeof t === 'object' && typeof (t as ExportedTask).ref === 'string').slice(0, 50_000);
     const newId = new Map<string, string>();
     const pendingTasks = [...list];
     for (let guard = 0; pendingTasks.length && guard < 1000; guard++) {
       const ready = pendingTasks.filter((t) => !t.parent || newId.has(t.parent) || !list.some((x) => x.ref === t.parent));
       if (!ready.length) break;
       for (const t of ready) {
+        // tasks.json is user-editable: keep every value inside what the database accepts.
+        const time = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : null);
         const task = await repos.tasks.create({
           workspaceId,
           title: String(t.title ?? '').slice(0, 500) || 'Task',
-          notes: String(t.notes ?? ''),
+          notes: String(t.notes ?? '').slice(0, 100_000),
           parentId: t.parent ? (newId.get(t.parent) ?? null) : null,
-          projectPageId: t.project ? (pageByPath.get(keyOf(t.project)) ?? null) : null,
-          priority: Number(t.priority) || 0,
-          dueAt: t.due_at ?? null,
-          remindAt: t.remind_at ?? null,
-          recurrence: t.recurrence ?? null,
-          status: t.status,
+          projectPageId: typeof t.project === 'string' ? (pageByPath.get(keyOf(t.project)) ?? null) : null,
+          priority: Math.min(3, Math.max(0, Math.round(Number(t.priority)) || 0)),
+          dueAt: time(t.due_at),
+          remindAt: time(t.remind_at),
+          recurrence: (['daily', 'weekly', 'monthly', 'yearly'] as const).find((r) => r === t.recurrence) ?? null,
+          status: (['todo', 'in_progress', 'done', 'cancelled'] as const).find((x) => x === t.status) ?? 'todo',
         });
         newId.set(t.ref, task.id);
         taskCount++;
@@ -318,7 +340,19 @@ export async function importWorkspace(
   }
   const byPath = new Map(files.map((f) => [keyOf(f.path), f]));
   const sources: PendingSource[] = manifest
-    ? dataJson<ExportedSource[]>('sources.json', []).map((s) => ({ ...s, file: s.file ? (byPath.get(keyOf(s.file)) ?? null) : null }))
+    ? (() => {
+        const raw = dataJson<unknown>('sources.json', []);
+        return (Array.isArray(raw) ? raw : [])
+          .filter((x): x is ExportedSource => !!x && typeof x === 'object')
+          .slice(0, 10_000)
+          .map((x) => ({
+            title: String(x.title ?? '').slice(0, 500),
+            kind: String(x.kind ?? ''),
+            origin: String(x.origin ?? '').slice(0, 4000),
+            text: typeof x.text === 'string' ? x.text : null,
+            file: typeof x.file === 'string' ? (byPath.get(keyOf(x.file)) ?? null) : null,
+          }));
+      })()
     : [];
 
   return { rootId: root.id, source, pages: notes.length, databases, images: imageCount, tasks: taskCount, sources, skipped };

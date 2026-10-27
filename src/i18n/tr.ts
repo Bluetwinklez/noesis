@@ -484,7 +484,6 @@ export const tr: Record<keyof typeof en, string> = {
     'Geri yükleme TÜM mevcut verileri yedekle değiştirir. Önce mevcut verilerin güvenlik yedeği indirilir. Devam edilsin mi?',
   'settings.restored': 'Yedek geri yüklendi ({pages} sayfa).',
   'settings.backupDone': 'Yedek kaydedildi.',
-  'settings.exportWorkspace': 'Çalışma alanını Markdown olarak dışa aktar (zip)',
   'settings.autoBackup': 'Günlük otomatik yedek hatırlatıcısı',
   'settings.integrity': 'Veritabanı bütünlüğünü kontrol et',
   'settings.integrityOk': 'Veritabanı bütünlüğü: Sorun yok',
