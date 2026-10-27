@@ -3,9 +3,9 @@
 | Layer | Command | Recorded result (2026-10-27; environments below) | Covers |
 |---|---|---|---|
 | Typecheck | `npm run typecheck` | clean | whole TS codebase |
-| Unit + integration (Vitest, `node:sqlite`) | `npm test` | 57 passed / 7 files, Windows Node 24 | migrations, transactions, restart persistence, pages, databases, tasks, complete backup/restore and attachment verification, AI failures, ingestion, retrieval and citations |
-| Rust (`cargo test`) | `cd src-tauri && cargo test` | 10 passed | SQLite FTS5 availability, typed params, transactions over IPC, path traversal, filename sanitising, export path restriction, atomic writes, corrupt-DB quarantine |
-| E2E (Playwright, browser preview) | `npx playwright test` | 10 passed | see below |
+| Unit + integration (Vitest, `node:sqlite`) | `npm test` | 78 passed / 11 files, Linux Node 24 | migrations (v1–v4), transactions, restart persistence, pages, databases, two-way relations and rollups, tasks and recurrence, backup/restore, AI failures, ingestion, retrieval and citations, MCP tools and approvals, web clips, Notion/Obsidian import, DOCX and PDF export (real PDF read back with pdf.js) |
+| Rust (`cargo test`) | `cd src-tauri && cargo test` | 17 passed | SQLite FTS5, typed params, transactions over IPC, SQL authorizer, path traversal, export path restriction, atomic writes, corrupt-DB quarantine, SSRF address checks, MCP endpoint auth/origins/CORS, stdio bridge, client config merge + backup |
+| E2E (Playwright, browser preview) | `npx playwright test` | 16 passed | see below |
 
 ## E2E scenarios
 
@@ -21,6 +21,12 @@ The scenarios run against the real UI in browser-preview mode (SQLite WASM persi
 8. Audio overview with a TTS-capable provider
 9. Command palette, keyboard shortcuts, trash and restore
 10. Pasting plain-text markdown creates structured blocks
+11. Import a Notion export with nested pages, links and a database
+12. Quick capture saves a note to the Inbox
+13. Images and scanned PDFs are read with offline OCR, without an AI provider
+14. Database timeline view shows dated rows and persists
+15. Two-way relation keeps both sides linked and a rollup sums linked rows
+16. A page exports straight to a PDF file
 
 Benchmarks: `npm run bench`. See [benchmarks.md](benchmarks.md).
 
@@ -30,6 +36,8 @@ Desktop smoke test (manual, recorded): the release binary under Xvfb survived a 
 
 - The desktop shell end to end (Rust IPC + WebView2). `cargo test` covers the Rust side, and the TypeScript drivers share one interface. However, no automated test drives the packaged `.exe`.
 - Real AI providers (only the mock server is used).
+- The web clipper extension inside a real browser toolbar. Its capture function was exercised against a sample page; the endpoint side (origin/CORS/key) is covered by `cargo test`.
+- A real auto-update (needs the signing secret and two published builds).
 - Interactive Windows 10/11 installation and full packaged UI workflows. CI separately smoke-tests silent install, process lifetime, database creation and uninstall on Windows Server; this is narrower evidence than an interactive desktop test.
 
 ## Fixtures
