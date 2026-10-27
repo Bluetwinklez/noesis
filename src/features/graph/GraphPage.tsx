@@ -66,7 +66,9 @@ export default function GraphPage() {
 
     const dpr = window.devicePixelRatio || 1;
     const resize = () => {
-      const r = wrapRef.current!.getBoundingClientRect();
+      // ResizeObserver can deliver a final callback after the page has unmounted.
+      if (!wrapRef.current) return;
+      const r = wrapRef.current.getBoundingClientRect();
       canvas.width = r.width * dpr;
       canvas.height = r.height * dpr;
       canvas.style.width = `${r.width}px`;

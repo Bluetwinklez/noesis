@@ -22,3 +22,12 @@ describe('markdown paste', () => {
     expect(html).not.toContain('<script');
   });
 });
+
+describe('i18n', () => {
+  it('interpolates plural forms', async () => {
+    const { translate } = await import('../../src/i18n');
+    expect(translate('en', 'nb.sourceCount', { n: 1 })).toBe('1 source');
+    expect(translate('en', 'nb.sourceCount', { n: 3 })).toBe('3 sources');
+    expect(translate('tr', 'nb.sourceCount', { n: 3 })).toBe('3 kaynak');
+  });
+});

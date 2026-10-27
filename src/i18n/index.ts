@@ -14,6 +14,8 @@ export const LANGUAGES: { id: Lang; label: string }[] = [
 
 export function translate(lang: Lang, key: MessageKey, vars?: Record<string, string | number>): string {
   let s = dictionaries[lang]?.[key] ?? en[key] ?? key;
+  // Plurals: "{n|source|sources}" picks the first form when n === 1.
+  if (vars) s = s.replace(/\{(\w+)\|([^|}]*)\|([^}]*)\}/g, (_m, k: string, one: string, many: string) => (Number(vars[k]) === 1 ? one : many));
   if (vars) for (const [k, v] of Object.entries(vars)) s = s.replaceAll(`{${k}}`, String(v));
   return s;
 }

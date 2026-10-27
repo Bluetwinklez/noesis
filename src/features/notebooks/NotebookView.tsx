@@ -196,7 +196,7 @@ function SourcesPanel({ notebookId, sources }: { notebookId: string; sources: Nb
             />
             <button className="min-w-0 flex-1 text-left" onClick={() => navigate({ name: 'sources', id: s.id })}>
               <div className="truncate text-[13px] font-medium">{s.title}</div>
-              {s.status === 'ready' ? <div className="text-[11px] text-faint">{s.kind.toUpperCase()}</div> : <StatusBadge s={s} />}
+              {s.status === 'ready' ? <div className="text-[11px] text-faint uppercase">{t(`src.kind.${s.kind}` as MessageKey)}</div> : <StatusBadge s={s} />}
               {s.status === 'error' && <div className="mt-0.5 line-clamp-3 text-[11px] text-danger">{s.error}</div>}
             </button>
             <IconButton

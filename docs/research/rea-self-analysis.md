@@ -22,7 +22,7 @@ rea analyze-javascript-application <repo>/dist --format json
 
 ## What we changed because of it
 
-The timeout came from one oversized startup chunk. That chunk also delays every app start. `PageView` (the Tiptap/ProseMirror editor) and the onboarding flow were imported eagerly in `src/app/App.tsx`, so they are now `React.lazy` imports:
+The timeout occurred on the oversized startup chunk. Independent of REA, that chunk delays every app start, so it was worth splitting. `PageView` (the Tiptap/ProseMirror editor) and the onboarding flow were imported eagerly in `src/app/App.tsx`, so they are now `React.lazy` imports:
 
 | | Before | After |
 |---|---|---|
@@ -35,7 +35,10 @@ All 10 E2E scenarios still pass after the change, including the offline scenario
 
 `rea analyze-javascript-application <repo>/dist --analysis-timeout-ms 1200000`. The result is recorded below when available.
 
-_Run 2 was still in progress when this revision was committed. Its result is added in a follow-up commit._
+- Outcome: **still `provider_timeout`**, this time after 1,200,000 ms, again on the startup chunk (`index-DX_HsGqV.js`, now 429 kB). Partial Evidence `ev_2d485104…`, root artifact `82f41661…`.
+- Coverage improved: 44 files, **24 parsed** (was 18), 288,871 AST nodes (was 151,345), 1,189 findings, 0 parse failures. Four vendor chunks (`dist-*`, `dist-js-*`) hit REA's result-size budget; REA kept their static and module facts.
+- **Correction to run 1's interpretation:** chunk size was not the only cause of the timeout. REA's semantic graph analysis of the minified React/Tiptap code is costly even at 429 kB. The bundle split remains justified by startup cost, not by REA alone.
+- For a complete REA pass, analyse with source maps (`build.sourcemap: true`) or analyse `src/` directly. Neither was done here.
 
 ## Reproduce
 

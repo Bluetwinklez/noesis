@@ -21,7 +21,7 @@ Nothing leaves the machine unless the user configures an AI provider, consents t
 | No secrets in logs | Errors are mapped to `AiError` messages without headers or keys; the Rust side never logs secret values | `src/ai/providers.ts` `toAiError` |
 | Strict Tauri permissions | One capability file, least-privilege plugin permissions, HTTP scope limited to `https://*` plus loopback, `*.local` denied | `src-tauri/capabilities/default.json` |
 | CSP | `script-src 'self' 'wasm-unsafe-eval'`, `object-src 'none'`, `connect-src` limited to IPC (HTTP goes through the scoped plugin) | `src-tauri/tauri.conf.json` |
-| File path validation | Attachment keys reject traversal; export paths must be absolute, use an allow-listed extension and have an existing parent folder; writes are atomic (temp + fsync + rename) | `src-tauri/src/files.rs` + tests |
+| File path validation | Attachment keys reject traversal; exports go through a Rust-owned save dialog (`export_save`), and the chosen path must be absolute, use an allow-listed extension and have an existing parent folder; writes are atomic (temp + fsync + rename) | `src-tauri/src/files.rs` + tests |
 | Safe document parsing | Size cap (80 MB), magic-byte validation, pdf.js with no eval, mammoth for DOCX, malformed fixtures tested | `src/ingestion/extractors.ts`, `tests/integration` |
 | Web content sanitisation | DOMPurify with scripts/styles/iframes/forms forbidden; URL import blocks private, loopback and link-local addresses (SSRF) | `htmlToText`, `validateUrl` |
 | Prompt-injection resistance | Sources are wrapped as untrusted DATA; the system prompt forbids following instructions found inside them; AI output never executes tools or actions; edits go through a preview that the user must accept | `src/ai/rag.ts` `buildGroundedPrompt`, `src/features/ai/AiPreview.tsx` |
@@ -32,7 +32,7 @@ Nothing leaves the machine unless the user configures an AI provider, consents t
 ## Known limitations (honest list)
 
 1. **Generic `db_exec` IPC command.** The WebView can run any SQL against the user's database. This is a deliberate design choice: the logic lives in TypeScript (see the architecture doc). Its safety depends on no attacker-controlled script ever running in the WebView. CSP and sanitisation reduce that risk but do not remove it.
-2. **`export_write` can overwrite any existing file with an allow-listed extension** (`md`, `html`, `pdf`, `json`, `csv`, `txt`, `wav`, `mp3`, `noesisbak`, `zip`, `db`) at a path the renderer supplies. In normal use the path comes from the native save dialog, but the Rust side cannot verify that.
+2. ~~`export_write` accepted a renderer-supplied path.~~ **Fixed:** it was replaced by `export_save`, which opens the native save dialog in Rust and writes only to the path the user picked. The renderer also lost the `dialog:allow-save` permission.
 3. **`freezePrototype` is off** (`tauri.conf.json`), because some dependencies patch prototypes.
 4. **Prompt-injection defence is prompt-based.** A model can still be manipulated into producing a misleading *answer*. It cannot act on that answer, and citations are checked against the retrieved chunks.
 5. **No `cargo audit`** in CI yet.

@@ -34,9 +34,15 @@ export function nextOccurrence(ts: number, rule: Recurrence): number {
       d.setDate(Math.min(day, last));
       break;
     }
-    case 'yearly':
+    case 'yearly': {
+      // Feb 29 → Feb 28 in non-leap years (instead of overflowing into March).
+      const day = d.getDate();
+      d.setDate(1);
       d.setFullYear(d.getFullYear() + 1);
+      const last = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
+      d.setDate(Math.min(day, last));
       break;
+    }
   }
   return d.getTime();
 }
@@ -126,6 +132,8 @@ export class TaskRepo {
   async complete(id: string): Promise<Task | null> {
     const cur = await this.get(id);
     if (!cur) throw new Error('Task not found');
+    // Completing twice (double click, two windows) must not spawn a second occurrence.
+    if (cur.status === 'done') return null;
     await this.update(id, { status: 'done', completed_at: now() });
     if (!cur.recurrence) return null;
     const base = cur.due_at ?? now();

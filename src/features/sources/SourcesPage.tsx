@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { AlertCircle, CheckCircle2, ClipboardPaste, FileUp, Globe, Library, Loader2, MoreHorizontal, RefreshCw, Trash2, X, BookOpen } from 'lucide-react';
 import { repos, useApp, wsId } from '../../app/state';
-import { useT } from '../../i18n';
+import { useT, type MessageKey } from '../../i18n';
 import { Badge, Button, confirmDialog, cx, EmptyState, IconButton, Input, MenuButton, Modal, PageHeader, Spinner, Textarea, useAsync, type MenuItem } from '../../components/ui';
 import { ingestion, reportError } from '../../app/services';
 import { pickFiles, readFiles } from '../../lib/platform';
@@ -254,7 +254,7 @@ function SourceRow({ s, first, active, lang }: { s: Source; first: boolean; acti
       <button className="min-w-0 flex-1 text-left" onClick={() => navigate({ name: 'sources', id: s.id })}>
         <div className="truncate text-sm font-medium">{s.title}</div>
         <div className="truncate text-xs text-faint">
-          {s.kind.toUpperCase()} {s.size ? `· ${formatBytes(s.size)}` : ''} {s.page_count ? `· ${t('src.pages', { n: s.page_count })}` : ''} · {relativeTime(s.created_at, lang)}
+          {t(`src.kind.${s.kind}` as MessageKey)} {s.size ? `· ${formatBytes(s.size)}` : ''} {s.page_count ? `· ${t('src.pages', { n: s.page_count })}` : ''} · {relativeTime(s.created_at, lang)}
         </div>
         {s.status === 'error' && <div className="mt-1 text-xs text-danger">{s.error}</div>}
         {s.status !== 'ready' && s.status !== 'error' && (

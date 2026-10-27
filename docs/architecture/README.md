@@ -40,7 +40,7 @@ So the same SQL, migrations and repository code run under unit tests, E2E tests 
 
 ## Tauri commands
 
-`db_exec`, `db_integrity`, `db_snapshot` (backup), `secret_get/set/delete` (OS keyring), `attachment_write/read/delete`, `export_write` (paths restricted, see `files.rs`), `app_info`. Plugins: http (for AI provider calls; scoped in `capabilities/default.json`), dialog, notification, opener, single-instance.
+`db_exec`, `db_integrity`, `db_snapshot` (backup), `secret_get/set/delete` (OS keyring), `attachment_write/read/delete`, `export_save` (native save dialog + atomic write, both in Rust), `app_info`. Plugins: http (for AI provider calls; scoped in `capabilities/default.json`), dialog, notification, opener, single-instance.
 
 ## Data flow
 
