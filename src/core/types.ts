@@ -97,7 +97,7 @@ export interface DbRow {
   updated_at: number;
 }
 
-export type ViewType = 'table' | 'board' | 'calendar' | 'list' | 'gallery';
+export type ViewType = 'table' | 'board' | 'calendar' | 'timeline' | 'list' | 'gallery';
 
 export type FilterOp =
   | 'contains'
@@ -127,6 +127,8 @@ export interface ViewConfig {
   sorts?: ViewSort[];
   groupBy?: string;
   dateProperty?: string;
+  /** Timeline view: optional end date property (bars span start → end). */
+  endDateProperty?: string;
   hiddenProperties?: string[];
   calendarMonth?: string;
 }
