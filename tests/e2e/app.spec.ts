@@ -303,3 +303,16 @@ test('import a Notion export with nested pages, links and a database', async ({ 
   await page.getByLabel('Search pages, notes, documents, tasks…').fill('tomatoes');
   await expect(page.getByRole('listbox')).toContainText('Seeds');
 });
+
+test('quick capture saves a note to the Inbox', async ({ page }) => {
+  await freshApp(page);
+  await onboard(page);
+  await page.keyboard.press('Control+Shift+Space');
+  await page.getByLabel('Title (optional)').fill('Idea');
+  await page.getByLabel('Write anything — Markdown works. It goes to your Inbox page.').fill('- call the printer\n- **buy** paper');
+  await page.keyboard.press('Control+Enter');
+  await expect(page.getByText('Saved to Inbox.')).toBeVisible();
+  await page.getByRole('treeitem', { name: /Inbox/ }).getByRole('button', { name: 'Expand' }).click();
+  await page.getByRole('treeitem', { name: /Idea/ }).click();
+  await expect(editor(page).locator('strong')).toHaveText('buy');
+});

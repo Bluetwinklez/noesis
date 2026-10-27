@@ -505,6 +505,7 @@ function Shortcuts() {
   const t = useT();
   const list: [MessageKey, string][] = [
     ['shortcut.palette', 'Ctrl K'],
+    ['capture.shortcut', 'Ctrl Shift Space'],
     ['shortcut.newPage', 'Ctrl Alt N'],
     ['shortcut.search', 'Ctrl Shift F'],
     ['shortcut.sidebar', 'Ctrl \\'],
