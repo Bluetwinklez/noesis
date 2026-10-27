@@ -25,6 +25,7 @@ import { LANGUAGES, useT, type MessageKey } from '../../i18n';
 import { Badge, Button, confirmDialog, cx, Input, Kbd, promptDialog, Select, Switch, useAsync } from '../../components/ui';
 import { activeProvider, apiKeyName, configForProvider, errorMessage, reportError, saveAiConfig, saveLang, savePrefs, setWorkspace } from '../../app/services';
 import { McpSettings } from '../mcp/McpSettings';
+import { PalettePicker } from '../../components/PalettePicker';
 import { checkForUpdates, installUpdate, setUpdatePrefs, useUpdates } from '../../app/updater';
 import { appInfo, isTauri, notify, pickFiles, revealDataDir, saveFile, secrets, blobStore } from '../../lib/platform';
 import { createBackup, rebuildSearchIndex, restoreBackup } from '../../core/backup';
@@ -118,6 +119,11 @@ export function Appearance() {
           ))}
         </div>
       </Row>
+      <div className="border-b border-line py-4">
+        <div className="mb-1 font-medium">{t('settings.palette')}</div>
+        <p className="mb-3 text-xs text-muted">{t('settings.paletteHint')}</p>
+        <PalettePicker />
+      </div>
       <Row label={t('settings.accent')}>
         <div className="flex gap-1.5">
           {ACCENTS.map((h) => (

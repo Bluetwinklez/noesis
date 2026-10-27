@@ -25,6 +25,8 @@ export type ThemePref = 'light' | 'dark' | 'system';
 export interface Prefs {
   theme: ThemePref;
   accentHue: number;
+  /** Colour palette id (see app/palettes.ts). */
+  palette: string;
   sidebarWidth: number;
   sidebarCollapsed: boolean;
   editorFontSize: number;
@@ -46,6 +48,7 @@ export interface Prefs {
 export const DEFAULT_PREFS: Prefs = {
   theme: 'system',
   accentHue: 252,
+  palette: 'paper',
   sidebarWidth: 264,
   sidebarCollapsed: false,
   editorFontSize: 16,
