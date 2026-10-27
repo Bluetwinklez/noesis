@@ -20,7 +20,12 @@ export function looksLikeMarkdown(text: string): boolean {
 /** Markdown → sanitized HTML that the editor can load. Task lists become Tiptap task lists. */
 export function markdownToHtml(md: string): string {
   const raw = marked.parse(md, { async: false, gfm: true, breaks: false }) as string;
-  const clean = DOMPurify.sanitize(raw, { ADD_ATTR: ['data-type', 'data-checked'], FORBID_TAGS: ['style', 'script', 'iframe', 'form'] });
+  const clean = DOMPurify.sanitize(raw, {
+    ADD_ATTR: ['data-type', 'data-checked'],
+    FORBID_TAGS: ['style', 'script', 'iframe', 'form'],
+    // DOMPurify's default list plus the app's own internal schemes (page links, stored images).
+    ALLOWED_URI_REGEXP: /^(?:(?:https?|mailto|tel|noesis|attachment):|[^a-z]|[a-z+.-]+(?:[^a-z+.\-:]|$))/i,
+  });
   if (typeof DOMParser === 'undefined') return clean;
   const doc = new DOMParser().parseFromString(`<body>${clean}</body>`, 'text/html');
   doc.querySelectorAll('ul').forEach((ul) => {

@@ -11,7 +11,7 @@ import type { DocNode } from '../core/doc';
 
 /** Schema-only extension set for converting documents outside a live editor. */
 const EXTENSIONS = [
-  StarterKit.configure({ link: { openOnClick: false } }),
+  StarterKit.configure({ link: { openOnClick: false, protocols: ['noesis'] } }),
   TaskList,
   TaskItem.configure({ nested: true }),
   TableKit,

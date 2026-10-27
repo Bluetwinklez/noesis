@@ -275,3 +275,31 @@ test('pasting plain-text markdown creates structured blocks', async ({ page }) =
   await expect(editor(page).locator('ul[data-type="taskList"]')).toContainText('follow up');
   await expect(editor(page)).not.toContainText('## Agenda');
 });
+
+test('import a Notion export with nested pages, links and a database', async ({ page }) => {
+  const JSZip = (await import('jszip')).default;
+  const z = new JSZip();
+  const id = '0123456789abcdef0123456789abcdef';
+  z.file(`Export-1/Garden ${id}.md`, `# Garden\n\nSee [Seeds](Garden%20${id}/Seeds%20aaaabbbbccccddddeeeeffff00001111.md).`);
+  z.file(`Export-1/Garden ${id}/Seeds aaaabbbbccccddddeeeeffff00001111.md`, '# Seeds\n\nSow tomatoes in March.');
+  z.file(`Export-1/Garden ${id}/Plants bbbbccccddddeeeeffff000011112222.csv`, 'Name,Height\nTomato,120\nBasil,40\n');
+  const zipPath = test.info().outputPath('notion.zip');
+  const { writeFileSync } = await import('node:fs');
+  writeFileSync(zipPath, await z.generateAsync({ type: 'uint8array' }));
+
+  await freshApp(page);
+  await onboard(page);
+  await page.getByRole('button', { name: 'Settings' }).click();
+  await page.getByRole('button', { name: 'Storage & backups' }).click();
+  const chooser = page.waitForEvent('filechooser');
+  await page.getByRole('button', { name: 'Import…' }).click();
+  await (await chooser).setFiles(zipPath);
+  await expect(page.getByText('Imported 2 pages, 1 database and 0 images.')).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByLabel('Page title')).toHaveValue('Imported from Notion');
+  await page.getByRole('treeitem', { name: /Imported from Notion/ }).getByRole('button', { name: 'Expand' }).click();
+  await page.getByRole('treeitem', { name: /^.*Garden/ }).click();
+  await expect(editor(page).getByRole('link', { name: 'Seeds' })).toBeVisible();
+  await page.getByRole('button', { name: 'Search', exact: true }).click();
+  await page.getByLabel('Search pages, notes, documents, tasks…').fill('tomatoes');
+  await expect(page.getByRole('listbox')).toContainText('Seeds');
+});
