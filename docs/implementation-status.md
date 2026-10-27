@@ -1,10 +1,21 @@
 # Implementation status
 
-Last updated: 2026-10-27 · Version 0.1.0 · Machine-readable block at the end.
+Last updated: 2026-10-27 · Version 0.1.x (continuous builds) · Machine-readable block at the end.
 
 Status values: `done` (implemented and covered by an automated test or recorded evidence) · `partial` · `not-started` · `blocked`.
 
 ## Verification runs (this revision)
+
+### Feature round 2 (PR #2)
+
+| Check | Environment | Result |
+|---|---|---|
+| `npm run typecheck`, `npm run build` | Linux, Node 24 | clean; startup chunk ≈ 455 kB, exporters/OCR/MCP load lazily |
+| `npm test` (Vitest) | Linux | **78 passed / 11 files** |
+| `cargo test` | Linux, Rust stable | **17 passed** (SQL authorizer, SSRF fetch, MCP endpoint/bridge/client config, extension origins) |
+| `npx playwright test` | Linux, Chromium | **16 passed** (+ Notion import, quick capture, offline OCR, timeline, relations/rollups, PDF export) |
+| `cargo audit` | Linux | 0 vulnerabilities after dropping the updater plugin's zip feature |
+| Desktop app under Xvfb | Linux, WebKitGTK | Updater settings, MCP toggle + one-click client connect, stdio bridge (tools/list, search, create_page), approval dialog, bridge auto-launching the closed app, global quick-capture shortcut |
 
 ### Release preparation update
 
@@ -51,19 +62,22 @@ Status values: `done` (implemented and covered by an automated test or recorded 
 | Area | Status | Notes |
 |---|---|---|
 | App shell, 12 navigation areas, Ctrl+K palette, breadcrumbs, recents, pinned, back/forward | done | |
-| Themes (light/dark/system), accent colours, resizable and collapsible sidebar | done | Native Windows title bar (decorations on); no custom title bar |
+| Themes (light/dark/system), 8 colour palettes, accent colours, resizable and collapsible sidebar | done | Native Windows title bar (decorations on); no custom title bar |
 | Editor blocks and marks (spec §9 list) | done | |
 | Slash menu, markdown shortcuts, drag handle, block menu, undo/redo | done | |
 | Markdown paste → blocks | done | Added in this revision (unit + E2E) |
 | Autosave + snapshots, crash-safe persistence | done | Linux desktop SIGKILL test |
-| Markdown import/export, HTML export | done | |
-| PDF export | partial | Uses the system print dialog ("Save as PDF"), no direct PDF writer |
+| Markdown import/export, HTML export, Word (.docx) export | done | DOCX via the `docx` package, native headings/lists/tables/images |
+| Notion export / Obsidian vault import | done | Nested pages, internal links, CSV → databases, images (unit + E2E) |
+| PDF export | done | Direct `.pdf` writer (pdfmake, embedded Roboto, selectable text). Emoji/CJK need the Print path |
 | Page templates, icons, covers | done | |
 | Workspaces, nested pages, tags, favorites, archive/trash/restore | done | |
-| Databases: 11 property types, 5 views, sort/filter/group, saved views, formulas | done | Formula engine is a safe parser, not `eval` |
+| Databases: 12 property types, 6 views (incl. timeline), sort/filter/group, saved views, formulas | done | Formula engine is a safe parser, not `eval` |
+| Two-way relations and rollups | done | Paired properties kept in sync in one transaction; rollups computed, not stored (unit + E2E) |
 | Tasks: subtasks, due, priority, status, project, recurring, reminders, block → task | done | Reminders use OS notifications while the app is running |
 | Ingestion: PDF, DOCX, TXT, MD, HTML, CSV, URL | done | |
-| Ingestion: images (OCR), audio | partial | Needs a vision- or transcription-capable provider; there is no offline OCR |
+| Ingestion: images and scanned PDFs (OCR) | done | Offline Tesseract (eng + tur) shipped with the app; AI vision optional fallback. Not yet checked under the release CSP on Windows |
+| Ingestion: audio | partial | Needs a transcription-capable provider |
 | Ingestion: YouTube | not-started | Rejected with an explicit "not supported" error. No authorised transcript API is integrated |
 | RAG: FTS5 + vectors + RRF + rerank, budgeting, history, provenance, citation verification, streaming, cancel | done | |
 | AI providers: OpenAI-compat, Gemini, Anthropic, Ollama | partial | Tested against a mock server only, never against the live APIs |
@@ -71,13 +85,16 @@ Status values: `done` (implemented and covered by an automated test or recorded 
 | Audio overviews | done (mock) | Multi-speaker only where the provider supports it; no interactive mode |
 | Knowledge graph | done | Force layout; performance with very large graphs not benchmarked |
 | Unified search (keyword/full-text/semantic/hybrid) | done | |
-| Settings (all §21 sections) | done | Updates section is informational (no updater) |
+| Settings (all §21 sections) | done | |
 | Onboarding (7 steps, AI skippable) | done | Two cosmetic issues fixed in this revision |
 | i18n English + Turkish | done | |
 | Backup/restore, integrity check, corrupt-DB quarantine | done | |
 | Keyring secret storage | done | Linux/Windows backends compiled; Windows Credential Manager not verified on a real Windows host in this session |
 | Cloud sync | not-started | No sync code; the architecture doc describes the seam |
-| Auto-update | not-started | |
+| Quick capture (global shortcut, tray) | done | `Ctrl+Shift+Space` system-wide; notes go to an Inbox page |
+| Web clipper (browser extension) | done | `extensions/web-clipper`, MV3; developer-mode install; not in stores |
+| MCP server for AI assistants | done | 10 tools, approval for edits, one-click config for Claude Desktop/Cursor/Windsurf/LM Studio |
+| Auto-update | done (config) | Tauri updater, minisign-signed, every push to `main` publishes a build. Needs the `TAURI_SIGNING_PRIVATE_KEY` secret; end-to-end update not yet observed |
 | Code signing | blocked | No certificate |
 | Performance benchmarks | partial | `npm run bench` covers search, autosave, chunking and embedding (`docs/testing/benchmarks.md`). It led to a vector-cache fix (hybrid search 236 → 37 ms). Packaged-app start-up and rendering are not measured |
 | CI (GitHub Actions): Linux tests + E2E, Windows tests + installer + checksums; tag release | done (config) | Workflows were added in this revision. Their first run happens on push, so results are not yet known |
@@ -90,12 +107,19 @@ Status values: `done` (implemented and covered by an automated test or recorded 
 - Security: exports now go through a Rust-owned save dialog (`export_save`). The renderer can no longer choose an arbitrary file to overwrite. Verified in the desktop app
 - UI: the sidebar search placeholder wrapped and was clipped; "1 · Sources" now reads "1 source" (plural support in i18n); source type labels are localised (e.g. "NOTE" → "Not")
 
+## Fixed in feature round 2
+
+- Quick capture: Ctrl+Enter was ignored when the modal moved focus to its header (flaky CI); now handled window-wide with a double-save guard
+- Release workflow: continuous builds had no release-notes file and would have failed to publish; notes are generated from commits
+- URL fetching now resolves DNS in Rust, pins the checked address and re-checks every redirect (DNS-rebinding safe)
+- `db_exec` runs behind an SQLite authorizer (no ATTACH, extensions, or schema/journal pragmas; no VACUUM INTO)
+
 ## Known defects / risks
 
-1. Generic `db_exec` IPC (the export path issue was fixed by moving to `export_save`). See `docs/security/privacy-security.md`.
-2. The URL SSRF guard is hostname-literal only (no DNS rebinding protection).
-3. No real-provider AI test has been run.
-4. The Windows installer has only been verified in CI, not interactively on a Windows 10/11 desktop.
+1. `db_exec` still accepts SQL strings from the WebView (now authorizer-guarded). Typed commands would be stronger. See `docs/security/privacy-security.md`.
+2. No real-provider AI test has been run.
+3. The Windows installer has only been verified in CI, not interactively on a Windows 10/11 desktop. Tray icon and OCR under the release CSP are unverified on Windows.
+4. Auto-update needs the signing secret; the first real update has not been observed yet.
 
 ```json
 {
@@ -108,8 +132,9 @@ Status values: `done` (implemented and covered by an automated test or recorded 
     "1": "PASS_AUTOMATED", "2": "PASS", "3": "PASS", "4": "PASS", "5": "PASS", "6": "PASS", "7": "PASS",
     "8": "PASS", "9": "PASS", "10": "PASS", "11": "PASS", "12": "PASS", "13": "PASS", "14": "PASS_MOCK", "15": "PASS_AUTOMATED"
   },
-  "not_started": ["youtube_ingestion", "cloud_sync", "auto_update"],
-  "partial": ["pdf_export_direct", "ocr_offline", "live_ai_provider_verification", "benchmarks_desktop", "rea_competitor_research"],
+  "round2": { "vitest": 78, "cargo": 17, "playwright": 16, "environment": "Linux CI container" },
+  "not_started": ["youtube_ingestion", "cloud_sync", "local_embedding_model", "db_encryption"],
+  "partial": ["live_ai_provider_verification", "benchmarks_desktop", "rea_competitor_research", "auto_update_end_to_end"],
   "blocked": ["code_signing"],
   "manual_pending": ["interactive_install_on_windows_10_11"]
 }

@@ -18,7 +18,7 @@ Noesis brings block-based notes and source-grounded research into one applicatio
 
 Your workspace lives on your computer. Notes, databases, tasks and local search work without an account, an AI key or an internet connection. Cloud AI is optional and requires your consent.
 
-> **Early preview · v0.1.0.** Windows installers are unsigned. AI integrations are covered by mock-provider tests; compatibility with live APIs is not yet verified. See [known limitations](#known-limitations) before relying on this preview for important work.
+> **Early preview.** Windows installers are unsigned. AI integrations are covered by mock-provider tests; compatibility with live APIs is not yet verified. See [known limitations](#known-limitations) before relying on this preview for important work.
 
 ## What you can do
 
@@ -28,8 +28,12 @@ Your workspace lives on your computer. Notes, databases, tasks and local search 
 | Nested pages, workspaces, tags, favorites and backlinks | Select the sources each notebook should use |
 | Tables, code, math, checklists, callouts, images and attachments | Ask questions with streamed answers and source references |
 | Autosave, page history, trash and restore | Generate summaries, study guides, flashcards and quizzes |
-| Databases with table, board, calendar, list and gallery views | Preview AI writing changes before applying them |
+| Databases with table, board, calendar, timeline, list and gallery views | Preview AI writing changes before applying them |
+| Two-way relations, rollups and formulas | Read images and scanned PDFs with offline OCR (English, Turkish) |
 | Tasks, recurring reminders, search and a knowledge graph | Create audio overviews with a supported provider |
+| Quick capture from anywhere (`Ctrl+Shift+Space`, tray icon) | Clip web pages from Chrome, Edge or Firefox |
+| Import Notion exports and Obsidian vaults | Let Claude, Cursor & co. use your notes through MCP |
+| Export pages to PDF, Word, Markdown and HTML | Eight colour palettes, each in light and dark |
 
 ### A research desk for your own sources
 
@@ -43,6 +47,14 @@ Import documents, review extracted text, then choose which sources a notebook ca
 
 Track projects and reading lists with typed properties, filters, sorting, grouping and saved views. Use recurring tasks and subtasks alongside the notes that give them context.
 
+### Connect your AI assistants (MCP)
+
+Turn on **Settings → AI connections** and click **Connect** next to Claude Desktop, Cursor, Windsurf or LM Studio; Noesis writes their configuration for you (with a backup) and starts automatically when they need it. Assistants can search notes and sources, read pages, create pages and tasks; changing an existing page always needs your approval in a dialog. The endpoint listens only on `127.0.0.1`, requires a key and refuses web pages.
+
+### Always up to date
+
+Installed copies check for updates in the background and install them when you close the app (or right away from the banner). Every change merged to `main` produces a signed build. You can turn this off in **Settings → Updates**.
+
 <details>
   <summary><strong>See dark mode</strong></summary>
 
@@ -55,16 +67,16 @@ Track projects and reading lists with typed properties, filters, sorting, groupi
 ## Download and install
 
 1. Open [Releases](https://github.com/Bluetwinklez/noesis/releases). Preview releases are listed there even when GitHub's “latest stable release” link is unavailable.
-2. Download **`Noesis_0.1.0_x64-setup.exe`** for a normal per-user installation. MSI packages are also provided for managed deployment.
+2. Download **`Noesis_<version>_x64-setup.exe`** for a normal per-user installation. MSI packages are also provided for managed deployment. The **`noesis-web-clipper.zip`** asset is the browser extension ([install steps](extensions/web-clipper/README.md)).
 3. Optionally compare the file's SHA-256 hash with `SHA256SUMS.txt` from the same release:
 
    ```powershell
-   Get-FileHash .\Noesis_0.1.0_x64-setup.exe -Algorithm SHA256
+   Get-FileHash .\Noesis_<version>_x64-setup.exe -Algorithm SHA256
    ```
 
 4. Run the installer and complete onboarding. You can skip AI setup and start with sample content.
 
-**Requirements:** Windows 10 or 11, x64. The installer can download Microsoft WebView2 if it is missing. Installers are **not code-signed** and may trigger Windows warnings or be blocked by device policy. Code signing and automatic updates are not included in this preview.
+**Requirements:** Windows 10 or 11, x64. The installer can download Microsoft WebView2 if it is missing. Installers are **not code-signed** (no Windows publisher certificate) and may trigger SmartScreen warnings or be blocked by device policy. Updates *are* signed with the project's update key and verified before installing.
 
 Uninstall through **Settings → Apps → Installed apps → Noesis**. Workspace data is kept in `%APPDATA%\app.noesis.desktop`. Export a backup before upgrading or changing your installation.
 
@@ -92,6 +104,7 @@ See [AI configuration](docs/ai-configuration.md) and [privacy & security](docs/s
 | Shortcut | Action |
 | --- | --- |
 | `Ctrl+K` | Search or run a command |
+| `Ctrl+Shift+Space` | Quick note (system-wide in the desktop app) |
 | `Ctrl+Alt+N` | Create a page |
 | `Ctrl+Shift+F` | Open search |
 | `Ctrl+,` | Open settings |
@@ -136,23 +149,26 @@ These checks are useful evidence, not a claim that every device or live AI provi
 
 ## Known limitations
 
-- Preview software; installers are unsigned and there is no automatic updater.
-- Live AI provider compatibility, OCR, transcription and speech quality still need real-provider verification.
-- No cloud sync or YouTube transcript import. PDF export uses the system print dialog.
-- Local hashed vectors are a fallback, not a replacement for a trained embedding model.
+- Preview software; installers are not code-signed (needs a purchased certificate).
+- Live AI provider compatibility, transcription and speech quality still need real-provider verification. OCR runs offline (Tesseract); accuracy on poor scans is limited.
+- No cloud sync, database encryption at rest or YouTube transcript import.
+- Local hashed vectors are a fallback, not a replacement for a trained embedding model (use Ollama or a cloud provider for real semantic search).
+- Direct PDF export embeds Roboto: emoji and CJK characters are dropped (use **Print…** for those).
+- The web clipper is installed in developer mode; it is not in the Chrome/Firefox stores yet.
 - Notifications require the app to be running. Very large graphs and source collections need further performance testing.
-- Generic SQL IPC and hostname-based URL filtering remain hardening work; see [security notes](docs/security/privacy-security.md).
+- Database IPC still accepts SQL strings (guarded by an SQLite authorizer); see [security notes](docs/security/privacy-security.md).
 - English and Turkish interfaces are available. Repository documentation and release notes are maintained in English.
 
 ## Roadmap
 
-- [ ] Verify live provider chat, embeddings, OCR, transcription and audio.
-- [ ] Add a trained local embedding model and offline OCR.
-- [ ] Introduce code signing and a verified update channel.
-- [ ] Narrow native IPC commands and strengthen URL/DNS validation.
-- [ ] Improve large-document and large-graph performance with recorded benchmarks.
-- [ ] Add direct PDF/DOCX export, database rollups and CSV-to-database import.
-- [ ] Explore a web clipper, quick capture and user-controlled synchronization.
+- [x] Offline OCR, signed auto-updates, SSRF-safe fetching and a guarded SQL bridge.
+- [x] Direct PDF/DOCX export, timeline view, two-way relations and rollups, Notion/Obsidian import.
+- [x] Web clipper, quick capture, MCP connection for AI assistants, colour palettes.
+- [ ] Verify live provider chat, embeddings, transcription and audio.
+- [ ] Add a trained local embedding model.
+- [ ] Code signing certificate; publish the clipper to browser stores.
+- [ ] Replace the SQL bridge with typed native commands; optional database encryption.
+- [ ] User-controlled synchronization; improve large-graph performance with recorded benchmarks.
 
 ## Documentation and contributing
 
