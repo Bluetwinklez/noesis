@@ -412,7 +412,7 @@ export function MenuButton({ items, children, label, align = 'start', className 
       <button
         ref={btn}
         aria-label={label}
-        title={label}
+        title={open ? undefined : label}
         aria-haspopup="menu"
         aria-expanded={open}
         className={cx('inline-flex items-center justify-center rounded-md text-muted hover:bg-hover hover:text-fg', className ?? 'size-8')}
