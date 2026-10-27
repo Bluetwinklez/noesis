@@ -45,18 +45,6 @@ fn db_integrity(state: State<'_, AppState>) -> Result<Vec<String>, String> {
     rows.collect::<Result<Vec<_>, _>>().map_err(|e| e.to_string())
 }
 
-/// Consistent native snapshot of the database file (VACUUM INTO).
-#[tauri::command]
-fn db_snapshot(state: State<'_, AppState>, path: String) -> Result<(), String> {
-    let p = files::validate_user_path(&path, &["db"])?;
-    if p.exists() {
-        return Err("target file already exists".into());
-    }
-    let conn = state.conn.lock().map_err(|_| "database lock poisoned")?;
-    db::unguarded(&conn, |c| c.execute("VACUUM INTO ?1", [p.to_string_lossy().to_string()])).map_err(|e| e.to_string())?;
-    Ok(())
-}
-
 fn entry(key: &str) -> Result<keyring::Entry, String> {
     if !files::valid_secret_key(key) {
         return Err("invalid secret key name".into());
@@ -89,21 +77,59 @@ fn secret_delete(key: String) -> Result<(), String> {
     }
 }
 
+// File contents cross the IPC bridge as raw bytes, not JSON number arrays (which
+// cost ~4x the size and freeze the WebView for large files). A binary message is
+// `u32 LE length` + JSON metadata + payload; see `packBinary` in src/lib/platform.ts.
+const MAX_IPC_META: usize = 64 * 1024;
+
+fn split_binary<T: serde::de::DeserializeOwned>(body: &[u8]) -> Result<(T, &[u8]), String> {
+    let len = body.get(..4).map(|b| u32::from_le_bytes(b.try_into().unwrap()) as usize).ok_or("malformed binary message")?;
+    if len > MAX_IPC_META || body.len() < 4 + len {
+        return Err("malformed binary message".into());
+    }
+    let meta = serde_json::from_slice(&body[4..4 + len]).map_err(|e| format!("malformed binary message: {e}"))?;
+    Ok((meta, &body[4 + len..]))
+}
+
+fn raw_body<'a>(request: &'a tauri::ipc::Request<'_>) -> Result<&'a [u8], String> {
+    match request.body() {
+        tauri::ipc::InvokeBody::Raw(b) => Ok(b),
+        _ => Err("expected a binary message".into()),
+    }
+}
+
+fn pack_binary(meta: &impl serde::Serialize, payload: &[u8]) -> Vec<u8> {
+    let head = serde_json::to_vec(meta).unwrap_or_default();
+    let mut out = Vec::with_capacity(4 + head.len() + payload.len());
+    out.extend_from_slice(&(head.len() as u32).to_le_bytes());
+    out.extend_from_slice(&head);
+    out.extend_from_slice(payload);
+    out
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct AttachmentMeta {
+    file_name: String,
+}
+
 #[tauri::command]
-fn attachment_write(state: State<'_, AppState>, file_name: String, bytes: Vec<u8>) -> Result<String, String> {
+fn attachment_write(state: State<'_, AppState>, request: tauri::ipc::Request<'_>) -> Result<String, String> {
+    let (meta, bytes) = split_binary::<AttachmentMeta>(raw_body(&request)?)?;
+    let file_name = meta.file_name;
     if bytes.len() > files::MAX_ATTACHMENT_BYTES {
         return Err("file exceeds the 200 MB attachment limit".into());
     }
     let key = format!("{}-{}", uuid::Uuid::new_v4(), files::sanitize_file_name(&file_name));
     let path = files::resolve_in(&state.attachments_dir, &key)?;
-    files::atomic_write(&path, &bytes)?;
+    files::atomic_write(&path, bytes)?;
     Ok(key)
 }
 
 #[tauri::command]
-fn attachment_read(state: State<'_, AppState>, key: String) -> Result<Vec<u8>, String> {
+fn attachment_read(state: State<'_, AppState>, key: String) -> Result<tauri::ipc::Response, String> {
     let path = files::resolve_in(&state.attachments_dir, &key)?;
-    std::fs::read(path).map_err(|e| format!("attachment unavailable: {e}"))
+    std::fs::read(path).map(tauri::ipc::Response::new).map_err(|e| format!("attachment unavailable: {e}"))
 }
 
 #[tauri::command]
@@ -122,12 +148,21 @@ struct SaveFilter {
     extensions: Vec<String>,
 }
 
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SaveMeta {
+    default_name: String,
+    #[serde(default)]
+    filters: Vec<SaveFilter>,
+}
+
 /// Shows the native save dialog and writes the export to the chosen file.
 /// The path never comes from the WebView, so page script cannot pick an
 /// arbitrary file to overwrite. Returns None when the user cancels.
 #[tauri::command]
-async fn export_save(app: tauri::AppHandle, default_name: String, filters: Vec<SaveFilter>, bytes: Vec<u8>) -> Result<Option<String>, String> {
+async fn export_save(app: tauri::AppHandle, request: tauri::ipc::Request<'_>) -> Result<Option<String>, String> {
     use tauri_plugin_dialog::DialogExt;
+    let (SaveMeta { default_name, filters }, bytes) = split_binary::<SaveMeta>(raw_body(&request)?)?;
     let mut dialog = app.dialog().file().set_file_name(files::sanitize_file_name(&default_name));
     for f in &filters {
         let exts: Vec<&str> = f.extensions.iter().map(String::as_str).collect();
@@ -135,15 +170,16 @@ async fn export_save(app: tauri::AppHandle, default_name: String, filters: Vec<S
     }
     let Some(chosen) = dialog.blocking_save_file() else { return Ok(None) };
     let path = chosen.into_path().map_err(|e| e.to_string())?;
-    let p = files::validate_user_path(&path.to_string_lossy(), files::EXPORT_EXTENSIONS)?;
-    files::atomic_write(&p, &bytes)?;
+    let p = files::validate_user_path(&path.to_string_lossy())?;
+    files::atomic_write(&p, bytes)?;
     Ok(Some(p.to_string_lossy().into_owned()))
 }
 
 /// Downloads a user-supplied web page for import; local and private networks are refused at every hop.
 #[tauri::command]
-async fn fetch_public_url(url: String) -> Result<net::FetchedUrl, String> {
-    net::fetch_public(&url).await
+async fn fetch_public_url(url: String) -> Result<tauri::ipc::Response, String> {
+    let page = net::fetch_public(&url).await?;
+    Ok(tauri::ipc::Response::new(pack_binary(&page, &page.bytes)))
 }
 
 // ------------------------------------------------------------ AI connections (MCP)
@@ -372,7 +408,6 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             db_exec,
             db_integrity,
-            db_snapshot,
             secret_get,
             secret_set,
             secret_delete,
@@ -391,6 +426,26 @@ pub fn run() {
         ])
         .run(tauri::generate_context!())
         .expect("error while running Noesis");
+}
+
+#[cfg(test)]
+mod binary_ipc_tests {
+    use super::*;
+
+    #[test]
+    fn binary_messages_round_trip_and_reject_garbage() {
+        let msg = pack_binary(&serde_json::json!({ "fileName": "a b.png" }), &[1, 2, 3]);
+        let (meta, payload) = split_binary::<AttachmentMeta>(&msg).unwrap();
+        assert_eq!(meta.file_name, "a b.png");
+        assert_eq!(payload, &[1, 2, 3]);
+        assert!(split_binary::<AttachmentMeta>(&[1, 0]).is_err());
+        assert!(split_binary::<AttachmentMeta>(&[200, 0, 0, 0, b'{']).is_err(), "length beyond the body");
+        assert!(split_binary::<AttachmentMeta>(&[255, 255, 255, 255]).is_err(), "oversized metadata");
+        let mut bad = pack_binary(&serde_json::json!({ "other": 1 }), &[]);
+        assert!(split_binary::<AttachmentMeta>(&bad).is_err(), "missing field");
+        bad.truncate(3);
+        assert!(split_binary::<AttachmentMeta>(&bad).is_err());
+    }
 }
 
 #[cfg(test)]
