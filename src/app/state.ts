@@ -43,6 +43,8 @@ export interface Prefs {
   autoInstallUpdates: boolean;
   /** Local MCP endpoint for external AI assistants (desktop only). */
   mcpEnabled: boolean;
+  /** Apply AI assistants' changes to existing pages without asking. */
+  mcpAutoApprove: boolean;
 }
 
 export const DEFAULT_PREFS: Prefs = {
@@ -61,6 +63,7 @@ export const DEFAULT_PREFS: Prefs = {
   checkUpdates: true,
   autoInstallUpdates: true,
   mcpEnabled: false,
+  mcpAutoApprove: false,
 };
 
 export interface Toast {
