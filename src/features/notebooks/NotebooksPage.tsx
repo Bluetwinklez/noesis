@@ -52,7 +52,7 @@ export default function NotebooksPage() {
               <div>
                 <div className="line-clamp-2 font-semibold">{nb.title}</div>
                 <div className="mt-1 text-xs text-faint">
-                  {nb.source_count} · {t('nb.sources')} · {relativeTime(nb.updated_at, lang)}
+                  {t('nb.sourceCount', { n: nb.source_count })} · {relativeTime(nb.updated_at, lang)}
                 </div>
               </div>
             </button>

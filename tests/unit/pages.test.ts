@@ -45,6 +45,18 @@ describe('pages', () => {
     expect((await s.pages.listSnapshots(p.id)).length).toBeGreaterThanOrEqual(1);
   });
 
+  it('semantic search reflects edits (local vector cache is content-keyed)', async () => {
+    const p = await s.pages.create({ workspaceId: ws, title: 'Field log' });
+    await s.pages.saveContent(p.id, docFromParagraphs(['volcano basalt magma eruption lava']));
+    const first = await search(s.db, 'volcano lava', { workspaceId: ws, mode: 'semantic' });
+    expect(first.some((h) => h.refId === p.id)).toBe(true);
+    await s.pages.saveContent(p.id, docFromParagraphs(['tidal estuary salt marsh heron']));
+    const stale = await search(s.db, 'volcano lava', { workspaceId: ws, mode: 'semantic' });
+    expect(stale.some((h) => h.refId === p.id)).toBe(false);
+    const fresh = await search(s.db, 'estuary heron', { workspaceId: ws, mode: 'semantic' });
+    expect(fresh.some((h) => h.refId === p.id)).toBe(true);
+  });
+
   it('tracks links and backlinks from mentions and internal links', async () => {
     const target = await s.pages.create({ workspaceId: ws, title: 'Target' });
     const src = await s.pages.create({ workspaceId: ws, title: 'Source' });

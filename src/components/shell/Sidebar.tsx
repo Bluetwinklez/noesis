@@ -274,8 +274,8 @@ export function Sidebar() {
           onClick={() => useApp.getState().setPaletteOpen(true)}
           className="mb-1 flex h-8 w-full items-center gap-2 rounded-md border border-line bg-elevated/60 px-2 text-[13px] text-faint hover:text-muted"
         >
-          <Search className="size-3.5" />
-          <span className="flex-1 text-left">{t('cmd.placeholder')}</span>
+          <Search className="size-3.5 shrink-0" />
+          <span className="min-w-0 flex-1 truncate text-left">{t('cmd.placeholder')}</span>
           <Kbd>Ctrl K</Kbd>
         </button>
         <NavItem icon={<Home className="size-4" />} label={t('nav.home')} route={{ name: 'home' }} active={is('home')} />
