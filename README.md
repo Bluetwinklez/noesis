@@ -58,7 +58,7 @@ The **timeline** view places rows on their dates; drag a bar to move it, or drag
 
 Press **`Ctrl+Shift+Space`** anywhere in Windows (or use the tray icon) to jot something down. Markdown works, `Ctrl+Enter` saves, and the note lands on your **Inbox** page. From the browser, the **web clipper** extension saves a whole article or just your selection to **Web clips**, with a link back to the source.
 
-Moving in? **Settings → Storage & backups → Import…** reads a Notion export (pages, links, databases from CSV) or an Obsidian vault. Pages export to **PDF**, **Word**, Markdown and HTML.
+Moving in? **Settings → Storage & backups → Import…** reads a Notion export (pages, links, databases from CSV) or an Obsidian vault. Pages export to **PDF**, **Word**, Markdown and HTML, and **Export all…** saves the whole workspace (pages as Markdown folders, databases as CSV, images and files, tasks and sources) as one open `.zip`. Import that zip on another computer to move everything over.
 
 ### Connect your AI assistants (MCP)
 
@@ -208,6 +208,7 @@ Noesis; notlarınızı, veritabanlarınızı ve kaynak belgelerinizi tek bir yer
 - **İndir:** [son sürüm](https://github.com/Bluetwinklez/noesis/releases/latest) → `Noesis_<sürüm>_x64-setup.exe`. Windows “bilinmeyen yayıncı” uyarısı verirse *Ek bilgi → Yine de çalıştır* deyin (kod imzalama sertifikası henüz yok).
 - **Güncelleme:** v0.1.3'ten itibaren uygulama kendini günceller; uygulamayı kapattığınızda kurulur. v0.1.0 kullanıyorsanız son sürümü bir kez elle üzerine kurun, verileriniz korunur.
 - **Neler var:** bloklu editör, iç içe sayfalar, veritabanları (tablo, pano, takvim, zaman çizelgesi; iki yönlü ilişki ve toplama), görevler, bilgi grafiği, kaynaklara dayalı yapay zekâ defterleri, çevrimdışı OCR (Türkçe dahil), PDF/Word dışa aktarma, Notion/Obsidian içe aktarma, 8 renk paleti.
+- **Başka bilgisayara taşıma:** *Ayarlar → Depolama ve yedekler → Tümünü dışa aktar…* her şeyi tek bir `.zip`'e koyar (sayfalar Markdown, veritabanları CSV, resimler, görevler, kaynaklar). Diğer bilgisayarda *İçe aktar…* ile o zip'i seçin.
 - **Hızlı not:** Windows'un herhangi bir yerinde `Ctrl+Shift+Space`. **Web kırpıcı** eklentisi ile tarayıcıdan sayfa kaydedin.
 - **Yapay zekâ asistanları:** *Ayarlar → AI bağlantıları* bölümünden Claude Desktop, Cursor, Windsurf veya LM Studio'ya tek tıkla bağlayın; mevcut bir sayfanın değiştirilmesi her zaman onayınızı gerektirir.
 - Hata bildirmek için [issue açın](https://github.com/Bluetwinklez/noesis/issues/new); API anahtarı veya özel belge paylaşmayın.

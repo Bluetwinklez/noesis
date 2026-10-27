@@ -76,6 +76,9 @@ export function QuickCapture() {
   }, [open]);
   const save = async (openAfter = false) => {
     if (busy.current) return;
+    // Read what is on screen: React state can lag a keystroke behind a fast Ctrl+Enter.
+    const title = titleRef.current?.value ?? '';
+    const body = bodyRef.current?.value ?? '';
     if (!title.trim() && !body.trim()) return close();
     busy.current = true;
     setSaving(true);

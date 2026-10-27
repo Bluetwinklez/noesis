@@ -8,9 +8,29 @@ import { safeFileName } from './util';
 export const isTauri = (): boolean =>
   typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
 
-async function tauriInvoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
+async function tauriInvoke<T>(cmd: string, args?: Record<string, unknown> | Uint8Array): Promise<T> {
   const { invoke } = await import('@tauri-apps/api/core');
   return invoke<T>(cmd, args);
+}
+
+/**
+ * File contents cross the IPC bridge as raw bytes: `u32 LE length` + JSON metadata
+ * + payload (see `split_binary` in src-tauri/src/lib.rs). JSON number arrays would
+ * cost ~4x the size and freeze the WebView for large files.
+ */
+export function packBinary(meta: unknown, payload: Uint8Array): Uint8Array {
+  const head = new TextEncoder().encode(JSON.stringify(meta));
+  const out = new Uint8Array(4 + head.length + payload.length);
+  new DataView(out.buffer).setUint32(0, head.length, true);
+  out.set(head, 4);
+  out.set(payload, 4 + head.length);
+  return out;
+}
+
+export function unpackBinary<T>(buf: ArrayBuffer | Uint8Array): { meta: T; payload: Uint8Array } {
+  const bytes = buf instanceof Uint8Array ? buf : new Uint8Array(buf);
+  const len = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength).getUint32(0, true);
+  return { meta: JSON.parse(new TextDecoder().decode(bytes.subarray(4, 4 + len))) as T, payload: bytes.subarray(4 + len) };
 }
 
 /**
@@ -19,8 +39,8 @@ async function tauriInvoke<T>(cmd: string, args?: Record<string, unknown>): Prom
  */
 export async function fetchPublicUrl(url: string, init?: RequestInit): Promise<Response> {
   if (!isTauri()) return fetch(url, init);
-  const r = await tauriInvoke<{ status: number; contentType: string; finalUrl: string; bytes: number[] }>('fetch_public_url', { url });
-  const res = new Response(new Uint8Array(r.bytes), { status: r.status, headers: { 'content-type': r.contentType } });
+  const { meta: r, payload } = unpackBinary<{ status: number; contentType: string; finalUrl: string }>(await tauriInvoke<ArrayBuffer>('fetch_public_url', { url }));
+  const res = new Response(payload as BlobPart, { status: r.status, headers: { 'content-type': r.contentType } });
   Object.defineProperty(res, 'url', { value: r.finalUrl });
   return res;
 }
@@ -87,7 +107,7 @@ function blobIdb(): Promise<IDBDatabase> | null {
 export const blobStore = {
   async put(fileName: string, bytes: Uint8Array): Promise<string> {
     if (isTauri())
-      return tauriInvoke<string>('attachment_write', { fileName: safeFileName(fileName), bytes: Array.from(bytes) });
+      return tauriInvoke<string>('attachment_write', packBinary({ fileName: safeFileName(fileName) }, bytes));
     const key = `${crypto.randomUUID()}-${safeFileName(fileName)}`;
     const d = blobIdb();
     if (!d) {
@@ -104,7 +124,7 @@ export const blobStore = {
     return key;
   },
   async get(key: string): Promise<Uint8Array> {
-    if (isTauri()) return new Uint8Array(await tauriInvoke<number[]>('attachment_read', { key }));
+    if (isTauri()) return new Uint8Array(await tauriInvoke<ArrayBuffer>('attachment_read', { key }));
     const d = blobIdb();
     if (!d) {
       const v = blobMem.get(key);
@@ -139,7 +159,7 @@ export async function saveFile(
   const bytes = typeof data === 'string' ? new TextEncoder().encode(data) : data;
   if (isTauri()) {
     // The Rust side owns the save dialog and the write, so the target path never comes from page script.
-    return tauriInvoke<string | null>('export_save', { defaultName: safeFileName(defaultName), filters: filters ?? [], bytes: Array.from(bytes) });
+    return tauriInvoke<string | null>('export_save', packBinary({ defaultName: safeFileName(defaultName), filters: filters ?? [] }, bytes));
   }
   const blob = new Blob([bytes as BlobPart]);
   const a = document.createElement('a');

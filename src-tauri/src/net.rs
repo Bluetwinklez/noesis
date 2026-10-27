@@ -17,6 +17,7 @@ pub struct FetchedUrl {
     pub status: u16,
     pub content_type: String,
     pub final_url: String,
+    #[serde(skip)]
     pub bytes: Vec<u8>,
 }
 
