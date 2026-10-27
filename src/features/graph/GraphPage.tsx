@@ -113,6 +113,7 @@ export default function GraphPage() {
         ctx.stroke();
       }
       ctx.setLineDash([]);
+      const labels: { n: SimNode; r: number; priority: number; dim: boolean }[] = [];
       for (const n of nodes) {
         if (!inView(n)) continue;
         const r = 4 + Math.sqrt(n.degree) * 1.8;
@@ -129,10 +130,30 @@ export default function GraphPage() {
           ctx.stroke();
         }
         if (k > 0.7 || n.degree > 3 || n.id === focus?.id || neighbors.has(n.id) || match) {
-          ctx.fillStyle = css.getPropertyValue('--text');
-          ctx.font = `${12 / Math.max(k, 0.8)}px Segoe UI, sans-serif`;
-          ctx.fillText(n.label.length > 32 ? n.label.slice(0, 31) + '…' : n.label, n.x! + r + 3, n.y! + 4);
+          const important = n.id === focus?.id || n.id === selected?.id || match;
+          labels.push({ n, r, priority: (important ? 1000 : 0) + (neighbors.has(n.id) ? 100 : 0) + n.degree, dim: !!dim });
         }
+      }
+      // Labels last, most important first; a label that would overlap one already drawn is skipped.
+      const fontPx = 12 / Math.max(k, 0.8);
+      ctx.font = `${fontPx}px Segoe UI, sans-serif`;
+      ctx.lineJoin = 'round';
+      const placed: { x: number; y: number; w: number; h: number }[] = [];
+      const text = css.getPropertyValue('--text');
+      const halo = css.getPropertyValue('--bg');
+      labels.sort((a, b) => b.priority - a.priority);
+      for (const { n, r, priority, dim } of labels) {
+        const label = n.label.length > 32 ? n.label.slice(0, 31) + '…' : n.label;
+        const box = { x: n.x! + r + 3, y: n.y! - fontPx * 0.75, w: ctx.measureText(label).width, h: fontPx * 1.1 };
+        const hits = placed.some((p) => box.x < p.x + p.w && box.x + box.w > p.x && box.y < p.y + p.h && box.y + box.h > p.y);
+        if (hits && priority < 1000) continue;
+        placed.push(box);
+        ctx.globalAlpha = dim ? 0.35 : 1;
+        ctx.lineWidth = 3 / k;
+        ctx.strokeStyle = halo;
+        ctx.strokeText(label, box.x, n.y! + 4);
+        ctx.fillStyle = text;
+        ctx.fillText(label, box.x, n.y! + 4);
       }
       ctx.globalAlpha = 1;
     };
