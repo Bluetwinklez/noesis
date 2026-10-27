@@ -6,19 +6,17 @@ It is built with Tauri 2 (Rust), React, TypeScript and SQLite. Notes and metadat
 
 > **Status: v0.1.0, pre-release.** The Windows installer builds in CI but is **unsigned** (SmartScreen will warn). AI providers have been tested only against a mock server. The evidence for every feature is in [`docs/implementation-status.md`](docs/implementation-status.md).
 
-## Download (test builds)
+## Download
 
-Every push builds an unsigned Windows installer on GitHub Actions:
+**[⬇ Download the latest release](https://github.com/Bluetwinklez/noesis/releases/latest)**: get `Noesis_<version>_x64-setup.exe` (Windows 10/11 x64).
 
-1. Open the latest successful **CI** run on the **Actions** tab.
-2. Download the `noesis-windows-x64-unsigned` artifact. It contains:
-   - `Noesis_<version>_x64-setup.exe`: per-user NSIS installer, no admin rights needed, English/Turkish installer UI
-   - `Noesis_<version>_x64_en-US.msi` / `_tr-TR.msi`
-   - `SHA256SUMS.txt`
-3. Check the hash: `Get-FileHash .\Noesis_0.1.0_x64-setup.exe -Algorithm SHA256`.
-4. When Windows shows "Windows protected your PC", choose **More info → Run anyway**. The warning appears because the installer is unsigned.
+1. Run the installer. It installs only for the current user and needs no admin rights.
+2. Windows SmartScreen will show "Windows protected your PC" because the installer is **not code-signed**. Choose **More info → Run anyway**.
+3. Optional: verify the file against `SHA256SUMS.txt` in the release with `Get-FileHash .\Noesis_0.1.0_x64-setup.exe -Algorithm SHA256`.
 
-Requires Windows 10/11 x64. The installer downloads WebView2 if it is missing (it is preinstalled on Windows 11).
+If **Smart App Control** is on, Windows may block unsigned apps entirely. That is a signing limitation, not an app defect.
+
+Development builds from every push are also available as the `noesis-windows-x64-unsigned` artifact on the [Actions](https://github.com/Bluetwinklez/noesis/actions) tab (GitHub login required).
 
 ## Features
 
@@ -88,7 +86,7 @@ Ordered by value for effort:
 - [Architecture](docs/architecture/README.md) · [Database schema](docs/architecture/database-schema.md)
 - [AI configuration](docs/ai-configuration.md) · [Privacy & security](docs/security/privacy-security.md)
 - [Testing](docs/testing/README.md) · [Benchmarks](docs/testing/benchmarks.md) · [Research (REA)](docs/research/README.md)
-- [Release notes v0.1.0](docs/releases/v0.1.0.md) · [Releasing](docs/releases/README.md) · [Implementation status](docs/implementation-status.md)
+- [Releases](https://github.com/Bluetwinklez/noesis/releases) · [Release notes v0.1.0](docs/releases/v0.1.0.md) · [Releasing](docs/releases/README.md) · [Implementation status](docs/implementation-status.md)
 
 ## Independence
 
