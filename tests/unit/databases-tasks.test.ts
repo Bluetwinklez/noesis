@@ -103,6 +103,9 @@ describe('tasks', () => {
     expect(next).not.toBeNull();
     expect(new Date(next!.due_at!).getMonth()).toBe(1);
     expect(new Date(next!.due_at!).getDate()).toBe(28); // clamps Jan 31 → Feb 28
+    // A second "complete" on the same task must not create another occurrence.
+    expect(await s.tasks.complete(t.id)).toBeNull();
+    expect((await s.tasks.list(ws)).filter((x) => x.title === 'Pay rent')).toHaveLength(2);
     await expect(s.tasks.update(t.id, { parent_id: t.id })).rejects.toThrow();
     await expect(s.tasks.create({ workspaceId: ws, title: '   ' })).rejects.toThrow();
   });
@@ -119,6 +122,8 @@ describe('tasks', () => {
     expect(new Date(nextOccurrence(base, 'daily')).getDate()).toBe(11);
     expect(new Date(nextOccurrence(base, 'weekly')).getDate()).toBe(17);
     expect(new Date(nextOccurrence(base, 'yearly')).getFullYear()).toBe(2027);
+    const leap = new Date(nextOccurrence(new Date(2028, 1, 29, 9).getTime(), 'yearly'));
+    expect([leap.getFullYear(), leap.getMonth(), leap.getDate()]).toEqual([2029, 1, 28]);
   });
 
   it('deleting a parent removes subtasks', async () => {

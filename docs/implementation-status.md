@@ -9,19 +9,20 @@ Status values: `done` (implemented and covered by an automated test or recorded 
 | Check | Environment | Result |
 |---|---|---|
 | `npm run typecheck` | Linux, Node 22.22 | clean |
-| `npm test` (Vitest) | Linux | **51 passed / 6 files** (+ `npm run bench`: 1 benchmark file) |
+| `npm test` (Vitest) | Linux | **52 passed / 6 files** (+ `npm run bench`: 1 benchmark file) |
 | `cargo test` | Linux, Rust 1.97 | **10 passed** |
 | `npx playwright test` | Linux, Chromium 153 | **10 passed** |
 | `npm run build` | Linux | OK; startup chunk 429 kB (was 1.43 MB) |
 | `npx tauri build --bundles deb` | Linux | OK, `Noesis_0.1.0_amd64.deb` 6.4 MiB (release profile, LTO) |
 | Desktop smoke test (release binary under Xvfb, WebKitGTK) | Linux | onboarding → sample content → formatted page → **SIGKILL** → relaunch → content intact, `PRAGMA integrity_check = ok`. Screenshots: `docs/testing/evidence/linux-desktop-*.jpg` |
-| `npx tauri build` (NSIS/MSI) | Windows | **not run in this session** (no Windows host). An earlier attempt on the author's PC failed with `os error 4551` (Smart App Control/WDAC). The `windows` CI job builds it on `windows-latest` |
+| `npx tauri build` (NSIS/MSI) | Windows (GitHub Actions `windows-latest`, run 40470153557) | **OK.** `Noesis_0.1.0_x64-setup.exe` 5.11 MiB (`4b150f0c…49d5`), `Noesis_0.1.0_x64_en-US.msi` 6.00 MiB (`c078c95d…311f`), `Noesis_0.1.0_x64_tr-TR.msi` 6.00 MiB (`3f0b3fa0…1401`). Unsigned. Rust tests passed on Windows in the same job |
+| Silent install → launch → DB created → uninstall | Windows CI | Added in this revision; its result is reported on the PR |
 
 ## Acceptance scenarios (spec §27)
 
 | # | Scenario | Result | Evidence |
 |---|---|---|---|
-| 1 | Install and launch the Windows application | **BLOCKED** | No Windows machine available. The Linux release binary launches (smoke test). The Windows installer is produced by CI, but nobody has installed it yet |
+| 1 | Install and launch the Windows application | **PENDING (CI)** | The installer builds on Windows CI. The new CI step installs it silently, launches it and checks the database. No interactive install by a person yet |
 | 2 | Create a workspace and nested page | PASS | E2E `create nested formatted pages…`; desktop smoke test (workspace "Desktop Smoke") |
 | 3 | Write formatted content | PASS | Same E2E (H1, bold, bullets, checklist); desktop smoke test (H1 + bold) |
 | 4–5 | Close and reopen; content preserved | PASS (browser preview, Node, Linux desktop) / BLOCKED on Windows | E2E reload; unit test `keeps pages and content after closing and reopening the database file`; desktop SIGKILL + restart screenshots |
@@ -34,7 +35,7 @@ Status values: `done` (implemented and covered by an automated test or recorded 
 | 12 | Edit offline | PASS | E2E `local editing keeps working offline` |
 | 13 | Invalid API key → recoverable error | PASS (mock AI) | E2E + unit `maps an invalid API key…`; the key is not echoed |
 | 14 | Audio overview with a supported provider | PASS (mock TTS) / unverified with a real provider | E2E `audio overview with a TTS-capable provider` |
-| 15 | Build the Windows installer and validate the installation | **BLOCKED** | Needs a Windows host or the CI artifact plus a manual install test |
+| 15 | Build the Windows installer and validate the installation | Build: **PASS** (CI). Install validation: **PENDING (CI step)**, plus a manual check on a real Windows 10/11 PC | See the verification table above |
 
 ## Features
 
@@ -73,9 +74,16 @@ Status values: `done` (implemented and covered by an automated test or recorded 
 | CI (GitHub Actions): Linux tests + E2E, Windows tests + installer + checksums; tag release | done (config) | Workflows were added in this revision. Their first run happens on push, so results are not yet known |
 | REA research | partial | REA installed and verified, and used for self-analysis of the bundle. Competitor targets were blocked by the network policy. See `docs/research/` |
 
+## Fixed in the audit round (2026-10-27, second pass)
+
+- Knowledge graph: ResizeObserver callback after unmount threw `Cannot read properties of null (reading 'getBoundingClientRect')`
+- Recurring tasks: a yearly task due on Feb 29 skipped to Mar 1; completing a done task again created a duplicate occurrence (both covered by tests)
+- Security: exports now go through a Rust-owned save dialog (`export_save`). The renderer can no longer choose an arbitrary file to overwrite. Verified in the desktop app
+- UI: the sidebar search placeholder wrapped and was clipped; "1 · Sources" now reads "1 source" (plural support in i18n); source type labels are localised (e.g. "NOTE" → "Not")
+
 ## Known defects / risks
 
-1. Generic `db_exec` IPC and an unrestricted `export_write` target path. See `docs/security/privacy-security.md`.
+1. Generic `db_exec` IPC (the export path issue was fixed by moving to `export_save`). See `docs/security/privacy-security.md`.
 2. The URL SSRF guard is hostname-literal only (no DNS rebinding protection).
 3. No real-provider AI test has been run.
 4. The Windows installer is unverified (scenario 15).
@@ -84,10 +92,10 @@ Status values: `done` (implemented and covered by an automated test or recorded 
 {
   "version": "0.1.0",
   "updated": "2026-10-27",
-  "tests": { "vitest": { "passed": 51, "failed": 0 }, "cargo": { "passed": 10, "failed": 0 }, "playwright": { "passed": 10, "failed": 0 } },
+  "tests": { "vitest": { "passed": 52, "failed": 0 }, "cargo": { "passed": 10, "failed": 0 }, "playwright": { "passed": 10, "failed": 0 } },
   "acceptance": {
-    "1": "BLOCKED", "2": "PASS", "3": "PASS", "4": "PASS", "5": "PASS", "6": "PASS", "7": "PASS",
-    "8": "PASS", "9": "PASS", "10": "PASS", "11": "PASS", "12": "PASS", "13": "PASS", "14": "PASS_MOCK", "15": "BLOCKED"
+    "1": "PENDING_CI", "2": "PASS", "3": "PASS", "4": "PASS", "5": "PASS", "6": "PASS", "7": "PASS",
+    "8": "PASS", "9": "PASS", "10": "PASS", "11": "PASS", "12": "PASS", "13": "PASS", "14": "PASS_MOCK", "15": "BUILD_PASS_INSTALL_PENDING"
   },
   "not_started": ["youtube_ingestion", "cloud_sync", "auto_update"],
   "partial": ["pdf_export_direct", "ocr_offline", "live_ai_provider_verification", "benchmarks_desktop", "rea_competitor_research"],

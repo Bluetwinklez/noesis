@@ -63,6 +63,29 @@ jobs:
         run: |
           $files = Get-ChildItem src-tauri/target/release/bundle -Recurse -Include *.exe,*.msi
           $files | ForEach-Object { "{0}  {1}" -f (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLower(), $_.Name } | Tee-Object SHA256SUMS.txt
+      # Acceptance scenarios 1 and 15: install the NSIS build silently, launch it, confirm the
+      # Rust core created and migrated its database, then uninstall cleanly.
+      - name: Install, launch and uninstall smoke test
+        shell: pwsh
+        run: |
+          $setup = Get-ChildItem src-tauri/target/release/bundle/nsis/*-setup.exe | Select-Object -First 1
+          Start-Process $setup.FullName -ArgumentList '/S' -Wait
+          $exe = Join-Path $env:LOCALAPPDATA 'Noesis\noesis.exe'
+          if (!(Test-Path $exe)) { throw "noesis.exe not installed at $exe" }
+          $p = Start-Process $exe -PassThru
+          Start-Sleep -Seconds 20
+          if ($p.HasExited) { throw "Noesis exited early with code $($p.ExitCode)" }
+          $db = Join-Path $env:APPDATA 'app.noesis.desktop\noesis.db'
+          if (!(Test-Path $db)) { throw "database not created at $db" }
+          Write-Host "Running (pid $($p.Id)); database: $((Get-Item $db).Length) bytes"
+          Stop-Process -Id $p.Id -Force
+          Start-Sleep -Seconds 2
+          $un = Join-Path $env:LOCALAPPDATA 'Noesis\uninstall.exe'
+          Start-Process $un -ArgumentList '/S' -Wait
+          # The NSIS uninstaller re-launches itself from %TEMP%, so -Wait can return early.
+          for ($i = 0; $i -lt 30 -and (Test-Path $exe); $i++) { Start-Sleep -Seconds 1 }
+          if (Test-Path $exe) { throw "uninstall left $exe behind" }
+          Write-Host 'Install / launch / uninstall OK'
       - uses: actions/upload-artifact@v4
         with:
           name: noesis-windows-x64-unsigned

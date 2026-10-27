@@ -2,24 +2,38 @@
 
 Noesis is a local-first knowledge workspace for Windows. It combines a block-based note editor, structured databases, tasks and a knowledge graph with AI research notebooks that answer questions from your own sources and cite them.
 
-It is built with Tauri 2 (Rust), React, TypeScript and SQLite. Notes and metadata are stored on your computer. The note-taking features work offline and without an AI provider.
+It is built with Tauri 2 (Rust), React, TypeScript and SQLite. Notes and metadata are stored on your computer. Note-taking, search, databases and tasks work offline and without an AI provider.
 
-> **Status: v0.1.0, pre-release.** For each feature's state and the evidence behind it, see [`docs/implementation-status.md`](docs/implementation-status.md). The Windows installer is **unsigned**.
+> **Status: v0.1.0, pre-release.** The Windows installer builds in CI but is **unsigned** (SmartScreen will warn). AI providers have been tested only against a mock server. The evidence for every feature is in [`docs/implementation-status.md`](docs/implementation-status.md).
+
+## Download (test builds)
+
+Every push builds an unsigned Windows installer on GitHub Actions:
+
+1. Open the latest successful **CI** run on the **Actions** tab.
+2. Download the `noesis-windows-x64-unsigned` artifact. It contains:
+   - `Noesis_<version>_x64-setup.exe`: per-user NSIS installer, no admin rights needed, English/Turkish installer UI
+   - `Noesis_<version>_x64_en-US.msi` / `_tr-TR.msi`
+   - `SHA256SUMS.txt`
+3. Check the hash: `Get-FileHash .\Noesis_0.1.0_x64-setup.exe -Algorithm SHA256`.
+4. When Windows shows "Windows protected your PC", choose **More info → Run anyway**. The warning appears because the installer is unsigned.
+
+Requires Windows 10/11 x64. The installer downloads WebView2 if it is missing (it is preinstalled on Windows 11).
 
 ## Features
 
 | Area | What exists |
 |---|---|
-| Editor | Tiptap/ProseMirror blocks: headings H1–H6, lists, checklists, quotes, callouts, code (syntax highlight), tables, images, files, bookmarks, toggles, math (KaTeX), page mentions, slash menu, markdown shortcuts, drag handle, undo/redo, autosave with snapshots |
-| Pages | Multiple workspaces, nested pages, icons/covers, tags, favorites, templates, trash/restore, backlinks; Markdown/HTML/PDF (print) export |
-| Databases | Text, number, date, checkbox, select, multi-select, URL, relation, status and formula properties; table, board, calendar, list and gallery views with sort/filter/group; saved views |
-| Tasks | Subtasks, due dates, priority, status, project link, recurring tasks, local reminders, convert note blocks to tasks |
-| Research | Sources: PDF, DOCX, TXT, MD, HTML, CSV, web URLs; images (OCR) and audio (transcription) through a capable AI provider. Staged ingestion pipeline with per-stage status |
-| AI | OpenAI-compatible (incl. Ollama/LM Studio), Gemini and Anthropic providers; hybrid RAG (FTS5 + vectors + RRF), verified citations, "not supported by sources" answers, streaming and cancel; writing actions with preview-before-apply; study guides, FAQ, flashcards, quizzes, comparisons |
-| Audio | Audio overviews (single speaker, or two speakers where the provider supports it), transcript, speed control, WAV export |
-| Search | Keyword / full-text / semantic / hybrid across pages, sources, databases, tasks and notebooks; works offline |
-| Graph | Interactive force graph of pages, sources, tags and approved semantic links |
-| Platform | Light/dark/system themes, accent colours, resizable sidebar, Ctrl+K command palette, English and Turkish UI, onboarding, backup/restore (ZIP + SHA-256 manifest), Windows Credential Manager for API keys |
+| Editor | Tiptap/ProseMirror blocks: headings H1–H6, lists, checklists, quotes, callouts, code (syntax highlight), tables, images, files, bookmarks, toggles, math (KaTeX), page mentions; slash menu, markdown shortcuts, **markdown paste**, drag handle, block menu, undo/redo, autosave with version history |
+| Pages | Multiple workspaces, nested pages, icons/covers, tags, favorites, pins, templates, archive, trash/restore, backlinks; Markdown import/export, HTML export, PDF via the print dialog |
+| Databases | 11 property types (incl. relation, status, formula); table, board, calendar, list and gallery views; sort/filter/group; saved views |
+| Tasks | Subtasks, due dates, priority, status, project link, daily/weekly/monthly/yearly recurrence, local reminders, convert a note block into a task |
+| Research | Sources: PDF, DOCX, TXT, MD, HTML, CSV, web URLs, pasted text; images (OCR) and audio (transcription) through a capable AI provider. Staged ingestion pipeline with per-stage status and clear errors |
+| AI | OpenAI, Gemini, Anthropic, Ollama and any OpenAI-compatible server. Hybrid RAG (FTS5 + vectors + RRF); citations are validated in code; answers say when the sources do not support them; streaming and cancel. Writing actions show a preview and change nothing until you accept. Study guide, FAQ, briefing, timeline, flashcards, quiz, document comparison |
+| Audio | Audio overviews: single speaker, or two speakers where the provider supports it; transcript, speed control, WAV export |
+| Search | Keyword / full-text / semantic / hybrid across pages, documents, databases, tasks and notebooks. Works offline |
+| Graph | Interactive force graph of pages, documents, tags and approved semantic links |
+| Platform | Light/dark/system themes, accent colours, resizable sidebar, Ctrl+K command palette, English and Turkish UI, 7-step onboarding, backup/restore (ZIP + SHA-256 manifest), API keys in Windows Credential Manager, consent prompt before content goes to a cloud AI |
 
 ## Quick start (development)
 
@@ -29,33 +43,52 @@ Requirements: Node.js 22.5+ (24 recommended), Rust stable. On Windows you also n
 npm ci
 npm run dev          # browser preview at http://localhost:1420 (SQLite WASM + IndexedDB)
 npx tauri dev        # desktop app
+npx tauri build      # installers → src-tauri/target/release/bundle/
 ```
+
+To try the AI features without an API key, run `node scripts/mock-ai-server.mjs 11435`. Then choose "OpenAI-compatible" in Settings with URL `http://127.0.0.1:11435/v1` and key `test-key`. See [AI configuration](docs/ai-configuration.md).
 
 ## Tests
 
-```bash
-npm run typecheck
-npm test                         # Vitest unit + integration
-npx playwright test              # E2E against the browser preview; starts a mock AI server
-cd src-tauri && cargo test       # Rust core (needs ../dist, run `npm run build` first)
-```
+| Command | What it covers | Last result |
+|---|---|---|
+| `npm run typecheck` | whole TypeScript codebase | clean |
+| `npm test` | Vitest unit + integration (DB, pages, databases, tasks, backup, AI errors, ingestion, RAG, i18n) | 52 passed |
+| `npx playwright test` | 10 end-to-end user flows in the browser preview | 10 passed |
+| `cd src-tauri && cargo test` | Rust core (needs `npm run build` first) | 10 passed |
+| `npm run bench` | search/autosave/chunking benchmarks → [benchmarks](docs/testing/benchmarks.md) | — |
 
-On Linux the E2E tests use Chromium. If a Chromium binary is already installed, set `PW_CHROMIUM_PATH` to use it. On Windows they default to Edge (`PW_CHANNEL` overrides this). See [`docs/testing/README.md`](docs/testing/README.md).
+CI runs everything on Linux and Windows, builds the installers, and installs, launches and uninstalls the app on a Windows runner. Details are in [docs/testing](docs/testing/README.md).
 
-## Building the Windows installer
+## Known limitations
 
-```bash
-npx tauri build      # → src-tauri/target/release/bundle/{nsis,msi}/
-```
+- **Unsigned installer, no auto-update.** Download new versions manually.
+- **AI adapters are untested against the live OpenAI, Gemini and Anthropic APIs.** Only the mock server has been used.
+- No cloud sync. No YouTube import (rejected explicitly). OCR needs an AI provider. PDF export uses the print dialog.
+- Offline semantic search uses lightweight hashed vectors, which are much weaker than a real embedding model.
+- Security trade-offs (generic SQL over IPC, hostname-only SSRF guard) are listed in [privacy & security](docs/security/privacy-security.md).
 
-CI builds unsigned NSIS and MSI installers with SHA-256 checksums on `windows-latest` (see [`.github/workflows`](.github/workflows)). Release steps and the signing limitation are in [`docs/releases/README.md`](docs/releases/README.md).
+## Roadmap: suggested next features
+
+Ordered by value for effort:
+
+1. **Verify real AI providers.** Do a manual test pass with real keys and fix adapter differences. Without this, the AI features are unproven.
+2. **Local embedding model** (e.g. a small ONNX model run in the app). Semantic search and RAG would work well offline and without sending text to the cloud.
+3. **Offline OCR** (Windows.Media.Ocr or Tesseract) for scanned PDFs and images, with no AI provider needed.
+4. **Code signing + auto-update** (`tauri-plugin-updater`). Removes the SmartScreen warning and gives one-click updates. Needs a certificate.
+5. **Direct PDF export** and DOCX export, without the print dialog.
+6. **Narrower IPC surface.** Replace the generic `db_exec` with typed commands. Resolve URL hosts in Rust to block DNS-rebinding SSRF.
+7. **Database upgrades:** timeline view, rollups, two-way relations, CSV import into a database.
+8. **Web clipper** and a global quick-capture shortcut.
+9. **Sync** (CRDT-based, e.g. Yjs, to a user-chosen folder or server). The architecture leaves a seam for it, but none of it is written.
+10. **macOS/Linux builds.** The Linux build already works (`.deb`). macOS needs a Mac runner and signing.
 
 ## Documentation
 
 - [Architecture](docs/architecture/README.md) · [Database schema](docs/architecture/database-schema.md)
 - [AI configuration](docs/ai-configuration.md) · [Privacy & security](docs/security/privacy-security.md)
-- [Testing](docs/testing/README.md) · [Research (REA)](docs/research/README.md)
-- [Release notes v0.1.0](docs/releases/v0.1.0.md) · [Implementation status](docs/implementation-status.md)
+- [Testing](docs/testing/README.md) · [Benchmarks](docs/testing/benchmarks.md) · [Research (REA)](docs/research/README.md)
+- [Release notes v0.1.0](docs/releases/v0.1.0.md) · [Releasing](docs/releases/README.md) · [Implementation status](docs/implementation-status.md)
 
 ## Independence
 
