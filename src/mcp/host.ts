@@ -39,6 +39,7 @@ const APPROVAL_TIMEOUT_MS = 170_000;
 let nextApproval = 0;
 
 export function requestApproval(req: ApprovalRequest): Promise<boolean> {
+  if (useApp.getState().prefs.mcpAutoApprove) return Promise.resolve(true);
   return new Promise((resolve) => {
     const id = ++nextApproval;
     const finish = (ok: boolean) => {
