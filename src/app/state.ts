@@ -35,6 +35,10 @@ export interface Prefs {
   cloudConsents: string[];
   onboarded: boolean;
   lastBackupAt: number | null;
+  /** Check GitHub for new builds on start and every few hours (desktop only). */
+  checkUpdates: boolean;
+  /** Install a downloaded update when the app is closed, without asking. */
+  autoInstallUpdates: boolean;
 }
 
 export const DEFAULT_PREFS: Prefs = {
@@ -49,6 +53,8 @@ export const DEFAULT_PREFS: Prefs = {
   cloudConsents: [],
   onboarded: false,
   lastBackupAt: null,
+  checkUpdates: true,
+  autoInstallUpdates: true,
 };
 
 export interface Toast {

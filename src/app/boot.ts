@@ -4,6 +4,7 @@ import { openStore } from '../core/store';
 import type { SqlDriver } from '../core/db/driver';
 import { useApp } from './state';
 import { loadSettings, startReminderLoop } from './services';
+import { startUpdateLoop } from './updater';
 
 export async function boot(): Promise<void> {
   setPdfJsLoader(async () => {
@@ -39,6 +40,7 @@ export async function boot(): Promise<void> {
   // Flush the browser-preview snapshot before the tab goes away.
   window.addEventListener('pagehide', () => void repos.db.flushNow());
   startReminderLoop();
+  startUpdateLoop();
   // Dev-only handle for debugging and e2e diagnostics.
   if (import.meta.env.DEV) (window as unknown as { __noesis: typeof useApp }).__noesis = useApp;
 }

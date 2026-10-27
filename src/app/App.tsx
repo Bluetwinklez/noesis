@@ -10,6 +10,7 @@ import { createPage } from '../features/actions';
 import { savePrefs } from './services';
 import { HomePage } from '../features/home/HomePage';
 import { AiPreviewHost } from '../features/ai/AiPreview';
+import { UpdateBanner } from '../components/shell/UpdateBanner';
 
 // The editor (Tiptap/ProseMirror) and first-run flow are the heaviest modules; keep them out of the startup chunk.
 const PageView = lazy(() => import('../features/pages/PageView').then((m) => ({ default: m.PageView })));
@@ -140,6 +141,7 @@ export function App() {
       </main>
       <CommandPalette />
       <ToastHost />
+      <UpdateBanner />
       <ConsentModal />
       <AiPreviewHost />
       <DialogHost labels={{ ok: 'OK', cancel: t('common.cancel') }} />

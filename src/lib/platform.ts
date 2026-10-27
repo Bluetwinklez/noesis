@@ -13,6 +13,18 @@ async function tauriInvoke<T>(cmd: string, args?: Record<string, unknown>): Prom
   return invoke<T>(cmd, args);
 }
 
+/**
+ * Downloads a user-supplied web page for import. In the desktop build Rust resolves
+ * every hop and refuses local/private addresses (including after redirects).
+ */
+export async function fetchPublicUrl(url: string, init?: RequestInit): Promise<Response> {
+  if (!isTauri()) return fetch(url, init);
+  const r = await tauriInvoke<{ status: number; contentType: string; finalUrl: string; bytes: number[] }>('fetch_public_url', { url });
+  const res = new Response(new Uint8Array(r.bytes), { status: r.status, headers: { 'content-type': r.contentType } });
+  Object.defineProperty(res, 'url', { value: r.finalUrl });
+  return res;
+}
+
 /** fetch that bypasses webview CORS in the desktop build. */
 export async function httpFetch(input: string, init?: RequestInit): Promise<Response> {
   if (isTauri()) {
