@@ -1,8 +1,8 @@
 name: Release
 
-# Builds the Windows installers for a version tag and attaches them, with
-# SHA-256 checksums, to a draft GitHub release. Installers are UNSIGNED unless
-# code-signing is configured separately (see docs/releases/README.md).
+# Builds the Windows installers for a version tag, smoke-tests the installer, and
+# publishes them with SHA-256 checksums as a GitHub pre-release. Installers are
+# UNSIGNED unless code-signing is configured separately (see docs/releases/README.md).
 on:
   push:
     tags: ['v*']
@@ -30,15 +30,30 @@ jobs:
         working-directory: src-tauri
         run: cargo test --locked
       - run: npx tauri build
+      - name: Install, launch and uninstall smoke test
+        shell: pwsh
+        run: |
+          $setup = Get-ChildItem src-tauri/target/release/bundle/nsis/*-setup.exe | Select-Object -First 1
+          Start-Process $setup.FullName -ArgumentList '/S' -Wait
+          $exe = Join-Path $env:LOCALAPPDATA 'Noesis\noesis.exe'
+          if (!(Test-Path $exe)) { throw "noesis.exe not installed at $exe" }
+          $p = Start-Process $exe -PassThru
+          Start-Sleep -Seconds 20
+          if ($p.HasExited) { throw "Noesis exited early with code $($p.ExitCode)" }
+          if (!(Test-Path (Join-Path $env:APPDATA 'app.noesis.desktop\noesis.db'))) { throw 'database not created' }
+          Stop-Process -Id $p.Id -Force
+          Start-Process (Join-Path $env:LOCALAPPDATA 'Noesis\uninstall.exe') -ArgumentList '/S' -Wait
       - name: Collect artifacts and checksums
         shell: pwsh
         run: |
           New-Item -ItemType Directory out | Out-Null
           Get-ChildItem src-tauri/target/release/bundle -Recurse -Include *.exe,*.msi | Copy-Item -Destination out
           Get-ChildItem out | ForEach-Object { "{0}  {1}" -f (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLower(), $_.Name } | Set-Content out/SHA256SUMS.txt
-      - name: Draft release
+      - name: Publish pre-release
         env:
           GH_TOKEN: ${{ github.token }}
         shell: pwsh
         run: |
-          gh release create "${{ github.ref_name }}" out/* --draft --title "Noesis ${{ github.ref_name }}" --notes-file docs/releases/v0.1.0.md
+          $notes = "docs/releases/${{ github.ref_name }}.md"
+          if (!(Test-Path $notes)) { throw "missing release notes $notes" }
+          gh release create "${{ github.ref_name }}" (Get-ChildItem out/*).FullName --prerelease --title "Noesis ${{ github.ref_name }}" --notes-file $notes
