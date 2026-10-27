@@ -21,6 +21,7 @@ import {
   FolderInput,
   LayoutTemplate,
   RotateCcw,
+  Printer,
 } from 'lucide-react';
 import { repos, useApp, wsId } from '../../app/state';
 import { useT } from '../../i18n';
@@ -32,7 +33,7 @@ import { useSaveStatus } from '../../components/shell/TopBar';
 import { createPage, toggleFavorite, togglePinned, trashPage } from '../actions';
 import { htmlToMarkdown, markdownToHtml, printHtml, standaloneHtml } from '../../editor/markdown';
 import { pickFiles, saveFile } from '../../lib/platform';
-import { exportDocx } from './exportDocx';
+import { exportDocx, exportPdf } from './exportDocx';
 import { reportError } from '../../app/services';
 import type { Page, PageMeta } from '../../core/types';
 import { localHashEmbed, cosine } from '../../search/vectors';
@@ -345,7 +346,13 @@ function PageHeaderBar({ page, editorRef, wordCount }: { page: Page; editorRef: 
       disabled: page.kind !== 'page',
       onSelect: () => void exportDocx(name, (editorRef.current?.getJSON() ?? null) as DocNode).catch(reportError),
     },
-    { label: t('page.exportPdf'), icon: <Download className="size-3.5" />, disabled: page.kind !== 'page', onSelect: () => printHtml(standaloneHtml(name, html())) },
+    {
+      label: t('page.exportPdf'),
+      icon: <Download className="size-3.5" />,
+      disabled: page.kind !== 'page',
+      onSelect: () => void exportPdf(name, (editorRef.current?.getJSON() ?? null) as DocNode).catch(reportError),
+    },
+    { label: t('page.print'), icon: <Printer className="size-3.5" />, disabled: page.kind !== 'page', onSelect: () => printHtml(standaloneHtml(name, html())) },
     {
       label: t('page.importMd'),
       icon: <Upload className="size-3.5" />,

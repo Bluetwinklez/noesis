@@ -397,3 +397,17 @@ test('two-way relation keeps both sides linked and a rollup sums linked rows', a
   const rollupCol = (await headers.allInnerTexts()).findIndex((n) => n.includes('Rollup'));
   await expect(row(/Scientific Revolutions/).locator('td').nth(rollupCol)).toHaveText('499');
 });
+
+test('a page exports straight to a PDF file', async ({ page }) => {
+  await freshApp(page);
+  await onboard(page, { sample: true });
+  await page.getByRole('treeitem', { name: /Welcome tour/ }).click();
+  const dl = page.waitForEvent('download');
+  await page.getByRole('button', { name: 'Page menu' }).click();
+  await page.getByRole('menuitem', { name: 'Export as PDF' }).click();
+  const file = await dl;
+  expect(file.suggestedFilename()).toMatch(/\.pdf$/);
+  const bytes = await (await import('node:fs/promises')).readFile((await file.path())!);
+  expect(bytes.subarray(0, 5).toString()).toBe('%PDF-');
+  expect(bytes.length).toBeGreaterThan(5_000); // embedded (subset) font + content
+});
