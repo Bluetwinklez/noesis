@@ -11,6 +11,7 @@ import {
   Keyboard,
   Palette,
   RefreshCw,
+  Plug,
   Shield,
   Stethoscope,
   Upload,
@@ -23,6 +24,7 @@ import { repos, useApp } from '../../app/state';
 import { LANGUAGES, useT, type MessageKey } from '../../i18n';
 import { Badge, Button, confirmDialog, cx, Input, Kbd, promptDialog, Select, Switch, useAsync } from '../../components/ui';
 import { activeProvider, apiKeyName, configForProvider, errorMessage, reportError, saveAiConfig, saveLang, savePrefs, setWorkspace } from '../../app/services';
+import { McpSettings } from '../mcp/McpSettings';
 import { checkForUpdates, installUpdate, setUpdatePrefs, useUpdates } from '../../app/updater';
 import { appInfo, isTauri, notify, pickFiles, revealDataDir, saveFile, secrets, blobStore } from '../../lib/platform';
 import { createBackup, rebuildSearchIndex, restoreBackup } from '../../core/backup';
@@ -39,6 +41,7 @@ const SECTIONS: { id: string; label: MessageKey; icon: React.ReactNode }[] = [
   { id: 'appearance', label: 'settings.appearance', icon: <Palette className="size-4" /> },
   { id: 'language', label: 'settings.language', icon: <Globe className="size-4" /> },
   { id: 'ai', label: 'settings.ai', icon: <Bot className="size-4" /> },
+  { id: 'mcp', label: 'mcp.title', icon: <Plug className="size-4" /> },
   { id: 'workspaces', label: 'settings.workspaces', icon: <Layers className="size-4" /> },
   { id: 'storage', label: 'settings.storage', icon: <HardDrive className="size-4" /> },
   { id: 'shortcuts', label: 'settings.shortcuts', icon: <Keyboard className="size-4" /> },
@@ -74,6 +77,7 @@ export default function SettingsPage({ section }: { section?: string }) {
         {cur === 'appearance' && <Appearance />}
         {cur === 'language' && <Language />}
         {cur === 'ai' && <AiSettings />}
+        {cur === 'mcp' && <McpSettings />}
         {cur === 'workspaces' && <Workspaces />}
         {cur === 'storage' && <Storage />}
         {cur === 'shortcuts' && <Shortcuts />}

@@ -1,5 +1,6 @@
 mod db;
 mod files;
+mod mcp;
 mod net;
 
 use rusqlite::Connection;
@@ -145,6 +146,100 @@ async fn fetch_public_url(url: String) -> Result<net::FetchedUrl, String> {
     net::fetch_public(&url).await
 }
 
+// ------------------------------------------------------------ AI connections (MCP)
+
+#[derive(Default)]
+struct McpState {
+    shared: std::sync::Arc<mcp::Shared>,
+    server: Mutex<Option<mcp::Server>>,
+}
+
+struct EventForwarder(tauri::AppHandle);
+
+impl mcp::Forwarder for EventForwarder {
+    fn forward(&self, request_id: u64, client: &str, message: &str) {
+        use tauri::Emitter;
+        let _ = self.0.emit("mcp-request", serde_json::json!({ "rid": request_id, "client": client, "message": message }));
+    }
+}
+
+#[derive(Serialize)]
+struct McpStatus {
+    running: bool,
+    port: Option<u16>,
+    exe: String,
+}
+
+/// Token shared with AI clients through mcp.json; created once, kept across restarts.
+fn mcp_token(data_dir: &std::path::Path) -> Result<String, String> {
+    let file = data_dir.join("mcp-token");
+    if let Ok(t) = std::fs::read_to_string(&file) {
+        if t.trim().len() >= 32 {
+            return Ok(t.trim().to_string());
+        }
+    }
+    let token = format!("{}{}", uuid::Uuid::new_v4().simple(), uuid::Uuid::new_v4().simple());
+    files::atomic_write(&file, token.as_bytes())?;
+    Ok(token)
+}
+
+#[tauri::command]
+fn mcp_start(app: tauri::AppHandle, state: State<'_, AppState>, mcp_state: State<'_, McpState>) -> Result<McpStatus, String> {
+    let mut server = mcp_state.server.lock().map_err(|_| "lock poisoned")?;
+    if server.is_none() {
+        let token = mcp_token(&state.data_dir)?;
+        *server = Some(mcp::start(&mcp::endpoint_file(&state.data_dir), token, mcp_state.shared.clone(), std::sync::Arc::new(EventForwarder(app)))?);
+    }
+    Ok(McpStatus { running: true, port: server.as_ref().map(|s| s.endpoint.port), exe: exe_path() })
+}
+
+#[tauri::command]
+fn mcp_stop(state: State<'_, AppState>, mcp_state: State<'_, McpState>) -> Result<(), String> {
+    mcp_state.server.lock().map_err(|_| "lock poisoned")?.take();
+    // Without the endpoint file the stdio bridge will not auto-start the app either.
+    match std::fs::remove_file(mcp::endpoint_file(&state.data_dir)) {
+        Err(e) if e.kind() != std::io::ErrorKind::NotFound => Err(e.to_string()),
+        _ => Ok(()),
+    }
+}
+
+#[tauri::command]
+fn mcp_status(mcp_state: State<'_, McpState>) -> McpStatus {
+    let server = mcp_state.server.lock().ok();
+    let port = server.as_ref().and_then(|s| s.as_ref().map(|s| s.endpoint.port));
+    McpStatus { running: port.is_some(), port, exe: exe_path() }
+}
+
+#[tauri::command]
+fn mcp_respond(mcp_state: State<'_, McpState>, rid: u64, body: String) -> bool {
+    mcp_state.shared.respond(rid, body)
+}
+
+#[tauri::command]
+fn mcp_clients() -> Vec<mcp::ClientTarget> {
+    mcp::client_status()
+}
+
+#[tauri::command]
+fn mcp_connect_client(id: String, connect: bool) -> Result<Vec<String>, String> {
+    let exe = std::env::current_exe().map_err(|e| e.to_string())?;
+    mcp::set_client(&id, connect, &exe)
+}
+
+fn exe_path() -> String {
+    std::env::current_exe().map(|p| p.to_string_lossy().into_owned()).unwrap_or_default()
+}
+
+/// `noesis --mcp`: stdio bridge used by AI clients (no window is opened).
+pub fn run_mcp_bridge() {
+    let Some(dir) = mcp::app_data_dir() else {
+        eprintln!("Noesis: cannot locate the app data folder");
+        return;
+    };
+    let stdin = std::io::stdin();
+    mcp::run_bridge(&dir, stdin.lock(), std::io::stdout().lock(), true);
+}
+
 #[tauri::command]
 fn app_info(app: tauri::AppHandle, state: State<'_, AppState>) -> Result<AppInfo, String> {
     let db_bytes = std::fs::metadata(&state.db_path).map(|m| m.len()).unwrap_or(0)
@@ -207,6 +302,7 @@ pub fn run() {
             std::fs::create_dir_all(&attachments_dir)?;
             let db_path = data_dir.join("noesis.db");
             let (conn, recovered_from) = open_database(&db_path).map_err(|e| -> Box<dyn std::error::Error> { e.into() })?;
+            app.manage(McpState::default());
             app.manage(AppState { conn: Mutex::new(conn), data_dir, db_path, attachments_dir, recovered_from });
             Ok(())
         })
@@ -222,6 +318,12 @@ pub fn run() {
             attachment_delete,
             export_save,
             fetch_public_url,
+            mcp_start,
+            mcp_stop,
+            mcp_status,
+            mcp_respond,
+            mcp_clients,
+            mcp_connect_client,
             app_info
         ])
         .run(tauri::generate_context!())
