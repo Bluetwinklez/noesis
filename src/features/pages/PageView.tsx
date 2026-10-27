@@ -32,6 +32,7 @@ import { useSaveStatus } from '../../components/shell/TopBar';
 import { createPage, toggleFavorite, togglePinned, trashPage } from '../actions';
 import { htmlToMarkdown, markdownToHtml, printHtml, standaloneHtml } from '../../editor/markdown';
 import { pickFiles, saveFile } from '../../lib/platform';
+import { exportDocx } from './exportDocx';
 import { reportError } from '../../app/services';
 import type { Page, PageMeta } from '../../core/types';
 import { localHashEmbed, cosine } from '../../search/vectors';
@@ -338,6 +339,12 @@ function PageHeaderBar({ page, editorRef, wordCount }: { page: Page; editorRef: 
     { separator: true, label: '' },
     { label: t('page.exportMd'), icon: <Download className="size-3.5" />, disabled: page.kind !== 'page', onSelect: () => void saveFile(`${name}.md`, `# ${name}\n\n${htmlToMarkdown(html())}`, [{ name: 'Markdown', extensions: ['md'] }]).catch(reportError) },
     { label: t('page.exportHtml'), icon: <Download className="size-3.5" />, disabled: page.kind !== 'page', onSelect: () => void saveFile(`${name}.html`, standaloneHtml(name, html()), [{ name: 'HTML', extensions: ['html'] }]).catch(reportError) },
+    {
+      label: t('page.exportDocx'),
+      icon: <Download className="size-3.5" />,
+      disabled: page.kind !== 'page',
+      onSelect: () => void exportDocx(name, (editorRef.current?.getJSON() ?? null) as DocNode).catch(reportError),
+    },
     { label: t('page.exportPdf'), icon: <Download className="size-3.5" />, disabled: page.kind !== 'page', onSelect: () => printHtml(standaloneHtml(name, html())) },
     {
       label: t('page.importMd'),

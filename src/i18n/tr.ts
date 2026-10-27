@@ -96,6 +96,7 @@ export const tr: Record<keyof typeof en, string> = {
   'page.tags': 'Etiketler',
   'page.addTag': 'Etiket ekle',
   'page.exportMd': 'Markdown olarak dışa aktar',
+  'page.exportDocx': 'Word (.docx) olarak dışa aktar',
   'page.exportHtml': 'HTML olarak dışa aktar',
   'page.exportPdf': 'PDF olarak dışa aktar (yazdır)',
   'page.importMd': 'Markdown içe aktar',
