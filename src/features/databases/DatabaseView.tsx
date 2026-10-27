@@ -949,17 +949,21 @@ function TimelineView({ ctx, rows, view }: { ctx: Ctx; rows: DbRow[]; view: DbVi
             const startIdx = Math.round((s.getTime() - from.getTime()) / DAY_MS) + (drag?.id === r.id && drag.mode === 'move' ? delta : 0);
             const span = Math.max(1, Math.round((Math.max(e.getTime(), s.getTime()) - s.getTime()) / DAY_MS) + 1 + (drag?.id === r.id && drag.mode === 'end' ? delta : 0));
             const visible = startIdx + span > 0 && startIdx < DAYS;
+            const barLeft = Math.max(0, startIdx) * COL + 2;
+            const barWidth = Math.max(COL - 4, (Math.min(DAYS, startIdx + span) - Math.max(0, startIdx)) * COL - 4);
+            const narrow = barWidth < 90;
             return (
               <div key={r.id} role="row" className="relative flex h-9 items-center border-b border-line last:border-b-0">
                 <div className="w-[200px] shrink-0 truncate px-2 text-sm">{titleOf(r, ctx.props) || t('common.untitled')}</div>
                 <div className="relative h-full flex-1">
                   {days.map((d, i) => isoDay(d) === today && <div key={i} className="absolute inset-y-0 w-px bg-accent/40" style={{ left: i * COL + COL / 2 }} />)}
                   {visible && (
+                    <>
                     <div
                       role="gridcell"
                       aria-label={`${titleOf(r, ctx.props)}: ${isoDay(s)} – ${isoDay(e)}`}
                       className={cx('absolute top-1.5 flex h-6 cursor-grab items-center overflow-hidden rounded-md bg-accent px-2 text-xs text-white shadow-sm', drag?.id === r.id && 'cursor-grabbing opacity-90')}
-                      style={{ left: Math.max(0, startIdx) * COL + 2, width: Math.max(COL - 4, (Math.min(DAYS, startIdx + span) - Math.max(0, startIdx)) * COL - 4) }}
+                      style={{ left: barLeft, width: barWidth }}
                       onPointerDown={(ev) => {
                         (ev.target as HTMLElement).setPointerCapture(ev.pointerId);
                         setDrag({ id: r.id, mode: (ev.target as HTMLElement).dataset.handle === 'end' ? 'end' : 'move', x0: ev.clientX, dx: 0 });
@@ -972,9 +976,16 @@ function TimelineView({ ctx, rows, view }: { ctx: Ctx; rows: DbRow[]; view: DbVi
                         void commit(r, d.mode, shiftDays(d.dx)).catch(reportError);
                       }}
                     >
-                      <span className="truncate">{titleOf(r, ctx.props)}</span>
+                      {!narrow && <span className="truncate">{titleOf(r, ctx.props)}</span>}
                       {endProp && <span data-handle="end" className="absolute inset-y-0 right-0 w-2 cursor-ew-resize bg-white/30" />}
                     </div>
+                    {/* Short bars cannot hold their title: show it beside the bar instead. */}
+                    {narrow && (
+                      <span aria-hidden className="pointer-events-none absolute top-1.5 flex h-6 max-w-[240px] items-center truncate text-xs text-muted" style={{ left: barLeft + barWidth + 6 }}>
+                        {titleOf(r, ctx.props)}
+                      </span>
+                    )}
+                    </>
                   )}
                 </div>
               </div>

@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react';
 import { Check } from 'lucide-react';
 import { PALETTES } from '../app/palettes';
 import { savePrefs } from '../app/services';
@@ -5,11 +6,24 @@ import { useApp } from '../app/state';
 import { useT, type MessageKey } from '../i18n';
 import { cx } from './ui';
 
+/** Follows the `dark` class on <html>, which is set after the preference changes. */
+function useDarkClass() {
+  const root = typeof document !== 'undefined' ? document.documentElement : null;
+  const [dark, setDark] = useState(() => !!root?.classList.contains('dark'));
+  useEffect(() => {
+    if (!root) return;
+    const obs = new MutationObserver(() => setDark(root.classList.contains('dark')));
+    obs.observe(root, { attributes: true, attributeFilter: ['class'] });
+    return () => obs.disconnect();
+  }, [root]);
+  return dark;
+}
+
 /** Grid of palette cards; each card is a miniature of the app in that palette (light/dark follows the current theme). */
 export function PalettePicker({ compact = false }: { compact?: boolean }) {
   const t = useT();
   const prefs = useApp((s) => s.prefs);
-  const dark = typeof document !== 'undefined' && document.documentElement.classList.contains('dark');
+  const dark = useDarkClass();
   return (
     <div role="radiogroup" aria-label={t('settings.palette')} className={cx('grid gap-2', compact ? 'grid-cols-4' : 'grid-cols-2 sm:grid-cols-4')}>
       {PALETTES.map((p) => {
