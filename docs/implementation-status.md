@@ -6,6 +6,15 @@ Status values: `done` (implemented and covered by an automated test or recorded 
 
 ## Verification runs (this revision)
 
+### Release preparation update
+
+- Windows, Node 24: **57/57 unit/integration tests**, **7 files**; TypeScript and production frontend build passed. Production dependency audit reported zero vulnerabilities.
+- Windows, Edge: **10/10 browser end-to-end workflows passed** after the backup changes, including export/restore, offline editing and source-grounded notebook flows against the mock provider.
+- README screenshot capture passed: four real English sample-workspace screens in `docs/images/`. Browser preview is explicitly identified in the captions.
+- Backup creation now reads one consistent database snapshot and fails if a referenced attachment is unavailable. Restore validates formats, table counts and attachment presence/size/checksums before replacing data. Foreign keys stay enabled with transaction-local deferral. Cancelling the safety backup cancels restore.
+- Local native compilation remains blocked by Application Control error 4551. The version-tag pipeline runs native tests and the installer smoke test on a Windows runner before publishing assets.
+- Existing evidence below belongs to earlier development-branch revisions. It is retained with its original environment attribution.
+
 | Check | Environment | Result |
 |---|---|---|
 | `npm run typecheck` | Linux, Node 22.22 | clean |
@@ -92,7 +101,9 @@ Status values: `done` (implemented and covered by an automated test or recorded 
 {
   "version": "0.1.0",
   "updated": "2026-10-27",
-  "tests": { "vitest": { "passed": 52, "failed": 0 }, "cargo": { "passed": 10, "failed": 0 }, "playwright": { "passed": 10, "failed": 0 } },
+  "tests": { "vitest": { "passed": 57, "failed": 0, "environment": "Windows Node 24" }, "cargo": { "passed": 10, "failed": 0, "scope": "previous development revision CI" }, "playwright": { "passed": 10, "failed": 0, "environment": "Windows Edge browser preview" } },
+  "local_native_build": "BLOCKED_APPLICATION_CONTROL_4551",
+  "readme_screenshots": { "result": "PASS", "count": 4, "mode": "browser_preview_sample_data" },
   "acceptance": {
     "1": "PASS_AUTOMATED", "2": "PASS", "3": "PASS", "4": "PASS", "5": "PASS", "6": "PASS", "7": "PASS",
     "8": "PASS", "9": "PASS", "10": "PASS", "11": "PASS", "12": "PASS", "13": "PASS", "14": "PASS_MOCK", "15": "PASS_AUTOMATED"

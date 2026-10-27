@@ -1,0 +1,28 @@
+# Changelog
+
+## 0.1.0 — Early preview
+
+### Workspace
+
+- Block editing with Markdown paste, slash commands, math, tables and page mentions.
+- Workspaces, nested pages, autosave, history, templates, backlinks and trash.
+- Structured database views, recurring tasks, search and a knowledge graph.
+- Research notebooks with selected sources, streamed answers, navigable citations and study materials.
+- Optional cloud/local AI adapters and audio overviews.
+
+### Reliability
+
+- Consistent database snapshots for backup creation.
+- Explicit failure for missing attachments instead of incomplete backups.
+- Backup format, schema, table and attachment verification before restore.
+- Foreign keys remain enforced throughout restore; constraints defer within its transaction.
+- Cancelling the safety backup cancels the restore operation.
+- Safer native exports, recurrence fixes and graph lifecycle fixes from the existing development branch.
+
+### Distribution and documentation
+
+- English README with four real sample-workspace screenshots, setup steps and keyboard shortcuts.
+- English architecture, privacy, testing, contribution and release documentation.
+- Version-validated GitHub release pipeline with web checks, Windows native tests, unsigned NSIS/MSI installers, install/launch/uninstall smoke test and SHA-256 checksums.
+
+This is preview software. Live AI services and every Windows desktop configuration have not been verified. See [release notes](docs/releases/v0.1.0.md) for scope and limitations.

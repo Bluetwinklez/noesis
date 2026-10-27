@@ -1,93 +1,163 @@
-# Noesis
+<div align="center">
+  <img src="public/icon.svg" width="76" height="76" alt="Noesis logo" />
+  <h1>Noesis</h1>
+  <p><strong>Your notes. Your sources. A clearer picture.</strong></p>
+  <p>A local-first desktop workspace for writing, research and connected thinking.</p>
+  <p>
+    <a href="https://github.com/Bluetwinklez/noesis/actions/workflows/ci.yml"><img src="https://github.com/Bluetwinklez/noesis/actions/workflows/ci.yml/badge.svg" alt="CI status" /></a>
+    <img src="https://img.shields.io/badge/platform-Windows%2010%20%2F%2011-0078D4" alt="Windows 10 and 11" />
+    <img src="https://img.shields.io/badge/status-early%20preview-D99B32" alt="Early preview" />
+    <img src="https://img.shields.io/badge/built%20with-Tauri%202-24C8D8" alt="Built with Tauri 2" />
+  </p>
+  <p><a href="https://github.com/Bluetwinklez/noesis/releases"><strong>Download for Windows</strong></a> · <a href="#get-started">Get started</a> · <a href="docs/ai-configuration.md">Connect AI</a> · <a href="docs/implementation-status.md">Project status</a></p>
+</div>
 
-Noesis is a local-first knowledge workspace for Windows. It combines a block-based note editor, structured databases, tasks and a knowledge graph with AI research notebooks that answer questions from your own sources and cite them.
+![Noesis block editor with nested pages, a checklist, callout and math formula](docs/images/editor.png)
 
-It is built with Tauri 2 (Rust), React, TypeScript and SQLite. Notes and metadata are stored on your computer. Note-taking, search, databases and tasks work offline and without an AI provider.
+Noesis brings block-based notes and source-grounded research into one application. Organize a project, collect its documents, ask questions with navigable citations, and turn the results into notes you can keep editing.
 
-> **Status: v0.1.0, pre-release.** The Windows installer builds in CI but is **unsigned** (SmartScreen will warn). AI providers have been tested only against a mock server. The evidence for every feature is in [`docs/implementation-status.md`](docs/implementation-status.md).
+Your workspace lives on your computer. Notes, databases, tasks and local search work without an account, an AI key or an internet connection. Cloud AI is optional and requires your consent.
 
-## Download
+> **Early preview · v0.1.0.** Windows installers are unsigned. AI integrations are covered by mock-provider tests; compatibility with live APIs is not yet verified. See [known limitations](#known-limitations) before relying on this preview for important work.
 
-**[⬇ Download the latest release](https://github.com/Bluetwinklez/noesis/releases/latest)**: get `Noesis_<version>_x64-setup.exe` (Windows 10/11 x64).
+## What you can do
 
-1. Run the installer. It installs only for the current user and needs no admin rights.
-2. Windows SmartScreen will show "Windows protected your PC" because the installer is **not code-signed**. Choose **More info → Run anyway**.
-3. Optional: verify the file against `SHA256SUMS.txt` in the release with `Get-FileHash .\Noesis_0.1.0_x64-setup.exe -Algorithm SHA256`.
+| Write and organize | Research and understand |
+| --- | --- |
+| Rich-text blocks, slash commands, Markdown paste and drag handles | Collect PDFs, DOCX, Markdown, text, HTML, CSV and web sources |
+| Nested pages, workspaces, tags, favorites and backlinks | Select the sources each notebook should use |
+| Tables, code, math, checklists, callouts, images and attachments | Ask questions with streamed answers and source references |
+| Autosave, page history, trash and restore | Generate summaries, study guides, flashcards and quizzes |
+| Databases with table, board, calendar, list and gallery views | Preview AI writing changes before applying them |
+| Tasks, recurring reminders, search and a knowledge graph | Create audio overviews with a supported provider |
 
-If **Smart App Control** is on, Windows may block unsigned apps entirely. That is a signing limitation, not an app defect.
+### A research desk for your own sources
 
-Development builds from every push are also available as the `noesis-windows-x64-unsigned` artifact on the [Actions](https://github.com/Bluetwinklez/noesis/actions) tab (GitHub login required).
+![Noesis research notebook with its selected source, chat and studio panels](docs/images/research.png)
 
-## Features
+Import documents, review extracted text, then choose which sources a notebook can use. Retrieved passages retain source, page and text-location information. Citation markers are checked against retrieved passages, and clicking a reference opens the relevant source excerpt. A valid reference does not guarantee that the model interpreted it correctly; review the evidence when accuracy matters.
 
-| Area | What exists |
-|---|---|
-| Editor | Tiptap/ProseMirror blocks: headings H1–H6, lists, checklists, quotes, callouts, code (syntax highlight), tables, images, files, bookmarks, toggles, math (KaTeX), page mentions; slash menu, markdown shortcuts, **markdown paste**, drag handle, block menu, undo/redo, autosave with version history |
-| Pages | Multiple workspaces, nested pages, icons/covers, tags, favorites, pins, templates, archive, trash/restore, backlinks; Markdown import/export, HTML export, PDF via the print dialog |
-| Databases | 11 property types (incl. relation, status, formula); table, board, calendar, list and gallery views; sort/filter/group; saved views |
-| Tasks | Subtasks, due dates, priority, status, project link, daily/weekly/monthly/yearly recurrence, local reminders, convert a note block into a task |
-| Research | Sources: PDF, DOCX, TXT, MD, HTML, CSV, web URLs, pasted text; images (OCR) and audio (transcription) through a capable AI provider. Staged ingestion pipeline with per-stage status and clear errors |
-| AI | OpenAI, Gemini, Anthropic, Ollama and any OpenAI-compatible server. Hybrid RAG (FTS5 + vectors + RRF); citations are validated in code; answers say when the sources do not support them; streaming and cancel. Writing actions show a preview and change nothing until you accept. Study guide, FAQ, briefing, timeline, flashcards, quiz, document comparison |
-| Audio | Audio overviews: single speaker, or two speakers where the provider supports it; transcript, speed control, WAV export |
-| Search | Keyword / full-text / semantic / hybrid across pages, documents, databases, tasks and notebooks. Works offline |
-| Graph | Interactive force graph of pages, documents, tags and approved semantic links |
-| Platform | Light/dark/system themes, accent colours, resizable sidebar, Ctrl+K command palette, English and Turkish UI, 7-step onboarding, backup/restore (ZIP + SHA-256 manifest), API keys in Windows Credential Manager, consent prompt before content goes to a cloud AI |
+### Structure that fits your work
 
-## Quick start (development)
+![Noesis reading database displayed as a Kanban board](docs/images/database.png)
 
-Requirements: Node.js 22.5+ (24 recommended), Rust stable. On Windows you also need the Visual Studio 2022 Build Tools (C++ workload) and WebView2. On Linux you need the [Tauri system packages](https://v2.tauri.app/start/prerequisites/).
+Track projects and reading lists with typed properties, filters, sorting, grouping and saved views. Use recurring tasks and subtasks alongside the notes that give them context.
+
+<details>
+  <summary><strong>See dark mode</strong></summary>
+
+![Noesis database in dark mode](docs/images/dark-mode.png)
+
+</details>
+
+*Screenshots show the real application in browser-preview mode with its built-in sample workspace. The Windows application uses the same interface in a native Tauri shell.*
+
+## Download and install
+
+1. Open [Releases](https://github.com/Bluetwinklez/noesis/releases). Preview releases are listed there even when GitHub's “latest stable release” link is unavailable.
+2. Download **`Noesis_0.1.0_x64-setup.exe`** for a normal per-user installation. MSI packages are also provided for managed deployment.
+3. Optionally compare the file's SHA-256 hash with `SHA256SUMS.txt` from the same release:
+
+   ```powershell
+   Get-FileHash .\Noesis_0.1.0_x64-setup.exe -Algorithm SHA256
+   ```
+
+4. Run the installer and complete onboarding. You can skip AI setup and start with sample content.
+
+**Requirements:** Windows 10 or 11, x64. The installer can download Microsoft WebView2 if it is missing. Installers are **not code-signed** and may trigger Windows warnings or be blocked by device policy. Code signing and automatic updates are not included in this preview.
+
+Uninstall through **Settings → Apps → Installed apps → Noesis**. Workspace data is kept in `%APPDATA%\app.noesis.desktop`. Export a backup before upgrading or changing your installation.
+
+## Get started
+
+1. **Make a workspace.** Choose a theme and create your first page. Sample content is optional.
+2. **Capture an idea.** Use `/` to insert a block and `@` to mention another page.
+3. **Bring in sources.** Open Sources, import documents, and check the extraction status.
+4. **Open a research notebook.** Select its sources. To ask AI questions, configure a provider in Settings.
+5. **Keep the useful parts.** Review citations and save generated material as editable notes.
+6. **Back up your work.** Use Settings → Storage & backups to export a `.noesisbak` archive.
+
+### AI, on your terms
+
+Noesis includes adapters for OpenAI, Gemini, Anthropic, Ollama and OpenAI-compatible servers. Capabilities vary by provider and model. API usage may carry provider charges.
+
+- **Cloud:** the application requests permission before sending content. Desktop API keys use Windows Credential Manager.
+- **Local:** use an Ollama or compatible server on your computer. Offline semantic search also has a lightweight local-vector fallback.
+- **Try without a key:** run `node scripts/mock-ai-server.mjs 11435`, choose an OpenAI-compatible server at `http://127.0.0.1:11435/v1`, and enter `test-key`. This produces deterministic test responses, not real AI reasoning.
+
+See [AI configuration](docs/ai-configuration.md) and [privacy & security](docs/security/privacy-security.md).
+
+### Keyboard shortcuts
+
+| Shortcut | Action |
+| --- | --- |
+| `Ctrl+K` | Search or run a command |
+| `Ctrl+Alt+N` | Create a page |
+| `Ctrl+Shift+F` | Open search |
+| `Ctrl+,` | Open settings |
+| `Ctrl+\` | Toggle the sidebar |
+| `Ctrl+Shift+L` | Toggle light/dark appearance |
+| `Alt+←` / `Alt+→` | Navigate back/forward |
+
+## Run from source
+
+Install **Node.js 24**, Rust stable, and the [Tauri platform prerequisites](https://v2.tauri.app/start/prerequisites/). Windows builds need the Visual Studio C++ Build Tools and WebView2.
 
 ```bash
+git clone https://github.com/Bluetwinklez/noesis.git
+cd noesis
 npm ci
-npm run dev          # browser preview at http://localhost:1420 (SQLite WASM + IndexedDB)
-npx tauri dev        # desktop app
-npx tauri build      # installers → src-tauri/target/release/bundle/
+npm run dev          # Browser preview: http://localhost:1420
+npx tauri dev        # Native desktop application
 ```
 
-To try the AI features without an API key, run `node scripts/mock-ai-server.mjs 11435`. Then choose "OpenAI-compatible" in Settings with URL `http://127.0.0.1:11435/v1` and key `test-key`. See [AI configuration](docs/ai-configuration.md).
+The browser preview uses SQLite WASM and IndexedDB. It is intended for development; its API-key storage does not provide the protection of Windows Credential Manager. Use test keys in the preview.
 
-## Tests
+```bash
+npm run typecheck    # TypeScript checks
+npm test            # Unit and integration tests
+npm run e2e         # Browser workflows (Edge by default)
+npm run build       # Production frontend
+cd src-tauri
+cargo test --locked # Native backend tests; build the frontend first
+cd ..
+npx tauri build     # Windows NSIS and MSI installers
+```
 
-| Command | What it covers | Last result |
-|---|---|---|
-| `npm run typecheck` | whole TypeScript codebase | clean |
-| `npm test` | Vitest unit + integration (DB, pages, databases, tasks, backup, AI errors, ingestion, RAG, i18n) | 52 passed |
-| `npx playwright test` | 10 end-to-end user flows in the browser preview | 10 passed |
-| `cd src-tauri && cargo test` | Rust core (needs `npm run build` first) | 10 passed |
-| `npm run bench` | search/autosave/chunking benchmarks → [benchmarks](docs/testing/benchmarks.md) | — |
+For Chromium instead of Edge, run `npx playwright install chromium` and set `PW_CHANNEL=chromium`. [Testing documentation](docs/testing/README.md) explains each check. `npm run screenshots` regenerates the README images from sample data.
 
-CI runs everything on Linux and Windows, builds the installers, and installs, launches and uninstalls the app on a Windows runner. Details are in [docs/testing](docs/testing/README.md).
+## Reliability and release checks
+
+The release workflow checks TypeScript, unit/integration tests, browser workflows and production dependencies. A Windows runner then executes Rust tests, builds NSIS/MSI installers, installs the NSIS package, launches the app, checks database creation and uninstalls it. Published assets include SHA-256 checksums.
+
+Backup creation uses a consistent database snapshot and refuses to silently omit missing attachments. Restore validates manifest versions, table counts and attachment checksums before replacing data. Cancelling the safety-backup dialog also cancels the restore.
+
+These checks are useful evidence, not a claim that every device or live AI provider has been tested. The [implementation status](docs/implementation-status.md) keeps that distinction explicit.
 
 ## Known limitations
 
-- **Unsigned installer, no auto-update.** Download new versions manually.
-- **AI adapters are untested against the live OpenAI, Gemini and Anthropic APIs.** Only the mock server has been used.
-- No cloud sync. No YouTube import (rejected explicitly). OCR needs an AI provider. PDF export uses the print dialog.
-- Offline semantic search uses lightweight hashed vectors, which are much weaker than a real embedding model.
-- Security trade-offs (generic SQL over IPC, hostname-only SSRF guard) are listed in [privacy & security](docs/security/privacy-security.md).
+- Preview software; installers are unsigned and there is no automatic updater.
+- Live AI provider compatibility, OCR, transcription and speech quality still need real-provider verification.
+- No cloud sync or YouTube transcript import. PDF export uses the system print dialog.
+- Local hashed vectors are a fallback, not a replacement for a trained embedding model.
+- Notifications require the app to be running. Very large graphs and source collections need further performance testing.
+- Generic SQL IPC and hostname-based URL filtering remain hardening work; see [security notes](docs/security/privacy-security.md).
+- English and Turkish interfaces are available. Repository documentation and release notes are maintained in English.
 
-## Roadmap: suggested next features
+## Roadmap
 
-Ordered by value for effort:
+- [ ] Verify live provider chat, embeddings, OCR, transcription and audio.
+- [ ] Add a trained local embedding model and offline OCR.
+- [ ] Introduce code signing and a verified update channel.
+- [ ] Narrow native IPC commands and strengthen URL/DNS validation.
+- [ ] Improve large-document and large-graph performance with recorded benchmarks.
+- [ ] Add direct PDF/DOCX export, database rollups and CSV-to-database import.
+- [ ] Explore a web clipper, quick capture and user-controlled synchronization.
 
-1. **Verify real AI providers.** Do a manual test pass with real keys and fix adapter differences. Without this, the AI features are unproven.
-2. **Local embedding model** (e.g. a small ONNX model run in the app). Semantic search and RAG would work well offline and without sending text to the cloud.
-3. **Offline OCR** (Windows.Media.Ocr or Tesseract) for scanned PDFs and images, with no AI provider needed.
-4. **Code signing + auto-update** (`tauri-plugin-updater`). Removes the SmartScreen warning and gives one-click updates. Needs a certificate.
-5. **Direct PDF export** and DOCX export, without the print dialog.
-6. **Narrower IPC surface.** Replace the generic `db_exec` with typed commands. Resolve URL hosts in Rust to block DNS-rebinding SSRF.
-7. **Database upgrades:** timeline view, rollups, two-way relations, CSV import into a database.
-8. **Web clipper** and a global quick-capture shortcut.
-9. **Sync** (CRDT-based, e.g. Yjs, to a user-chosen folder or server). The architecture leaves a seam for it, but none of it is written.
-10. **macOS/Linux builds.** The Linux build already works (`.deb`). macOS needs a Mac runner and signing.
+## Documentation and contributing
 
-## Documentation
+[Architecture](docs/architecture/README.md) · [Database schema](docs/architecture/database-schema.md) · [AI setup](docs/ai-configuration.md) · [Security](docs/security/privacy-security.md) · [Testing](docs/testing/README.md) · [Benchmarks](docs/testing/benchmarks.md) · [Research](docs/research/README.md) · [Releasing](docs/releases/README.md) · [Release notes](docs/releases/v0.1.0.md)
 
-- [Architecture](docs/architecture/README.md) · [Database schema](docs/architecture/database-schema.md)
-- [AI configuration](docs/ai-configuration.md) · [Privacy & security](docs/security/privacy-security.md)
-- [Testing](docs/testing/README.md) · [Benchmarks](docs/testing/benchmarks.md) · [Research (REA)](docs/research/README.md)
-- [Releases](https://github.com/Bluetwinklez/noesis/releases) · [Release notes v0.1.0](docs/releases/v0.1.0.md) · [Releasing](docs/releases/README.md) · [Implementation status](docs/implementation-status.md)
+Found a bug? [Open an issue](https://github.com/Bluetwinklez/noesis/issues/new) with reproduction steps, your OS, app version and relevant redacted diagnostics. Never include API keys or private source documents. For code contributions, start with [CONTRIBUTING.md](CONTRIBUTING.md).
 
-## Independence
-
-Noesis is an original implementation inspired by publicly documented product concepts. It contains no code, assets, branding or private APIs from Notion or Google NotebookLM. It is not affiliated with either.
+Noesis is an independent implementation inspired by publicly documented workspace and research concepts. It is not affiliated with Notion or Google NotebookLM and includes no proprietary code, branding or private APIs from either product.
