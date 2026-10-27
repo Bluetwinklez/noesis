@@ -39,6 +39,8 @@ export interface Prefs {
   checkUpdates: boolean;
   /** Install a downloaded update when the app is closed, without asking. */
   autoInstallUpdates: boolean;
+  /** Local MCP endpoint for external AI assistants (desktop only). */
+  mcpEnabled: boolean;
 }
 
 export const DEFAULT_PREFS: Prefs = {
@@ -55,6 +57,7 @@ export const DEFAULT_PREFS: Prefs = {
   lastBackupAt: null,
   checkUpdates: true,
   autoInstallUpdates: true,
+  mcpEnabled: false,
 };
 
 export interface Toast {

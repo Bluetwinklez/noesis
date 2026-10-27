@@ -5,6 +5,7 @@ import type { SqlDriver } from '../core/db/driver';
 import { useApp } from './state';
 import { loadSettings, startReminderLoop } from './services';
 import { startUpdateLoop } from './updater';
+import { startMcpIfEnabled } from '../mcp/host';
 
 export async function boot(): Promise<void> {
   setPdfJsLoader(async () => {
@@ -41,6 +42,7 @@ export async function boot(): Promise<void> {
   window.addEventListener('pagehide', () => void repos.db.flushNow());
   startReminderLoop();
   startUpdateLoop();
+  startMcpIfEnabled();
   // Dev-only handle for debugging and e2e diagnostics.
   if (import.meta.env.DEV) (window as unknown as { __noesis: typeof useApp }).__noesis = useApp;
 }
