@@ -83,6 +83,32 @@ async function fullTextSearch(db: Database, q: string, o: SearchOptions): Promis
   return hits.sort((a, b) => b.score - a.score);
 }
 
+/**
+ * Local vectors for notes/rows/tasks are computed on demand; cache them by entity and
+ * a content hash so repeated queries only re-embed what changed since the last search.
+ */
+const localVectorCache = new Map<string, { hash: number; vec: number[] }>();
+const LOCAL_VECTOR_CACHE_MAX = 20_000;
+
+function fnv1a(text: string): number {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < text.length; i++) {
+    h ^= text.charCodeAt(i);
+    h = Math.imul(h, 0x01000193);
+  }
+  return h >>> 0;
+}
+
+function cachedLocalVector(key: string, text: string): number[] {
+  const hash = fnv1a(text);
+  const hit = localVectorCache.get(key);
+  if (hit && hit.hash === hash) return hit.vec;
+  const vec = localHashEmbed(text);
+  if (localVectorCache.size >= LOCAL_VECTOR_CACHE_MAX) localVectorCache.delete(localVectorCache.keys().next().value!);
+  localVectorCache.set(key, { hash, vec });
+  return vec;
+}
+
 async function semanticSearch(db: Database, q: string, o: SearchOptions): Promise<SearchHit[]> {
   const limit = o.limit ?? 30;
   const provider = o.embedQuery ? await o.embedQuery(q).catch(() => null) : null;
@@ -98,7 +124,7 @@ async function semanticSearch(db: Database, q: string, o: SearchOptions): Promis
     let score: number;
     if (provider && c.embedding && c.embedding_model === provider.model) score = cosine(provider.vector, JSON.parse(c.embedding));
     else if (c.embedding && c.embedding_model === LOCAL_EMBED_MODEL) score = cosine(localQ, JSON.parse(c.embedding));
-    else score = cosine(localQ, localHashEmbed(c.text));
+    else score = cosine(localQ, cachedLocalVector(`chunk:${c.id}`, c.text));
     hits.push({ kind: 'chunk', refId: String(c.id), parentId: c.source_id, title: c.title, snippet: c.text.slice(0, 220), score, pageNumber: c.page_number });
   }
 
@@ -108,7 +134,7 @@ async function semanticSearch(db: Database, q: string, o: SearchOptions): Promis
     [o.workspaceId],
   );
   for (const d of docs) {
-    const score = cosine(localQ, localHashEmbed(`${d.title}\n${d.title}\n${d.body.slice(0, 4000)}`));
+    const score = cosine(localQ, cachedLocalVector(`${d.kind}:${d.ref_id}`, `${d.title}\n${d.title}\n${d.body.slice(0, 4000)}`));
     hits.push({ kind: d.kind, refId: d.ref_id, parentId: d.parent_id || null, title: d.title, snippet: d.body.slice(0, 220), score });
   }
   return hits.filter((h) => h.score > 0.08).sort((a, b) => b.score - a.score).slice(0, limit);

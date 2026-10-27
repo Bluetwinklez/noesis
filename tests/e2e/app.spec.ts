@@ -259,3 +259,19 @@ test('command palette, keyboard shortcuts, trash and restore', async ({ page }) 
   await page.getByRole('tab', { name: /Board/ }).click();
   await expect(page.getByText('Kürk Mantolu Madonna')).toBeVisible();
 });
+
+test('pasting plain-text markdown creates structured blocks', async ({ page }) => {
+  await freshApp(page);
+  await onboard(page);
+  await newPage(page, 'Pasted notes');
+  await editor(page).click();
+  await editor(page).evaluate((el) => {
+    const dt = new DataTransfer();
+    dt.setData('text/plain', '## Agenda\n\n- first point\n- second point\n\nNext steps:\n\n- [ ] follow up');
+    el.dispatchEvent(new ClipboardEvent('paste', { clipboardData: dt, bubbles: true, cancelable: true }));
+  });
+  await expect(editor(page).locator('h2')).toHaveText('Agenda');
+  await expect(editor(page).locator('ul:not([data-type]) li')).toHaveCount(2);
+  await expect(editor(page).locator('ul[data-type="taskList"]')).toContainText('follow up');
+  await expect(editor(page)).not.toContainText('## Agenda');
+});

@@ -1,0 +1,21 @@
+# Notion-inspired features: research records
+
+Legend: **REA tool used** is `none (blocked)` for every record. The network policy denied all Notion hosts (see [README](README.md)). Evidence is either a public web-search result (cited) or *general knowledge* (not verified in this session).
+
+| # | Feature | Research question | Permitted target | REA tool | Observed behaviour | Evidence | Confidence | Design implication | Noesis implementation (original) |
+|---|---|---|---|---|---|---|---|---|---|
+| N1 | Slash commands | How are blocks inserted from the keyboard? | notion.com/help/guides/using-slash-commands | none (blocked) | Typing `/` opens a menu of block types and actions (turn into, colour, comment) that filters as you type | Search result for the official guide: "hit the slash key, and select or type the content type" | Medium | One keyboard-first insertion path for every block type | `src/editor/Editor.tsx`: Tiptap `Suggestion` slash menu with fuzzy filter, localised labels and AI actions |
+| N2 | Markdown shortcuts | Can users format with markdown while typing? | Third-party guides (thomasjfrank.com) | none (blocked) | Formatting is possible via markdown, keyboard shortcuts or a selection toolbar | Search snippet: three formatting routes | Medium | Input rules for `#`, `-`, `1.`, `[]`, `>`, ```` ``` ````, `**` | Tiptap StarterKit input rules plus custom callout and toggle rules; bubble menu on selection |
+| N3 | Keyboard shortcut reference | Where are shortcuts discoverable? | notion.com help | none (blocked) | Shortcut list reachable from a "?" menu; custom bindings reportedly not supported | Search snippet (official) and third-party note | Medium / Low | In-app shortcut reference | Settings → Keyboard shortcuts list; Ctrl+K palette |
+| N4 | Block drag & drop | How are blocks reordered? | — | none (blocked) | A hover handle beside each block allows dragging and opens a block menu | General knowledge | Low | Handle appears on hover, is keyboard-accessible and opens a context menu | `@tiptap/extension-drag-handle-react`; block context menu (duplicate, delete, turn into, to-task) |
+| N5 | Nested pages & breadcrumbs | How is hierarchy navigated? | — | none (blocked) | Pages nest without a fixed depth; sidebar tree; breadcrumbs at the top | General knowledge | Low | Tree with lazy expansion; breadcrumbs; cycle-safe moves | `pages.move` rejects cycles (unit-tested); Sidebar tree; TopBar breadcrumbs |
+| N6 | Page links & backlinks | How are pages connected? | — | none (blocked) | `@` mentions and links create references; a page lists the pages that link to it | General knowledge | Low | Links must be derived from content on save, not maintained by hand | `page_links` rebuilt on every save; backlinks panel; graph edges |
+| N7 | Databases & views | Which view types exist; how do filters, sorts and groups persist? | notion.com/help/views-filters-and-sorts | none (blocked; WebFetch DNS also failed) | Table, board, calendar, list and gallery (plus timeline and others); filters, sorts and groups saved per view | General knowledge | Low | Views are saved objects separate from data | `db_views` table; 5 view types; per-view sort/filter/group; formula engine without `eval` |
+| N8 | Rich clipboard | Is formatting preserved across apps? | — | none (blocked) | Pasting HTML or markdown keeps structure | General knowledge | Low | Sanitise pasted HTML; parse markdown on paste | ProseMirror HTML paste; pasted images stored as attachments; plain-text block markdown converted via `looksLikeMarkdown` + `markdownToHtml` (unit + E2E tested) |
+| N9 | Search | How is global search invoked? | — | none (blocked) | Ctrl/Cmd+K or P opens quick search with recent pages | General knowledge | Low | One palette for navigation, search and commands | `CommandPalette.tsx` (Ctrl+K), full Search page with modes and filters |
+
+## What we deliberately did differently
+
+- **Local-first.** Everything is stored in on-device SQLite, and search works offline. No account is required.
+- **AI edits are previews.** No AI action modifies a page until the user accepts the change.
+- **Original identity.** Our own name, iconography (Lucide), colour tokens and copy. No Notion assets or wording.

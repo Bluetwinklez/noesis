@@ -473,6 +473,7 @@ export const en = {
   'onb.sampleNo': 'Start empty',
   'onb.editorIntro': 'Your editor in 30 seconds',
   'onb.notebook': 'Create your first notebook',
+  'onb.notebookReady': 'Your sample notebook is ready — open it from AI Notebooks.',
   'onb.notebookPlaceholder': 'Notebook title',
   'onb.finish': 'Open my workspace',
 

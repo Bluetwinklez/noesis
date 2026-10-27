@@ -5,6 +5,18 @@ import { gfm } from 'turndown-plugin-gfm';
 import DOMPurify from 'dompurify';
 import { PAGE_LINK_PREFIX } from '../core/doc';
 
+/**
+ * Heuristic used on paste: true when plain text carries block-level markdown
+ * (headings, lists, quotes, fences, tables) that should become real blocks.
+ * Inline-only syntax such as a lone *word* is left as typed text.
+ */
+export function looksLikeMarkdown(text: string): boolean {
+  const lines = text.split(/\r?\n/);
+  if (lines.length < 2 && !/^#{1,6}\s/.test(text)) return false;
+  const block = /^(#{1,6}\s|\s*[-*+]\s|\s*\d+[.)]\s|>\s?|```|\|.*\|\s*$|\s*[-*+]\s\[[ xX]\]\s)/;
+  return lines.filter((l) => block.test(l)).length >= 1 && lines.some((l) => l.trim().length > 0);
+}
+
 /** Markdown → sanitized HTML that the editor can load. Task lists become Tiptap task lists. */
 export function markdownToHtml(md: string): string {
   const raw = marked.parse(md, { async: false, gfm: true, breaks: false }) as string;

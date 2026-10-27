@@ -477,6 +477,7 @@ export const tr: Record<keyof typeof en, string> = {
   'onb.sampleNo': 'Boş başla',
   'onb.editorIntro': '30 saniyede düzenleyicin',
   'onb.notebook': 'İlk defterini oluştur',
+  'onb.notebookReady': 'Örnek defterin hazır — AI Defterleri bölümünden açabilirsin.',
   'onb.notebookPlaceholder': 'Defter başlığı',
   'onb.finish': 'Çalışma alanımı aç',
 
