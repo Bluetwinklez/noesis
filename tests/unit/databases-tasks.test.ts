@@ -157,3 +157,67 @@ describe('tasks', () => {
     expect(await s.tasks.list(ws)).toHaveLength(0);
   });
 });
+
+describe('two-way relations and rollups', () => {
+  async function setup() {
+    const projects = await s.databases.createDatabase(ws, 'Projects');
+    const tasks = await s.databases.createDatabase(ws, 'Tasks');
+    const pTitle = (await s.databases.properties(projects.id)).find((p) => p.type === 'title')!;
+    const tTitle = (await s.databases.properties(tasks.id)).find((p) => p.type === 'title')!;
+    const hours = await s.databases.addProperty(tasks.id, 'Hours', 'number');
+    const done = await s.databases.addProperty(tasks.id, 'Done', 'checkbox');
+    const rel = await s.databases.addRelation(projects.id, tasks.id, 'Tasks', 'Project');
+    const back = (await s.databases.properties(tasks.id)).find((p) => p.type === 'relation')!;
+    const site = await s.databases.addRow(projects.id, { [pTitle.id]: 'Website' });
+    const a = await s.databases.addRow(tasks.id, { [tTitle.id]: 'Design', [hours.id]: 3, [done.id]: true });
+    const b = await s.databases.addRow(tasks.id, { [tTitle.id]: 'Build', [hours.id]: 5, [done.id]: false });
+    return { projects, tasks, rel, back, site, a, b, hours, done, tTitle };
+  }
+  const values = async (dbId: string, rowId: string) => (await s.databases.rows(dbId)).find((r) => r.id === rowId)!.values;
+
+  it('creates a paired property and keeps both sides in sync', async () => {
+    const { projects, tasks, rel, back, site, a, b } = await setup();
+    expect(rel.options.relationPropertyId).toBe(back.id);
+    expect(back.options).toEqual({ relationDatabaseId: projects.id, relationPropertyId: rel.id });
+    await s.databases.updateCell(site.id, rel.id, [a.id, b.id]);
+    expect((await values(tasks.id, a.id))[back.id]).toEqual([site.id]);
+    expect((await values(tasks.id, b.id))[back.id]).toEqual([site.id]);
+    // Editing from the other side updates this side too.
+    await s.databases.updateCell(b.id, back.id, []);
+    expect((await values(projects.id, site.id))[rel.id]).toEqual([a.id]);
+    // Deleting a linked row removes it from every relation cell.
+    await s.databases.deleteRow(a.id);
+    expect((await values(projects.id, site.id))[rel.id]).toEqual([]);
+  });
+
+  it('removing one side leaves the other as a one-way relation', async () => {
+    const { rel, back } = await setup();
+    await s.databases.removeProperty(rel.id);
+    const remaining = (await s.databases.properties(back.database_id)).find((p) => p.id === back.id)!;
+    expect(remaining.options.relationPropertyId).toBeUndefined();
+  });
+
+  it('computes rollups over linked rows', async () => {
+    const { projects, rel, site, a, b, hours, done, tTitle } = await setup();
+    await s.databases.updateCell(site.id, rel.id, [a.id, b.id]);
+    const props = await s.databases.properties(projects.id);
+    const related = await s.databases.relatedData(props);
+    const row = (await s.databases.rows(projects.id))[0];
+    const roll = (fn: import('../../src/core/types').RollupFn, target: string | null) =>
+      computedValue({ id: 'r', database_id: projects.id, name: 'R', type: 'rollup', sort_order: 9, options: { rollup: { relationPropertyId: rel.id, targetPropertyId: target, fn } } }, row, props, related);
+    expect(roll('count', null)).toBe(2);
+    expect(roll('sum', hours.id)).toBe(8);
+    expect(roll('average', hours.id)).toBe(4);
+    expect(roll('max', hours.id)).toBe(5);
+    expect(roll('percent_checked', done.id)).toBe('50%');
+    expect(roll('show', tTitle.id)).toBe('Design, Build');
+    expect(computedValue({ ...props[0], type: 'rollup', options: {} }, row, props, related)).toBeNull();
+  });
+});
+
+describe('migration v4', () => {
+  it('accepts the rollup property type', async () => {
+    const dbPage = await s.databases.createDatabase(ws, 'X');
+    await expect(s.databases.addProperty(dbPage.id, 'R', 'rollup')).resolves.toMatchObject({ type: 'rollup' });
+  });
+});

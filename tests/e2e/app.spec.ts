@@ -366,3 +366,34 @@ test('database timeline view shows dated rows and persists', async ({ page }) =>
   await page.getByRole('treeitem', { name: /Reading list/ }).click();
   await expect(page.getByRole('tab', { name: /Timeline/ })).toBeVisible();
 });
+
+test('two-way relation keeps both sides linked and a rollup sums linked rows', async ({ page }) => {
+  await freshApp(page);
+  await onboard(page, { sample: true });
+  await page.getByRole('treeitem', { name: /Projects/ }).getByRole('button', { name: 'Expand' }).click();
+  await page.getByRole('treeitem', { name: /Reading list/ }).click();
+  const grid = page.getByRole('grid');
+  // Self-relation, two-way: adds "Reading list" and its paired back-link column.
+  await page.getByRole('button', { name: 'Add property' }).click();
+  await page.getByRole('menuitem', { name: 'Relation' }).click();
+  await expect(page.getByLabel('Two-way: also show the link in the other database')).toBeChecked();
+  await page.getByRole('dialog').getByRole('button', { name: /Reading list/ }).click();
+  const headers = grid.locator('thead th');
+  await expect(headers.filter({ hasText: 'Reading list' })).toHaveCount(2);
+  const names = await headers.allInnerTexts();
+  const fwd = names.findIndex((n) => n.includes('Reading list'));
+  const back = names.findIndex((n, i) => i > fwd && n.includes('Reading list'));
+  const row = (title: RegExp) => grid.getByRole('row').filter({ has: page.locator('td:nth-child(2)', { hasText: title }) });
+  await row(/Scientific Revolutions/).locator('td').nth(fwd).getByRole('button').first().click();
+  await page.locator('button').filter({ has: page.locator('input[type=checkbox]'), hasText: 'Thinking, Fast and Slow' }).click();
+  await page.keyboard.press('Escape');
+  await expect(row(/Thinking, Fast/).locator('td').nth(back)).toContainText('The Structure of Scientific Revolutions');
+  // Rollup: sum of the linked rows' pages.
+  await page.getByRole('button', { name: 'Add property' }).click();
+  await page.getByRole('menuitem', { name: 'Rollup' }).click();
+  await page.getByLabel('Property of the linked rows').selectOption({ label: 'Pages' });
+  await page.getByLabel('Calculate').selectOption({ label: 'Sum' });
+  await page.getByRole('dialog').getByRole('button', { name: 'Save' }).click();
+  const rollupCol = (await headers.allInnerTexts()).findIndex((n) => n.includes('Rollup'));
+  await expect(row(/Scientific Revolutions/).locator('td').nth(rollupCol)).toHaveText('499');
+});

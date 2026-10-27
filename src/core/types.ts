@@ -60,7 +60,10 @@ export type PropertyType =
   | 'url'
   | 'relation'
   | 'status'
-  | 'formula';
+  | 'formula'
+  | 'rollup';
+
+export type RollupFn = 'count' | 'count_values' | 'sum' | 'average' | 'min' | 'max' | 'show' | 'percent_checked';
 
 export interface SelectOption {
   id: string;
@@ -72,6 +75,10 @@ export interface PropertyOptions {
   options?: SelectOption[];
   /** relation target database id */
   relationDatabaseId?: string;
+  /** relation: the paired property in the target database, kept in sync (two-way relation) */
+  relationPropertyId?: string;
+  /** rollup: aggregates a property of the rows linked through a relation property of this database */
+  rollup?: { relationPropertyId: string; targetPropertyId: string | null; fn: RollupFn };
   /** formula expression, e.g. prop("Price") * prop("Qty") */
   expression?: string;
   numberFormat?: 'plain' | 'percent' | 'currency';

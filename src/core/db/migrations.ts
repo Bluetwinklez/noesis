@@ -289,6 +289,25 @@ DROP TABLE db_views;
 ALTER TABLE db_views_v3 RENAME TO db_views;
 `,
   },
+  {
+    version: 4,
+    name: 'rollup_property_type',
+    // Same rebuild for db_properties, allowing 'rollup' (two-way relations live in options_json).
+    sql: `
+CREATE TABLE db_properties_v4 (
+  id TEXT PRIMARY KEY,
+  database_id TEXT NOT NULL REFERENCES pages(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  type TEXT NOT NULL CHECK (type IN ('title','text','number','date','checkbox','select','multi_select','url','relation','status','formula','rollup')),
+  options_json TEXT NOT NULL DEFAULT '{}',
+  sort_order REAL NOT NULL DEFAULT 0
+);
+INSERT INTO db_properties_v4(id, database_id, name, type, options_json, sort_order) SELECT id, database_id, name, type, options_json, sort_order FROM db_properties;
+DROP TABLE db_properties;
+ALTER TABLE db_properties_v4 RENAME TO db_properties;
+CREATE INDEX idx_props_db ON db_properties(database_id, sort_order);
+`,
+  },
 ];
 
 export const LATEST_VERSION = migrations[migrations.length - 1].version;
