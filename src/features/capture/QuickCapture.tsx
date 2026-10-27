@@ -60,8 +60,24 @@ export function QuickCapture() {
     setTitle('');
     setBody('');
   };
+  const busy = useRef(false);
+  const saveRef = useRef<(openAfter?: boolean) => Promise<void>>(async () => {});
+  // Ctrl+Enter saves wherever focus is inside the dialog (the modal may move focus to its header).
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+        e.preventDefault();
+        void saveRef.current();
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [open]);
   const save = async (openAfter = false) => {
+    if (busy.current) return;
     if (!title.trim() && !body.trim()) return close();
+    busy.current = true;
     setSaving(true);
     try {
       const id = await saveQuickNote(title, body);
@@ -72,10 +88,12 @@ export function QuickCapture() {
     } catch (e) {
       reportError(e);
     } finally {
+      busy.current = false;
       setSaving(false);
     }
   };
 
+  saveRef.current = save;
   if (!open) return null;
   return (
     <Modal
@@ -102,15 +120,7 @@ export function QuickCapture() {
         </>
       }
     >
-      <div
-        className="space-y-2"
-        onKeyDown={(e) => {
-          if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
-            e.preventDefault();
-            void save();
-          }
-        }}
-      >
+      <div className="space-y-2">
         <Input ref={titleRef} value={title} onChange={(e) => setTitle(e.target.value)} placeholder={t('capture.titlePlaceholder')} aria-label={t('capture.titlePlaceholder')} onKeyDown={(e) => e.key === 'Enter' && !e.ctrlKey && (e.preventDefault(), bodyRef.current?.focus())} />
         <Textarea ref={bodyRef} rows={8} value={body} onChange={(e) => setBody(e.target.value)} placeholder={t('capture.bodyPlaceholder')} aria-label={t('capture.bodyPlaceholder')} />
       </div>
