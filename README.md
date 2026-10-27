@@ -4,12 +4,13 @@
   <p><strong>Your notes. Your sources. A clearer picture.</strong></p>
   <p>A local-first desktop workspace for writing, research and connected thinking.</p>
   <p>
+    <a href="https://github.com/Bluetwinklez/noesis/releases/latest"><img src="https://img.shields.io/github/v/release/Bluetwinklez/noesis?label=latest&color=5B5BD6" alt="Latest release" /></a>
     <a href="https://github.com/Bluetwinklez/noesis/actions/workflows/ci.yml"><img src="https://github.com/Bluetwinklez/noesis/actions/workflows/ci.yml/badge.svg" alt="CI status" /></a>
     <img src="https://img.shields.io/badge/platform-Windows%2010%20%2F%2011-0078D4" alt="Windows 10 and 11" />
     <img src="https://img.shields.io/badge/status-early%20preview-D99B32" alt="Early preview" />
     <img src="https://img.shields.io/badge/built%20with-Tauri%202-24C8D8" alt="Built with Tauri 2" />
   </p>
-  <p><a href="https://github.com/Bluetwinklez/noesis/releases"><strong>Download for Windows</strong></a> · <a href="#get-started">Get started</a> · <a href="docs/ai-configuration.md">Connect AI</a> · <a href="docs/implementation-status.md">Project status</a></p>
+  <p><a href="https://github.com/Bluetwinklez/noesis/releases/latest"><strong>Download for Windows</strong></a> · <a href="#get-started">Get started</a> · <a href="#connect-your-ai-assistants-mcp">Connect AI assistants</a> · <a href="#türkçe">Türkçe</a> · <a href="docs/implementation-status.md">Project status</a></p>
 </div>
 
 ![Noesis block editor with nested pages, a checklist, callout and math formula](docs/images/editor.png)
@@ -45,15 +46,35 @@ Import documents, review extracted text, then choose which sources a notebook ca
 
 ![Noesis reading database displayed as a Kanban board](docs/images/database.png)
 
-Track projects and reading lists with typed properties, filters, sorting, grouping and saved views. Use recurring tasks and subtasks alongside the notes that give them context.
+Track projects and reading lists with typed properties, filters, sorting, grouping and saved views. Link databases with two-way relations and summarise linked rows with rollups (count, sum, average, min/max, percent done). Use recurring tasks and subtasks alongside the notes that give them context.
+
+![Noesis reading list on a timeline: one bar per book on its date](docs/images/timeline.png)
+
+The **timeline** view places rows on their dates; drag a bar to move it, or drag its right edge to set an end date.
+
+### Capture first, organise later
+
+![Noesis quick note window over the app](docs/images/quick-capture.png)
+
+Press **`Ctrl+Shift+Space`** anywhere in Windows (or use the tray icon) to jot something down. Markdown works, `Ctrl+Enter` saves, and the note lands on your **Inbox** page. From the browser, the **web clipper** extension saves a whole article or just your selection to **Web clips**, with a link back to the source.
+
+Moving in? **Settings → Storage & backups → Import…** reads a Notion export (pages, links, databases from CSV) or an Obsidian vault. Pages export to **PDF**, **Word**, Markdown and HTML.
 
 ### Connect your AI assistants (MCP)
 
-Turn on **Settings → AI connections** and click **Connect** next to Claude Desktop, Cursor, Windsurf or LM Studio; Noesis writes their configuration for you (with a backup) and starts automatically when they need it. Assistants can search notes and sources, read pages, create pages and tasks; changing an existing page always needs your approval in a dialog. The endpoint listens only on `127.0.0.1`, requires a key and refuses web pages.
+Turn on **Settings → AI connections** and click **Connect** next to Claude Desktop, Cursor, Windsurf or LM Studio; Noesis writes their configuration for you (with a backup) and starts automatically when they need it. For Claude Code, copy the one-line command shown there.
+
+Assistants can search notes and sources, read pages, and create pages and tasks. Changing an existing page always needs your approval in a dialog. The endpoint listens only on `127.0.0.1`, requires a key and refuses web pages.
 
 ### Always up to date
 
 Installed copies check for updates in the background and install them when you close the app (or right away from the banner). Every change merged to `main` produces a signed build. You can turn this off in **Settings → Updates**.
+
+### Make it yours
+
+![Noesis appearance settings with eight colour palettes, Nord selected in dark mode](docs/images/palettes.png)
+
+Eight colour palettes (Paper, Slate, Nord, Solarized, Forest, Rosé, Midnight, High contrast), each with a light and a dark version, plus accent colours, editor font and width.
 
 <details>
   <summary><strong>See dark mode</strong></summary>
@@ -66,8 +87,8 @@ Installed copies check for updates in the background and install them when you c
 
 ## Download and install
 
-1. Open [Releases](https://github.com/Bluetwinklez/noesis/releases). Preview releases are listed there even when GitHub's “latest stable release” link is unavailable.
-2. Download **`Noesis_<version>_x64-setup.exe`** for a normal per-user installation. MSI packages are also provided for managed deployment. The **`noesis-web-clipper.zip`** asset is the browser extension ([install steps](extensions/web-clipper/README.md)).
+1. Open the [latest release](https://github.com/Bluetwinklez/noesis/releases/latest).
+2. Download **`Noesis_<version>_x64-setup.exe`** for a normal per-user installation. MSI packages (English and Turkish) are also provided for managed deployment. The **`noesis-web-clipper.zip`** asset is the browser extension ([install steps](extensions/web-clipper/README.md)).
 3. Optionally compare the file's SHA-256 hash with `SHA256SUMS.txt` from the same release:
 
    ```powershell
@@ -78,7 +99,9 @@ Installed copies check for updates in the background and install them when you c
 
 **Requirements:** Windows 10 or 11, x64. The installer can download Microsoft WebView2 if it is missing. Installers are **not code-signed** (no Windows publisher certificate) and may trigger SmartScreen warnings or be blocked by device policy. Updates *are* signed with the project's update key and verified before installing.
 
-Uninstall through **Settings → Apps → Installed apps → Noesis**. Workspace data is kept in `%APPDATA%\app.noesis.desktop`. Export a backup before upgrading or changing your installation.
+**Updates:** from v0.1.3 on, Noesis updates itself. It checks shortly after start and every few hours, downloads in the background and installs when you close it (or immediately from the banner). Coming from **v0.1.0**? That version has no updater: install the latest release once over it; your workspace is kept.
+
+Uninstall through **Settings → Apps → Installed apps → Noesis**. Workspace data is kept in `%APPDATA%\app.noesis.desktop`. Export a backup before changing your installation.
 
 ## Get started
 
@@ -157,7 +180,7 @@ These checks are useful evidence, not a claim that every device or live AI provi
 - The web clipper is installed in developer mode; it is not in the Chrome/Firefox stores yet.
 - Notifications require the app to be running. Very large graphs and source collections need further performance testing.
 - Database IPC still accepts SQL strings (guarded by an SQLite authorizer); see [security notes](docs/security/privacy-security.md).
-- English and Turkish interfaces are available. Repository documentation and release notes are maintained in English.
+- English and Turkish interfaces are available. Repository documentation is maintained in English, with a short [Turkish summary](#türkçe).
 
 ## Roadmap
 
@@ -172,8 +195,19 @@ These checks are useful evidence, not a claim that every device or live AI provi
 
 ## Documentation and contributing
 
-[Architecture](docs/architecture/README.md) · [Database schema](docs/architecture/database-schema.md) · [AI setup](docs/ai-configuration.md) · [Security](docs/security/privacy-security.md) · [Testing](docs/testing/README.md) · [Benchmarks](docs/testing/benchmarks.md) · [Research](docs/research/README.md) · [Releasing](docs/releases/README.md) · [Release notes](docs/releases/v0.1.0.md)
+[Architecture](docs/architecture/README.md) · [Database schema](docs/architecture/database-schema.md) · [AI setup](docs/ai-configuration.md) · [Security](docs/security/privacy-security.md) · [Testing](docs/testing/README.md) · [Benchmarks](docs/testing/benchmarks.md) · [Research](docs/research/README.md) · [Releasing](docs/releases/README.md) · [Web clipper](extensions/web-clipper/README.md) · [All releases](https://github.com/Bluetwinklez/noesis/releases)
 
 Found a bug? [Open an issue](https://github.com/Bluetwinklez/noesis/issues/new) with reproduction steps, your OS, app version and relevant redacted diagnostics. Never include API keys or private source documents. For code contributions, start with [CONTRIBUTING.md](CONTRIBUTING.md).
 
 Noesis is an independent implementation inspired by publicly documented workspace and research concepts. It is not affiliated with Notion or Google NotebookLM and includes no proprietary code, branding or private APIs from either product.
+
+## Türkçe
+
+Noesis; notlarınızı, veritabanlarınızı ve kaynak belgelerinizi tek bir yerde toplayan, **bilgisayarınızda çalışan** bir masaüstü uygulamasıdır. Hesap, internet veya yapay zekâ anahtarı olmadan çalışır; bulut yapay zekâ isteğe bağlıdır ve her zaman onayınızı ister. Arayüz Türkçe ve İngilizce'dir.
+
+- **İndir:** [son sürüm](https://github.com/Bluetwinklez/noesis/releases/latest) → `Noesis_<sürüm>_x64-setup.exe`. Windows “bilinmeyen yayıncı” uyarısı verirse *Ek bilgi → Yine de çalıştır* deyin (kod imzalama sertifikası henüz yok).
+- **Güncelleme:** v0.1.3'ten itibaren uygulama kendini günceller; uygulamayı kapattığınızda kurulur. v0.1.0 kullanıyorsanız son sürümü bir kez elle üzerine kurun, verileriniz korunur.
+- **Neler var:** bloklu editör, iç içe sayfalar, veritabanları (tablo, pano, takvim, zaman çizelgesi; iki yönlü ilişki ve toplama), görevler, bilgi grafiği, kaynaklara dayalı yapay zekâ defterleri, çevrimdışı OCR (Türkçe dahil), PDF/Word dışa aktarma, Notion/Obsidian içe aktarma, 8 renk paleti.
+- **Hızlı not:** Windows'un herhangi bir yerinde `Ctrl+Shift+Space`. **Web kırpıcı** eklentisi ile tarayıcıdan sayfa kaydedin.
+- **Yapay zekâ asistanları:** *Ayarlar → AI bağlantıları* bölümünden Claude Desktop, Cursor, Windsurf veya LM Studio'ya tek tıkla bağlayın; mevcut bir sayfanın değiştirilmesi her zaman onayınızı gerektirir.
+- Hata bildirmek için [issue açın](https://github.com/Bluetwinklez/noesis/issues/new); API anahtarı veya özel belge paylaşmayın.
