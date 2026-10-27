@@ -1,5 +1,6 @@
 mod db;
 mod files;
+mod net;
 
 use rusqlite::Connection;
 use serde::Serialize;
@@ -51,7 +52,7 @@ fn db_snapshot(state: State<'_, AppState>, path: String) -> Result<(), String> {
         return Err("target file already exists".into());
     }
     let conn = state.conn.lock().map_err(|_| "database lock poisoned")?;
-    conn.execute("VACUUM INTO ?1", [p.to_string_lossy().to_string()]).map_err(|e| e.to_string())?;
+    db::unguarded(&conn, |c| c.execute("VACUUM INTO ?1", [p.to_string_lossy().to_string()])).map_err(|e| e.to_string())?;
     Ok(())
 }
 
@@ -138,6 +139,12 @@ async fn export_save(app: tauri::AppHandle, default_name: String, filters: Vec<S
     Ok(Some(p.to_string_lossy().into_owned()))
 }
 
+/// Downloads a user-supplied web page for import; local and private networks are refused at every hop.
+#[tauri::command]
+async fn fetch_public_url(url: String) -> Result<net::FetchedUrl, String> {
+    net::fetch_public(&url).await
+}
+
 #[tauri::command]
 fn app_info(app: tauri::AppHandle, state: State<'_, AppState>) -> Result<AppInfo, String> {
     let db_bytes = std::fs::metadata(&state.db_path).map(|m| m.len()).unwrap_or(0)
@@ -186,6 +193,7 @@ pub fn run() {
                 let _ = w.set_focus();
             }
         }));
+        builder = builder.plugin(tauri_plugin_updater::Builder::new().build()).plugin(tauri_plugin_process::init());
     }
     builder
         .plugin(tauri_plugin_http::init())
@@ -213,6 +221,7 @@ pub fn run() {
             attachment_read,
             attachment_delete,
             export_save,
+            fetch_public_url,
             app_info
         ])
         .run(tauri::generate_context!())

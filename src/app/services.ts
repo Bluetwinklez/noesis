@@ -1,7 +1,7 @@
 import { useApp, repos, wsId, DEFAULT_PREFS, type Prefs } from './state';
 import { createProvider } from '../ai/providers';
 import { AiError, DEFAULT_AI_CONFIG, PROVIDER_DEFAULTS, type AiConfig, type AiProvider, type ProviderId } from '../ai/types';
-import { blobStore, httpFetch, notify, secrets } from '../lib/platform';
+import { blobStore, fetchPublicUrl, notify, secrets } from '../lib/platform';
 import { IngestionPipeline } from '../ingestion/pipeline';
 import { t } from '../i18n';
 import type { Lang } from '../i18n';
@@ -103,7 +103,7 @@ export function ingestion(): IngestionPipeline {
           return null;
         }
       },
-      fetchUrl: (url, signal) => httpFetch(url, { signal, headers: { Accept: 'text/html,application/xhtml+xml,application/pdf;q=0.9,*/*;q=0.5' } }),
+      fetchUrl: (url, signal) => fetchPublicUrl(url, { signal, headers: { Accept: 'text/html,application/xhtml+xml,application/pdf;q=0.9,*/*;q=0.5' } }),
       onProgress: () => useApp.getState().bump(),
     });
   }

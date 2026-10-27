@@ -23,16 +23,17 @@ import { repos, useApp } from '../../app/state';
 import { LANGUAGES, useT, type MessageKey } from '../../i18n';
 import { Badge, Button, confirmDialog, cx, Input, Kbd, promptDialog, Select, Switch, useAsync } from '../../components/ui';
 import { activeProvider, apiKeyName, configForProvider, errorMessage, reportError, saveAiConfig, saveLang, savePrefs, setWorkspace } from '../../app/services';
+import { checkForUpdates, installUpdate, setUpdatePrefs, useUpdates } from '../../app/updater';
 import { appInfo, isTauri, notify, pickFiles, revealDataDir, saveFile, secrets, blobStore } from '../../lib/platform';
 import { createBackup, rebuildSearchIndex, restoreBackup } from '../../core/backup';
 import { integrityCheck, LATEST_VERSION } from '../../core/db/migrations';
 import type { ProviderId } from '../../ai/types';
-import { formatBytes, safeFileName } from '../../lib/util';
+import { formatBytes, relativeTime, safeFileName } from '../../lib/util';
 import { docToHtml } from '../../editor/serialize';
 import { htmlToMarkdown } from '../../editor/markdown';
 import type { DocNode } from '../../core/doc';
 
-const APP_VERSION = '0.1.0';
+const APP_VERSION: string = import.meta.env.VITE_APP_VERSION ?? '0.1.0';
 
 const SECTIONS: { id: string; label: MessageKey; icon: React.ReactNode }[] = [
   { id: 'appearance', label: 'settings.appearance', icon: <Palette className="size-4" /> },
@@ -560,10 +561,48 @@ function Notifications() {
 
 function Updates() {
   const t = useT();
+  const lang = useApp((s) => s.lang);
+  const prefs = useApp((s) => s.prefs);
+  const u = useUpdates();
+  if (u.status === 'unsupported')
+    return (
+      <section className="space-y-2 text-sm">
+        <div className="font-medium">{t('settings.version', { v: APP_VERSION })}</div>
+        <p className="text-muted">{t('upd.preview')}</p>
+      </section>
+    );
   return (
-    <section className="space-y-2 text-sm">
-      <div className="font-medium">{t('settings.version', { v: APP_VERSION })}</div>
-      <p className="text-muted">{t('settings.updatesManual')}</p>
+    <section className="space-y-4 text-sm">
+      <div className="flex flex-wrap items-center gap-3">
+        <div className="font-medium">{t('settings.version', { v: u.current ?? APP_VERSION })}</div>
+        <Button onClick={() => void checkForUpdates({ manual: true })} disabled={u.status === 'checking' || u.status === 'downloading'}>
+          <RefreshCw className="size-3.5" /> {u.status === 'checking' ? t('upd.checking') : t('upd.check')}
+        </Button>
+        {u.status === 'ready' && u.available && (
+          <Button variant="primary" onClick={() => void installUpdate()}>
+            {t('upd.restart')} ({u.available.version})
+          </Button>
+        )}
+      </div>
+      <div className="text-muted">
+        {u.status === 'up-to-date' && t('upd.upToDate')}
+        {u.status === 'downloading' && u.available && t('upd.downloading', { v: u.available.version, p: Math.round(u.progress * 100) })}
+        {u.status === 'ready' && u.available && t('upd.ready', { v: u.available.version })}
+        {u.status === 'error' && t('upd.failed', { e: u.error ?? '' })}
+        {u.checkedAt && <span className="ml-2 text-faint">· {t('upd.lastChecked', { t: relativeTime(u.checkedAt, lang) })}</span>}
+      </div>
+      {u.available?.notes && (
+        <details className="rounded-md border border-line p-3">
+          <summary className="cursor-pointer font-medium">{t('upd.notes')}</summary>
+          <pre className="mt-2 whitespace-pre-wrap font-sans text-xs text-muted">{u.available.notes}</pre>
+        </details>
+      )}
+      <Row label={t('upd.auto')} hint={t('upd.autoHint')}>
+        <Switch checked={prefs.checkUpdates} onChange={(v) => void setUpdatePrefs({ checkUpdates: v })} label={t('upd.auto')} />
+      </Row>
+      <Row label={t('upd.autoInstall')} hint={t('upd.autoInstallHint')}>
+        <Switch checked={prefs.autoInstallUpdates} onChange={(v) => void setUpdatePrefs({ autoInstallUpdates: v })} label={t('upd.autoInstall')} />
+      </Row>
     </section>
   );
 }

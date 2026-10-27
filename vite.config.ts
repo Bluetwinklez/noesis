@@ -3,12 +3,17 @@ import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import tailwindcss from '@tailwindcss/vite';
 import path from 'node:path';
+import { readFileSync } from 'node:fs';
+
+const pkg = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8')) as { version: string };
 
 const host = process.env.TAURI_DEV_HOST;
 
 export default defineConfig({
   plugins: [react(), tailwindcss()],
   resolve: { alias: { '@': path.resolve(import.meta.dirname, 'src') } },
+  // CI stamps the build number into package.json, so the UI and backups know the exact version.
+  define: { 'import.meta.env.VITE_APP_VERSION': JSON.stringify(pkg.version) },
   clearScreen: false,
   server: {
     port: 1420,

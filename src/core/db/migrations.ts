@@ -262,6 +262,15 @@ CREATE VIRTUAL TABLE search_index USING fts5(
 );
 `,
   },
+  {
+    version: 2,
+    name: 'task_next_occurrence_link',
+    // Links a completed recurring task to the occurrence it spawned, so completing it
+    // again after a reopen does not create a duplicate.
+    sql: `
+ALTER TABLE tasks ADD COLUMN next_task_id TEXT REFERENCES tasks(id) ON DELETE SET NULL;
+`,
+  },
 ];
 
 export const LATEST_VERSION = migrations[migrations.length - 1].version;

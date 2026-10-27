@@ -94,7 +94,7 @@ describe('structured databases', () => {
 
 describe('tasks', () => {
   it('handles subtasks, completion and recurring tasks', async () => {
-    const due = new Date(2026, 0, 31, 9).getTime();
+    const due = new Date(new Date().getFullYear() + 1, 0, 31, 9).getTime();
     const t = await s.tasks.create({ workspaceId: ws, title: 'Pay rent', dueAt: due, recurrence: 'monthly', priority: 3 });
     const sub = await s.tasks.create({ workspaceId: ws, title: 'Check bank', parentId: t.id });
     expect(sub.parent_id).toBe(t.id);
@@ -103,11 +103,35 @@ describe('tasks', () => {
     expect(next).not.toBeNull();
     expect(new Date(next!.due_at!).getMonth()).toBe(1);
     expect(new Date(next!.due_at!).getDate()).toBe(28); // clamps Jan 31 → Feb 28
-    // A second "complete" on the same task must not create another occurrence.
+    // A second "complete" on the same task must not create another occurrence…
+    expect(await s.tasks.complete(t.id)).toBeNull();
+    // …and neither may reopen + complete again.
+    await s.tasks.reopen(t.id);
     expect(await s.tasks.complete(t.id)).toBeNull();
     expect((await s.tasks.list(ws)).filter((x) => x.title === 'Pay rent')).toHaveLength(2);
     await expect(s.tasks.update(t.id, { parent_id: t.id })).rejects.toThrow();
     await expect(s.tasks.create({ workspaceId: ws, title: '   ' })).rejects.toThrow();
+  });
+
+  it('schedules an overdue recurring task in the future, without month-end drift', async () => {
+    const lastYear = new Date().getFullYear() - 1;
+    const t = await s.tasks.create({ workspaceId: ws, title: 'Invoice', dueAt: new Date(lastYear, 0, 31, 9).getTime(), recurrence: 'monthly' });
+    const next = await s.tasks.complete(t.id);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    expect(next!.due_at!).toBeGreaterThanOrEqual(today.getTime());
+    const d = new Date(next!.due_at!);
+    const last = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
+    expect(d.getDate()).toBe(Math.min(31, last)); // still anchored to the 31st, not drifted to the 28th
+  });
+
+  it('does not create a duplicate when the spawned occurrence was deleted and the task re-completed', async () => {
+    const t = await s.tasks.create({ workspaceId: ws, title: 'Water plants', dueAt: Date.now() + 86_400_000, recurrence: 'weekly' });
+    const next = await s.tasks.complete(t.id);
+    await s.tasks.remove(next!.id);
+    await s.tasks.reopen(t.id);
+    // The spawned occurrence is gone, so completing again legitimately schedules a new one.
+    expect(await s.tasks.complete(t.id)).not.toBeNull();
   });
 
   it('returns due reminders once', async () => {

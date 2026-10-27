@@ -157,6 +157,8 @@ export interface Task {
   remind_at: number | null;
   notified_at: number | null;
   recurrence: Recurrence | null;
+  /** Occurrence spawned when this recurring task was completed (guards against duplicates). */
+  next_task_id?: string | null;
   completed_at: number | null;
   sort_order: number;
   created_at: number;
