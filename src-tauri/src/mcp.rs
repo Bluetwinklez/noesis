@@ -334,11 +334,16 @@ fn client_config_paths(id: &str) -> Vec<PathBuf> {
             let mut v = Vec::new();
             #[cfg(windows)]
             {
-                if let Some(appdata) = std::env::var_os("APPDATA") {
-                    v.push(PathBuf::from(appdata).join("Claude").join("claude_desktop_config.json"));
-                }
                 // Microsoft Store build keeps its data in a virtualised folder.
                 if let Some(local) = std::env::var_os("LOCALAPPDATA") {
+                    // Current builds keep settings in %LOCALAPPDATA%\Claude-Data\claude_<package>\.
+                    if let Ok(entries) = std::fs::read_dir(PathBuf::from(&local).join("Claude-Data")) {
+                        for e in entries.flatten() {
+                            if e.file_name().to_string_lossy().starts_with("claude_") && e.path().is_dir() {
+                                v.push(e.path().join("claude_desktop_config.json"));
+                            }
+                        }
+                    }
                     if let Ok(entries) = std::fs::read_dir(PathBuf::from(local).join("Packages")) {
                         for e in entries.flatten() {
                             if e.file_name().to_string_lossy().starts_with("Claude_") {
@@ -346,6 +351,10 @@ fn client_config_paths(id: &str) -> Vec<PathBuf> {
                             }
                         }
                     }
+                }
+                // Older builds.
+                if let Some(appdata) = std::env::var_os("APPDATA") {
+                    v.push(PathBuf::from(appdata).join("Claude").join("claude_desktop_config.json"));
                 }
             }
             #[cfg(target_os = "macos")]
