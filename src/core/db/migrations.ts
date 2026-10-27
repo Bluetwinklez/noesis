@@ -262,6 +262,52 @@ CREATE VIRTUAL TABLE search_index USING fts5(
 );
 `,
   },
+  {
+    version: 2,
+    name: 'task_next_occurrence_link',
+    // Links a completed recurring task to the occurrence it spawned, so completing it
+    // again after a reopen does not create a duplicate.
+    sql: `
+ALTER TABLE tasks ADD COLUMN next_task_id TEXT REFERENCES tasks(id) ON DELETE SET NULL;
+`,
+  },
+  {
+    version: 3,
+    name: 'timeline_view_type',
+    // SQLite cannot change a CHECK constraint in place: rebuild db_views with 'timeline' allowed.
+    sql: `
+CREATE TABLE db_views_v3 (
+  id TEXT PRIMARY KEY,
+  database_id TEXT NOT NULL REFERENCES pages(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  type TEXT NOT NULL CHECK (type IN ('table','board','calendar','timeline','list','gallery')),
+  config_json TEXT NOT NULL DEFAULT '{}',
+  sort_order REAL NOT NULL DEFAULT 0
+);
+INSERT INTO db_views_v3(id, database_id, name, type, config_json, sort_order) SELECT id, database_id, name, type, config_json, sort_order FROM db_views;
+DROP TABLE db_views;
+ALTER TABLE db_views_v3 RENAME TO db_views;
+`,
+  },
+  {
+    version: 4,
+    name: 'rollup_property_type',
+    // Same rebuild for db_properties, allowing 'rollup' (two-way relations live in options_json).
+    sql: `
+CREATE TABLE db_properties_v4 (
+  id TEXT PRIMARY KEY,
+  database_id TEXT NOT NULL REFERENCES pages(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  type TEXT NOT NULL CHECK (type IN ('title','text','number','date','checkbox','select','multi_select','url','relation','status','formula','rollup')),
+  options_json TEXT NOT NULL DEFAULT '{}',
+  sort_order REAL NOT NULL DEFAULT 0
+);
+INSERT INTO db_properties_v4(id, database_id, name, type, options_json, sort_order) SELECT id, database_id, name, type, options_json, sort_order FROM db_properties;
+DROP TABLE db_properties;
+ALTER TABLE db_properties_v4 RENAME TO db_properties;
+CREATE INDEX idx_props_db ON db_properties(database_id, sort_order);
+`,
+  },
 ];
 
 export const LATEST_VERSION = migrations[migrations.length - 1].version;

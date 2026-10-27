@@ -25,6 +25,8 @@ export type ThemePref = 'light' | 'dark' | 'system';
 export interface Prefs {
   theme: ThemePref;
   accentHue: number;
+  /** Colour palette id (see app/palettes.ts). */
+  palette: string;
   sidebarWidth: number;
   sidebarCollapsed: boolean;
   editorFontSize: number;
@@ -35,11 +37,18 @@ export interface Prefs {
   cloudConsents: string[];
   onboarded: boolean;
   lastBackupAt: number | null;
+  /** Check GitHub for new builds on start and every few hours (desktop only). */
+  checkUpdates: boolean;
+  /** Install a downloaded update when the app is closed, without asking. */
+  autoInstallUpdates: boolean;
+  /** Local MCP endpoint for external AI assistants (desktop only). */
+  mcpEnabled: boolean;
 }
 
 export const DEFAULT_PREFS: Prefs = {
   theme: 'system',
   accentHue: 252,
+  palette: 'paper',
   sidebarWidth: 264,
   sidebarCollapsed: false,
   editorFontSize: 16,
@@ -49,6 +58,9 @@ export const DEFAULT_PREFS: Prefs = {
   cloudConsents: [],
   onboarded: false,
   lastBackupAt: null,
+  checkUpdates: true,
+  autoInstallUpdates: true,
+  mcpEnabled: false,
 };
 
 export interface Toast {

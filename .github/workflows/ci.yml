@@ -17,8 +17,8 @@ jobs:
     name: Typecheck, unit/integration, e2e
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
         with:
           node-version: 24
           cache: npm
@@ -26,11 +26,15 @@ jobs:
       - run: npm run typecheck
       - run: npm test
       - run: npm audit --audit-level=high --omit=dev
+      - name: Rust dependency audit
+        run: |
+          cargo install cargo-audit --locked
+          cd src-tauri && cargo audit
       - run: npx playwright install --with-deps chromium
       - run: npx playwright test
         env:
           PW_CHANNEL: chromium
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v5
         if: failure()
         with:
           name: playwright-report
@@ -40,8 +44,8 @@ jobs:
     name: Windows build + Rust tests
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
         with:
           node-version: 24
           cache: npm
@@ -86,7 +90,7 @@ jobs:
           for ($i = 0; $i -lt 30 -and (Test-Path $exe); $i++) { Start-Sleep -Seconds 1 }
           if (Test-Path $exe) { throw "uninstall left $exe behind" }
           Write-Host 'Install / launch / uninstall OK'
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v5
         with:
           name: noesis-windows-x64-unsigned
           path: |

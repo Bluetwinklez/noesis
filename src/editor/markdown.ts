@@ -17,10 +17,22 @@ export function looksLikeMarkdown(text: string): boolean {
   return lines.filter((l) => block.test(l)).length >= 1 && lines.some((l) => l.trim().length > 0);
 }
 
+const PURIFY = {
+  ADD_ATTR: ['data-type', 'data-checked'],
+  FORBID_TAGS: ['style', 'script', 'iframe', 'form'],
+  // DOMPurify's default list plus the app's own internal schemes (page links, stored images).
+  ALLOWED_URI_REGEXP: /^(?:(?:https?|mailto|tel|noesis|attachment):|[^a-z]|[a-z+.-]+(?:[^a-z+.\-:]|$))/i,
+};
+
+/** Sanitizes untrusted HTML (e.g. a clipped web page) before it is turned into a document. */
+export function sanitizeHtml(html: string): string {
+  return DOMPurify.sanitize(html, { ...PURIFY, FORBID_TAGS: [...PURIFY.FORBID_TAGS, 'nav', 'button', 'input', 'select', 'textarea', 'svg', 'video', 'audio', 'object', 'embed'] });
+}
+
 /** Markdown → sanitized HTML that the editor can load. Task lists become Tiptap task lists. */
 export function markdownToHtml(md: string): string {
   const raw = marked.parse(md, { async: false, gfm: true, breaks: false }) as string;
-  const clean = DOMPurify.sanitize(raw, { ADD_ATTR: ['data-type', 'data-checked'], FORBID_TAGS: ['style', 'script', 'iframe', 'form'] });
+  const clean = DOMPurify.sanitize(raw, PURIFY);
   if (typeof DOMParser === 'undefined') return clean;
   const doc = new DOMParser().parseFromString(`<body>${clean}</body>`, 'text/html');
   doc.querySelectorAll('ul').forEach((ul) => {

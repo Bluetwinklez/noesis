@@ -1,10 +1,16 @@
 name: Release
 
-# Builds the Windows installers for a version tag, smoke-tests the installer, and
-# publishes them with SHA-256 checksums as a GitHub pre-release. Installers are
-# UNSIGNED unless code-signing is configured separately (see docs/releases/README.md).
+# Two kinds of release:
+# - Every push to main becomes a continuous build `v<major>.<minor>.<run number>`.
+#   Its signed installer and latest.json let installed apps update themselves.
+#   This requires the TAURI_SIGNING_PRIVATE_KEY secret (see docs/releases/README.md);
+#   without it the build is still tested but nothing is published.
+# - A pushed `vX.Y.Z` tag publishes that exact version as a pre-release (versions in
+#   the repository must already match the tag).
+# Installers are not Authenticode-signed; updates are verified with the updater key.
 on:
   push:
+    branches: [main]
     tags: ['v*']
 
 permissions:
@@ -19,12 +25,13 @@ jobs:
     name: Validate release and browser workflows
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
         with:
           node-version: 24
           cache: npm
-      - run: node scripts/check-release.mjs
+      - if: startsWith(github.ref, 'refs/tags/')
+        run: node scripts/check-release.mjs
         env:
           RELEASE_TAG: ${{ github.ref_name }}
       - run: npm ci
@@ -35,19 +42,24 @@ jobs:
       - run: npm run e2e
         env:
           PW_CHANNEL: chromium
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v5
         if: failure()
         with:
           name: release-browser-report
           path: playwright-report/
+
   windows-release:
     needs: validate
     runs-on: windows-latest
     permissions:
       contents: write
+    env:
+      HAS_UPDATER_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY != '' }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0 # release notes for continuous builds list commits since the last release
+      - uses: actions/setup-node@v5
         with:
           node-version: 24
           cache: npm
@@ -55,28 +67,75 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: src-tauri
+      - name: Decide version
+        shell: pwsh
+        run: |
+          if ($env:GITHUB_REF_TYPE -eq 'tag') {
+            $tag = $env:GITHUB_REF_NAME
+            $kind = 'tag'
+          } else {
+            $base = (Get-Content package.json | ConvertFrom-Json).version.Split('.')
+            $tag = "v$($base[0]).$($base[1]).$($env:GITHUB_RUN_NUMBER)"
+            node scripts/set-version.mjs $tag.TrimStart('v')
+            $kind = 'continuous'
+            $subject = git log -1 --format=%s
+            $body = git log -1 --format=%b
+            Set-Content "docs/releases/$tag.md" "# Noesis $tag`n`nContinuous build from ``main`` ($($env:GITHUB_SHA.Substring(0,7))).`n`n## Change`n`n**$subject**`n`n$body`n`nInstalled copies of Noesis download this update automatically. See the README for first-time installation."
+          }
+          "RELEASE_TAG=$tag" >> $env:GITHUB_ENV
+          "RELEASE_KIND=$kind" >> $env:GITHUB_ENV
+          Write-Host "Building $tag ($kind)"
       - run: npm ci
       - run: npm test
       - run: npm run build
       - name: Rust tests
         working-directory: src-tauri
         run: cargo test --locked
-      - run: npx tauri build
+      - name: Build installers
+        shell: pwsh
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: |
+          if ($env:HAS_UPDATER_KEY -eq 'true') {
+            npx tauri build --config '{\"bundle\":{\"createUpdaterArtifacts\":true}}'
+          } else {
+            Write-Host '::warning::TAURI_SIGNING_PRIVATE_KEY is not set: building without update signatures; installed apps cannot auto-update to this build.'
+            npx tauri build
+          }
+          if ($LASTEXITCODE -ne 0) { throw 'tauri build failed' }
       - name: Install, launch and uninstall smoke test
         shell: pwsh
         run: ./scripts/windows-smoke.ps1
-      - name: Collect artifacts and checksums
+      - name: Collect artifacts, checksums and update manifest
         shell: pwsh
         run: |
           New-Item -ItemType Directory out | Out-Null
-          Get-ChildItem src-tauri/target/release/bundle -Recurse -Include *.exe,*.msi | Copy-Item -Destination out
-          Get-ChildItem out | ForEach-Object { "{0}  {1}" -f (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLower(), $_.Name } | Set-Content out/SHA256SUMS.txt
-      - name: Publish pre-release
+          Get-ChildItem src-tauri/target/release/bundle -Recurse -Include *.exe,*.msi,*.sig | Copy-Item -Destination out
+          Compress-Archive -Path extensions/web-clipper/* -DestinationPath out/noesis-web-clipper.zip
+          Get-ChildItem out -Exclude *.sig | ForEach-Object { "{0}  {1}" -f (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLower(), $_.Name } | Set-Content out/SHA256SUMS.txt
+          if ($env:HAS_UPDATER_KEY -eq 'true') {
+            node scripts/make-latest-json.mjs $env:RELEASE_TAG out (git log -1 --format=%s)
+          }
+      - name: Publish
+        if: env.RELEASE_KIND == 'tag' || env.HAS_UPDATER_KEY == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ github.ref_name }}
         shell: pwsh
         run: |
           $notes = "docs/releases/$env:RELEASE_TAG.md"
+          if ($env:RELEASE_KIND -ne 'tag' -and !(Test-Path $notes)) {
+            # Continuous builds have no hand-written notes: list the commits since the previous release.
+            $prev = gh release view --json tagName -q .tagName 2>$null
+            $log = if ($prev) { git log --no-merges --format='- %s' "$prev..HEAD" } else { git log --no-merges -20 --format='- %s' }
+            $notes = "$env:RUNNER_TEMP/notes.md"
+            @("Automatic build from ``main``. Installed copies update themselves.", '', '## Changes', $log) | Set-Content $notes
+          }
           if (!(Test-Path $notes)) { throw "missing release notes $notes" }
-          gh release create "$env:RELEASE_TAG" (Get-ChildItem out/*).FullName --verify-tag --prerelease --title "Noesis $env:RELEASE_TAG — Knowledge Workspace Preview" --notes-file $notes
+          $files = (Get-ChildItem out/*).FullName
+          if ($env:RELEASE_KIND -eq 'tag') {
+            gh release create "$env:RELEASE_TAG" $files --verify-tag --prerelease --title "Noesis $env:RELEASE_TAG — Knowledge Workspace Preview" --notes-file $notes
+          } else {
+            # Continuous builds are full releases so /releases/latest (and the updater) can find them.
+            gh release create "$env:RELEASE_TAG" $files --target $env:GITHUB_SHA --latest --title "Noesis $env:RELEASE_TAG" --notes-file $notes
+          }

@@ -10,6 +10,9 @@ import { createPage } from '../features/actions';
 import { savePrefs } from './services';
 import { HomePage } from '../features/home/HomePage';
 import { AiPreviewHost } from '../features/ai/AiPreview';
+import { UpdateBanner } from '../components/shell/UpdateBanner';
+import { McpApprovalDialog } from '../features/mcp/McpApprovalDialog';
+import { QuickCapture, openQuickCapture } from '../features/capture/QuickCapture';
 
 // The editor (Tiptap/ProseMirror) and first-run flow are the heaviest modules; keep them out of the startup chunk.
 const PageView = lazy(() => import('../features/pages/PageView').then((m) => ({ default: m.PageView })));
@@ -66,7 +69,11 @@ function useGlobalShortcuts() {
     const onKey = (e: KeyboardEvent) => {
       const st = useApp.getState();
       const mod = e.ctrlKey || e.metaKey;
-      if (mod && e.key.toLowerCase() === 'k') {
+      if (mod && e.shiftKey && e.code === 'Space') {
+        // In-app fallback for the system-wide shortcut (and the browser preview).
+        e.preventDefault();
+        openQuickCapture();
+      } else if (mod && e.key.toLowerCase() === 'k') {
         e.preventDefault();
         st.setPaletteOpen(!st.paletteOpen);
       } else if (mod && e.altKey && e.key.toLowerCase() === 'n') {
@@ -140,6 +147,9 @@ export function App() {
       </main>
       <CommandPalette />
       <ToastHost />
+      <UpdateBanner />
+      <McpApprovalDialog />
+      <QuickCapture />
       <ConsentModal />
       <AiPreviewHost />
       <DialogHost labels={{ ok: 'OK', cancel: t('common.cancel') }} />

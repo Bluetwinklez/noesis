@@ -275,3 +275,139 @@ test('pasting plain-text markdown creates structured blocks', async ({ page }) =
   await expect(editor(page).locator('ul[data-type="taskList"]')).toContainText('follow up');
   await expect(editor(page)).not.toContainText('## Agenda');
 });
+
+test('import a Notion export with nested pages, links and a database', async ({ page }) => {
+  const JSZip = (await import('jszip')).default;
+  const z = new JSZip();
+  const id = '0123456789abcdef0123456789abcdef';
+  z.file(`Export-1/Garden ${id}.md`, `# Garden\n\nSee [Seeds](Garden%20${id}/Seeds%20aaaabbbbccccddddeeeeffff00001111.md).`);
+  z.file(`Export-1/Garden ${id}/Seeds aaaabbbbccccddddeeeeffff00001111.md`, '# Seeds\n\nSow tomatoes in March.');
+  z.file(`Export-1/Garden ${id}/Plants bbbbccccddddeeeeffff000011112222.csv`, 'Name,Height\nTomato,120\nBasil,40\n');
+  const zipPath = test.info().outputPath('notion.zip');
+  const { writeFileSync } = await import('node:fs');
+  writeFileSync(zipPath, await z.generateAsync({ type: 'uint8array' }));
+
+  await freshApp(page);
+  await onboard(page);
+  await page.getByRole('button', { name: 'Settings' }).click();
+  await page.getByRole('button', { name: 'Storage & backups' }).click();
+  const chooser = page.waitForEvent('filechooser');
+  await page.getByRole('button', { name: 'Import…' }).click();
+  await (await chooser).setFiles(zipPath);
+  await expect(page.getByText('Imported 2 pages, 1 database and 0 images.')).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByLabel('Page title')).toHaveValue('Imported from Notion');
+  await page.getByRole('treeitem', { name: /Imported from Notion/ }).getByRole('button', { name: 'Expand' }).click();
+  await page.getByRole('treeitem', { name: /^.*Garden/ }).click();
+  await expect(editor(page).getByRole('link', { name: 'Seeds' })).toBeVisible();
+  await page.getByRole('button', { name: 'Search', exact: true }).click();
+  await page.getByLabel('Search pages, notes, documents, tasks…').fill('tomatoes');
+  await expect(page.getByRole('listbox')).toContainText('Seeds');
+});
+
+test('quick capture saves a note to the Inbox', async ({ page }) => {
+  await freshApp(page);
+  await onboard(page);
+  await page.keyboard.press('Control+Shift+Space');
+  await page.getByLabel('Title (optional)').fill('Idea');
+  await page.getByLabel('Write anything — Markdown works. It goes to your Inbox page.').fill('- call the printer\n- **buy** paper');
+  await page.keyboard.press('Control+Enter');
+  await expect(page.getByText('Saved to Inbox.')).toBeVisible();
+  await page.getByRole('treeitem', { name: /Inbox/ }).getByRole('button', { name: 'Expand' }).click();
+  await page.getByRole('treeitem', { name: /Idea/ }).click();
+  await expect(editor(page).locator('strong')).toHaveText('buy');
+});
+
+test('images are read with offline OCR, without an AI provider', async ({ page, browser }) => {
+  test.setTimeout(180_000);
+  // Render a crisp text image to import.
+  const shot = await browser.newPage({ viewport: { width: 900, height: 220 } });
+  await shot.setContent('<body style="margin:0;background:#fff"><p style="font:48px Arial;margin:40px">Chlorophyll absorbs sunlight</p></body>');
+  const pngPath = test.info().outputPath('ocr.png');
+  await shot.screenshot({ path: pngPath });
+  await shot.close();
+
+  await freshApp(page);
+  await onboard(page);
+  await page.getByRole('button', { name: 'Sources' }).click();
+  const chooser = page.waitForEvent('filechooser');
+  await page.getByRole('button', { name: 'Import files' }).first().click();
+  await (await chooser).setFiles(pngPath);
+  await expect(page.getByText('Ready').first()).toBeVisible({ timeout: 120_000 });
+  await page.getByText('ocr', { exact: true }).click();
+  await expect(page.getByLabel('Extracted text')).toContainText(/Chlorophyll absorbs sunlight/i);
+
+  // A "scanned" PDF: the page is only an image, so there is no text layer to extract.
+  const { readFileSync } = await import('node:fs');
+  const pdfPage = await browser.newPage();
+  await pdfPage.setContent(`<img style="width:100%" src="data:image/png;base64,${readFileSync(pngPath).toString('base64')}">`);
+  const pdfPath = test.info().outputPath('scan.pdf');
+  await pdfPage.pdf({ path: pdfPath, format: 'A4' });
+  await pdfPage.close();
+  await page.keyboard.press('Escape');
+  const chooser2 = page.waitForEvent('filechooser');
+  await page.getByRole('button', { name: 'Import files' }).first().click();
+  await (await chooser2).setFiles(pdfPath);
+  await expect(page.getByText('Ready')).toHaveCount(2, { timeout: 120_000 });
+  await page.getByText('scan', { exact: true }).click();
+  await expect(page.getByLabel('Extracted text')).toContainText(/absorbs sunlight/i);
+});
+
+test('database timeline view shows dated rows and persists', async ({ page }) => {
+  const db = await freshApp(page);
+  await onboard(page, { sample: true });
+  await page.getByRole('treeitem', { name: /Projects/ }).getByRole('button', { name: 'Expand' }).click();
+  await page.getByRole('treeitem', { name: /Reading list/ }).click();
+  await page.getByRole('button', { name: 'Add view' }).click();
+  await page.getByRole('menuitem', { name: 'Timeline' }).click();
+  await expect(page.getByRole('grid', { name: 'Timeline' }).getByRole('gridcell')).toHaveCount(3);
+  await page.waitForTimeout(600);
+  await page.goto(`/?db=${db}`);
+  await page.getByRole('treeitem', { name: /Projects/ }).getByRole('button', { name: 'Expand' }).click();
+  await page.getByRole('treeitem', { name: /Reading list/ }).click();
+  await expect(page.getByRole('tab', { name: /Timeline/ })).toBeVisible();
+});
+
+test('two-way relation keeps both sides linked and a rollup sums linked rows', async ({ page }) => {
+  await freshApp(page);
+  await onboard(page, { sample: true });
+  await page.getByRole('treeitem', { name: /Projects/ }).getByRole('button', { name: 'Expand' }).click();
+  await page.getByRole('treeitem', { name: /Reading list/ }).click();
+  const grid = page.getByRole('grid');
+  // Self-relation, two-way: adds "Reading list" and its paired back-link column.
+  await page.getByRole('button', { name: 'Add property' }).click();
+  await page.getByRole('menuitem', { name: 'Relation' }).click();
+  await expect(page.getByLabel('Two-way: also show the link in the other database')).toBeChecked();
+  await page.getByRole('dialog').getByRole('button', { name: /Reading list/ }).click();
+  const headers = grid.locator('thead th');
+  await expect(headers.filter({ hasText: 'Reading list' })).toHaveCount(2);
+  const names = await headers.allInnerTexts();
+  const fwd = names.findIndex((n) => n.includes('Reading list'));
+  const back = names.findIndex((n, i) => i > fwd && n.includes('Reading list'));
+  const row = (title: RegExp) => grid.getByRole('row').filter({ has: page.locator('td:nth-child(2)', { hasText: title }) });
+  await row(/Scientific Revolutions/).locator('td').nth(fwd).getByRole('button').first().click();
+  await page.locator('button').filter({ has: page.locator('input[type=checkbox]'), hasText: 'Thinking, Fast and Slow' }).click();
+  await page.keyboard.press('Escape');
+  await expect(row(/Thinking, Fast/).locator('td').nth(back)).toContainText('The Structure of Scientific Revolutions');
+  // Rollup: sum of the linked rows' pages.
+  await page.getByRole('button', { name: 'Add property' }).click();
+  await page.getByRole('menuitem', { name: 'Rollup' }).click();
+  await page.getByLabel('Property of the linked rows').selectOption({ label: 'Pages' });
+  await page.getByLabel('Calculate').selectOption({ label: 'Sum' });
+  await page.getByRole('dialog').getByRole('button', { name: 'Save' }).click();
+  const rollupCol = (await headers.allInnerTexts()).findIndex((n) => n.includes('Rollup'));
+  await expect(row(/Scientific Revolutions/).locator('td').nth(rollupCol)).toHaveText('499');
+});
+
+test('a page exports straight to a PDF file', async ({ page }) => {
+  await freshApp(page);
+  await onboard(page, { sample: true });
+  await page.getByRole('treeitem', { name: /Welcome tour/ }).click();
+  const dl = page.waitForEvent('download');
+  await page.getByRole('button', { name: 'Page menu' }).click();
+  await page.getByRole('menuitem', { name: 'Export as PDF' }).click();
+  const file = await dl;
+  expect(file.suggestedFilename()).toMatch(/\.pdf$/);
+  const bytes = await (await import('node:fs/promises')).readFile((await file.path())!);
+  expect(bytes.subarray(0, 5).toString()).toBe('%PDF-');
+  expect(bytes.length).toBeGreaterThan(5_000); // embedded (subset) font + content
+});

@@ -60,7 +60,10 @@ export type PropertyType =
   | 'url'
   | 'relation'
   | 'status'
-  | 'formula';
+  | 'formula'
+  | 'rollup';
+
+export type RollupFn = 'count' | 'count_values' | 'sum' | 'average' | 'min' | 'max' | 'show' | 'percent_checked';
 
 export interface SelectOption {
   id: string;
@@ -72,6 +75,10 @@ export interface PropertyOptions {
   options?: SelectOption[];
   /** relation target database id */
   relationDatabaseId?: string;
+  /** relation: the paired property in the target database, kept in sync (two-way relation) */
+  relationPropertyId?: string;
+  /** rollup: aggregates a property of the rows linked through a relation property of this database */
+  rollup?: { relationPropertyId: string; targetPropertyId: string | null; fn: RollupFn };
   /** formula expression, e.g. prop("Price") * prop("Qty") */
   expression?: string;
   numberFormat?: 'plain' | 'percent' | 'currency';
@@ -97,7 +104,7 @@ export interface DbRow {
   updated_at: number;
 }
 
-export type ViewType = 'table' | 'board' | 'calendar' | 'list' | 'gallery';
+export type ViewType = 'table' | 'board' | 'calendar' | 'timeline' | 'list' | 'gallery';
 
 export type FilterOp =
   | 'contains'
@@ -127,6 +134,8 @@ export interface ViewConfig {
   sorts?: ViewSort[];
   groupBy?: string;
   dateProperty?: string;
+  /** Timeline view: optional end date property (bars span start → end). */
+  endDateProperty?: string;
   hiddenProperties?: string[];
   calendarMonth?: string;
 }
@@ -157,6 +166,8 @@ export interface Task {
   remind_at: number | null;
   notified_at: number | null;
   recurrence: Recurrence | null;
+  /** Occurrence spawned when this recurring task was completed (guards against duplicates). */
+  next_task_id?: string | null;
   completed_at: number | null;
   sort_order: number;
   created_at: number;
