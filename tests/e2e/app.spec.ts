@@ -411,3 +411,35 @@ test('a page exports straight to a PDF file', async ({ page }) => {
   expect(bytes.subarray(0, 5).toString()).toBe('%PDF-');
   expect(bytes.length).toBeGreaterThan(5_000); // embedded (subset) font + content
 });
+
+test('export everything and import it on another computer', async ({ page }) => {
+  await freshApp(page);
+  await onboard(page, { sample: true });
+  await page.getByRole('button', { name: 'Settings' }).click();
+  await page.getByRole('button', { name: 'Storage & backups' }).click();
+  const dl = page.waitForEvent('download');
+  await page.getByRole('button', { name: 'Export all…' }).click();
+  const file = await dl;
+  expect(file.suggestedFilename()).toMatch(/^Noesis .+\.zip$/);
+  const zipPath = test.info().outputPath('export.zip');
+  await file.saveAs(zipPath);
+  await expect(page.getByText(/Exported \d+ pages, 1 database/)).toBeVisible();
+
+  // "Another computer": a brand-new, empty workspace database.
+  await freshApp(page, 'second computer');
+  await onboard(page);
+  await page.getByRole('button', { name: 'Settings' }).click();
+  await page.getByRole('button', { name: 'Storage & backups' }).click();
+  const chooser = page.waitForEvent('filechooser');
+  await page.getByRole('button', { name: 'Import…' }).click();
+  await (await chooser).setFiles(zipPath);
+  await expect(page.getByText(/Also restored 3 tasks and 1 source/)).toBeVisible({ timeout: 20_000 });
+  await page.getByRole('treeitem', { name: /Imported from Noesis/ }).getByRole('button', { name: 'Expand' }).click();
+  await page.getByRole('treeitem', { name: /Welcome tour/ }).click();
+  await expect(editor(page)).toContainText('Your notes are stored only on this computer.');
+  await page.getByRole('treeitem', { name: /Projects/ }).getByRole('button', { name: 'Expand' }).click();
+  await page.getByRole('treeitem', { name: /Reading list/ }).click();
+  await expect(page.getByText('Thinking, Fast and Slow')).toBeVisible();
+  await page.getByRole('button', { name: 'Tasks', exact: true }).click();
+  await expect(page.getByText('Finish literature review')).toBeVisible();
+});

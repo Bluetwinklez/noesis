@@ -125,6 +125,11 @@ export class PageRepo {
     );
   }
 
+  /** Every page that is not in the trash, with content (full export). */
+  listAllLive(workspaceId: string) {
+    return this.db.all<Page>('SELECT * FROM pages WHERE workspace_id = ? AND deleted_at IS NULL ORDER BY sort_order, created_at', [workspaceId]);
+  }
+
   listRecentlyEdited(workspaceId: string, limit = 20) {
     return this.db.all<PageMeta>(
       `SELECT ${META_COLS} FROM pages WHERE workspace_id = ? AND deleted_at IS NULL AND kind = 'page'

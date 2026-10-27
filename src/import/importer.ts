@@ -6,6 +6,8 @@
  * - Notion links to other exported pages, Obsidian [[wikilinks]] and
  *   ![[embeds]] become Noesis page links and stored images.
  * - Notion database CSVs become databases (text / number / checkbox / URL columns).
+ * - Noesis's own export (exporter.ts) round-trips: exact titles and icons from
+ *   its manifest, tasks restored as tasks, sources handed back for re-ingestion.
  * Everything happens in two passes, so links can point at pages created later.
  */
 import JSZip from 'jszip';
@@ -15,6 +17,7 @@ import { htmlToDoc } from '../editor/serialize';
 import { markdownToHtml } from '../editor/markdown';
 import { parseCsv } from '../ingestion/extractors';
 import { sha256Hex } from '../lib/util';
+import { DATA_DIR, EXPORT_FORMAT, type ExportManifest, type ExportedSource, type ExportedTask } from '../export/exporter';
 
 export interface ImportFile {
   path: string;
@@ -25,7 +28,12 @@ export interface BlobPut {
   put(name: string, bytes: Uint8Array): Promise<string>;
 }
 
-export type ImportSource = 'notion' | 'obsidian' | 'markdown';
+export type ImportSource = 'notion' | 'obsidian' | 'markdown' | 'noesis';
+
+/** A research source from a Noesis export, to be re-added through the ingestion pipeline. */
+export interface PendingSource extends Omit<ExportedSource, 'file'> {
+  file: ImportFile | null;
+}
 
 export interface ImportResult {
   rootId: string;
@@ -33,6 +41,9 @@ export interface ImportResult {
   pages: number;
   databases: number;
   images: number;
+  tasks: number;
+  /** Research sources (Noesis exports only); the caller re-ingests them. */
+  sources: PendingSource[];
   skipped: string[];
 }
 
@@ -82,10 +93,11 @@ function splitFrontMatter(md: string): { body: string; tags: string[] } {
   return { body: md.slice(m[0].length), tags: tags.filter(Boolean).map((t) => t.replace(/^#/, '')) };
 }
 
-function guessType(values: string[]): 'number' | 'checkbox' | 'url' | 'text' {
+function guessType(values: string[]): 'number' | 'checkbox' | 'url' | 'date' | 'text' {
   const filled = values.filter((v) => v.trim() !== '');
   if (!filled.length) return 'text';
   if (filled.every((v) => /^(yes|no|true|false)$/i.test(v.trim()))) return 'checkbox';
+  if (filled.every((v) => /^\d{4}-\d{2}-\d{2}$/.test(v.trim()))) return 'date';
   if (filled.every((v) => /^-?\d+([.,]\d+)?$/.test(v.trim()))) return 'number';
   if (filled.every((v) => /^https?:\/\/\S+$/i.test(v.trim()))) return 'url';
   return 'text';
@@ -98,16 +110,29 @@ export async function importWorkspace(
   opts: { blobs: BlobPut; rootTitle: (source: ImportSource) => string; onProgress?: (done: number, total: number) => void },
 ): Promise<ImportResult> {
   const files = await expandInputs(input);
-  const source: ImportSource = files.some((f) => NOTION_ID.test(stripExt(base(f.path))) || f.path.split('/').some((seg) => NOTION_ID.test(seg)))
+  const isData = (f: ImportFile) => f.path.toLowerCase().startsWith(DATA_DIR.toLowerCase() + '/');
+  const manifestFile = files.find((f) => keyOf(f.path) === keyOf(`${DATA_DIR}/manifest.json`));
+  const manifest = manifestFile ? parseManifest(manifestFile.bytes) : null;
+  const meta = new Map((manifest?.pages ?? []).map((p) => [keyOf(p.path), p]));
+  const dataJson = <T,>(name: string, fallback: T): T => {
+    const f = files.find((x) => keyOf(x.path) === keyOf(`${DATA_DIR}/${name}`));
+    try {
+      return f ? (JSON.parse(decoder.decode(f.bytes)) as T) : fallback;
+    } catch {
+      return fallback;
+    }
+  };
+  const source: ImportSource = manifest ? 'noesis' : files.some((f) => NOTION_ID.test(stripExt(base(f.path))) || f.path.split('/').some((seg) => NOTION_ID.test(seg)))
     ? 'notion'
     : files.some((f) => /\[\[[^\]]+\]\]/.test(f.path.endsWith('.md') ? decoder.decode(f.bytes.subarray(0, 20_000)) : ''))
       ? 'obsidian'
       : 'markdown';
-  const notes = files.filter((f) => /\.md$/i.test(f.path));
-  const csvs = files.filter((f) => /\.csv$/i.test(f.path) && !/_all\.csv$/i.test(f.path));
+  // "Noesis data/" holds tasks, sources and files of a Noesis export, not pages.
+  const notes = files.filter((f) => /\.md$/i.test(f.path) && !(manifest && isData(f)));
+  const csvs = files.filter((f) => /\.csv$/i.test(f.path) && !/_all\.csv$/i.test(f.path) && !(manifest && isData(f)));
   const images = new Map(files.filter((f) => IMAGE_EXT.test(f.path)).map((f) => [keyOf(f.path), f]));
   const imagesByName = new Map(files.filter((f) => IMAGE_EXT.test(f.path)).map((f) => [base(f.path).toLowerCase(), f]));
-  const skipped = files.filter((f) => !/\.(md|csv)$/i.test(f.path) && !IMAGE_EXT.test(f.path)).map((f) => f.path);
+  const skipped = files.filter((f) => !/\.(md|csv)$/i.test(f.path) && !IMAGE_EXT.test(f.path) && !(manifest && isData(f))).map((f) => f.path);
   if (!notes.length && !csvs.length) throw new Error('No Markdown (.md) or CSV files were found. Export from Notion as “Markdown & CSV”, or choose an Obsidian vault folder zip.');
 
   const root = await repos.pages.create({ workspaceId, title: opts.rootTitle(source), icon: '📥' });
@@ -138,13 +163,15 @@ export async function importWorkspace(
   let databases = 0;
   for (const f of ordered) {
     const parentId = await ensureFolder(dir(f.path));
-    const title = cleanName(base(f.path));
+    const known = meta.get(keyOf(f.path));
+    const title = known?.title ?? cleanName(base(f.path));
     if (/\.csv$/i.test(f.path)) {
       const db = await repos.databases.createDatabase(workspaceId, title, parentId);
+      if (known?.icon) await repos.pages.updateMeta(db.id, { icon: known.icon });
       pageByPath.set(keyOf(f.path), db.id);
       databases++;
     } else {
-      const page = await repos.pages.create({ workspaceId, parentId, title });
+      const page = await repos.pages.create({ workspaceId, parentId, title, icon: known?.icon ?? null });
       pageByPath.set(keyOf(f.path), page.id);
       if (!pageByTitle.has(title.toLowerCase())) pageByTitle.set(title.toLowerCase(), page.id);
     }
@@ -178,8 +205,9 @@ export async function importWorkspace(
     const title = cleanName(base(f.path));
     const { body, tags } = splitFrontMatter(decoder.decode(f.bytes));
     let md = body.replace(/^﻿/, '');
-    // Notion repeats the title as the first heading.
-    md = md.replace(new RegExp(`^\\s*#\\s+${title.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*\\n`, 'i'), '');
+    // Noesis exports start with the title as H1; Notion repeats the title as the first heading.
+    if (manifest) md = md.replace(/^\s*#\s+.*\n/, '');
+    else md = md.replace(new RegExp(`^\\s*#\\s+${title.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*\\n`, 'i'), '');
 
     // Obsidian embeds ![[image.png]] and wikilinks [[Page]] / [[Page|alias]] / [[Page#heading]].
     const pending: Promise<void>[] = [];
@@ -229,8 +257,15 @@ export async function importWorkspace(
       const status = props.find((p) => p.type === 'status');
       if (status && !header.some((h) => h.trim().toLowerCase() === 'status')) await repos.databases.removeProperty(status.id);
       const columnProps: (string | null)[] = [titleProp.id];
+      let statusCol = -1;
       for (let c = 1; c < header.length; c++) {
         const name = header[c].trim() || `Column ${c + 1}`;
+        // A "Status" column fills the database's own status property instead of adding a second one.
+        if (status && statusCol < 0 && name.toLowerCase() === 'status') {
+          statusCol = c;
+          columnProps.push(status.id);
+          continue;
+        }
         const type = guessType(data.map((r) => r[c] ?? ''));
         columnProps.push((await repos.databases.addProperty(dbId, name, type)).id);
       }
@@ -243,13 +278,57 @@ export async function importWorkspace(
           if (!pid) return;
           const type = types.find((p) => p.id === pid)?.type;
           const raw = v.trim();
+          if (c === statusCol) return; // set below through the option list
           values[pid] = type === 'number' ? (raw ? Number(raw.replace(',', '.')) : null) : type === 'checkbox' ? /^(yes|true)$/i.test(raw) : raw;
         });
+        if (statusCol > 0 && status && r[statusCol]?.trim()) values[status.id] = (await repos.databases.ensureOption(status.id, r[statusCol].trim())).id;
         await repos.databases.addRow(dbId, values);
       }
     }
     opts.onProgress?.(++done, notes.length + csvs.length);
   }
 
-  return { rootId: root.id, source, pages: notes.length, databases, images: imageCount, skipped };
+  // Tasks of a Noesis export: parents first, project links follow the page paths.
+  let taskCount = 0;
+  if (manifest) {
+    const list = dataJson<ExportedTask[]>('tasks.json', []);
+    const newId = new Map<string, string>();
+    const pendingTasks = [...list];
+    for (let guard = 0; pendingTasks.length && guard < 1000; guard++) {
+      const ready = pendingTasks.filter((t) => !t.parent || newId.has(t.parent) || !list.some((x) => x.ref === t.parent));
+      if (!ready.length) break;
+      for (const t of ready) {
+        const task = await repos.tasks.create({
+          workspaceId,
+          title: String(t.title ?? '').slice(0, 500) || 'Task',
+          notes: String(t.notes ?? ''),
+          parentId: t.parent ? (newId.get(t.parent) ?? null) : null,
+          projectPageId: t.project ? (pageByPath.get(keyOf(t.project)) ?? null) : null,
+          priority: Number(t.priority) || 0,
+          dueAt: t.due_at ?? null,
+          remindAt: t.remind_at ?? null,
+          recurrence: t.recurrence ?? null,
+          status: t.status,
+        });
+        newId.set(t.ref, task.id);
+        taskCount++;
+        pendingTasks.splice(pendingTasks.indexOf(t), 1);
+      }
+    }
+  }
+  const byPath = new Map(files.map((f) => [keyOf(f.path), f]));
+  const sources: PendingSource[] = manifest
+    ? dataJson<ExportedSource[]>('sources.json', []).map((s) => ({ ...s, file: s.file ? (byPath.get(keyOf(s.file)) ?? null) : null }))
+    : [];
+
+  return { rootId: root.id, source, pages: notes.length, databases, images: imageCount, tasks: taskCount, sources, skipped };
+}
+
+function parseManifest(bytes: Uint8Array): ExportManifest | null {
+  try {
+    const m = JSON.parse(decoder.decode(bytes)) as ExportManifest;
+    return m?.format === EXPORT_FORMAT ? m : null;
+  } catch {
+    return null;
+  }
 }

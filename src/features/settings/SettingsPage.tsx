@@ -25,7 +25,7 @@ import { LANGUAGES, useT, type MessageKey } from '../../i18n';
 import { Badge, Button, confirmDialog, cx, Input, Kbd, promptDialog, Select, Switch, useAsync } from '../../components/ui';
 import { activeProvider, apiKeyName, configForProvider, errorMessage, reportError, saveAiConfig, saveLang, savePrefs, setWorkspace } from '../../app/services';
 import { McpSettings } from '../mcp/McpSettings';
-import { runImport } from '../import/runImport';
+import { runExportAll, runImport } from '../import/runImport';
 import { PalettePicker } from '../../components/PalettePicker';
 import { checkForUpdates, installUpdate, setUpdatePrefs, useUpdates } from '../../app/updater';
 import { appInfo, isTauri, notify, pickFiles, revealDataDir, saveFile, secrets, blobStore } from '../../lib/platform';
@@ -435,6 +435,11 @@ function Storage() {
           })}
         >
           {t('settings.backupNow')}
+        </Button>
+      </Row>
+      <Row label={t('export.title')} hint={t('export.hint')}>
+        <Button size="sm" icon={<Download className="size-3.5" />} loading={busy === 'exportAll'} onClick={wrap('exportAll', runExportAll)}>
+          {t('export.button')}
         </Button>
       </Row>
       <Row label={t('import.title')} hint={t('import.hint')}>
