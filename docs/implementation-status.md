@@ -16,13 +16,13 @@ Status values: `done` (implemented and covered by an automated test or recorded 
 | `npx tauri build --bundles deb` | Linux | OK, `Noesis_0.1.0_amd64.deb` 6.4 MiB (release profile, LTO) |
 | Desktop smoke test (release binary under Xvfb, WebKitGTK) | Linux | onboarding → sample content → formatted page → **SIGKILL** → relaunch → content intact, `PRAGMA integrity_check = ok`. Screenshots: `docs/testing/evidence/linux-desktop-*.jpg` |
 | `npx tauri build` (NSIS/MSI) | Windows (GitHub Actions `windows-latest`, run 40470153557) | **OK.** `Noesis_0.1.0_x64-setup.exe` 5.11 MiB (`4b150f0c…49d5`), `Noesis_0.1.0_x64_en-US.msi` 6.00 MiB (`c078c95d…311f`), `Noesis_0.1.0_x64_tr-TR.msi` 6.00 MiB (`3f0b3fa0…1401`). Unsigned. Rust tests passed on Windows in the same job |
-| Silent install → launch → DB created → uninstall | Windows CI | Added in this revision; its result is reported on the PR |
+| Silent install → launch → DB created → uninstall | Windows CI (run 40472693052, `windows-latest`) | **PASS.** `Running (pid 8972); database: 4096 bytes` → `Install / launch / uninstall OK`. Installer `Noesis_0.1.0_x64-setup.exe` SHA-256 `7af8304b…cd926` |
 
 ## Acceptance scenarios (spec §27)
 
 | # | Scenario | Result | Evidence |
 |---|---|---|---|
-| 1 | Install and launch the Windows application | **PENDING (CI)** | The installer builds on Windows CI. The new CI step installs it silently, launches it and checks the database. No interactive install by a person yet |
+| 1 | Install and launch the Windows application | **PASS (automated)** | Windows CI silently installs the app, it runs for 20 s, the Rust core creates `%APPDATA%\app.noesis.desktop\noesis.db`, and uninstall removes the program. Runner is Windows Server; no interactive check on a desktop Windows 10/11 PC yet |
 | 2 | Create a workspace and nested page | PASS | E2E `create nested formatted pages…`; desktop smoke test (workspace "Desktop Smoke") |
 | 3 | Write formatted content | PASS | Same E2E (H1, bold, bullets, checklist); desktop smoke test (H1 + bold) |
 | 4–5 | Close and reopen; content preserved | PASS (browser preview, Node, Linux desktop) / BLOCKED on Windows | E2E reload; unit test `keeps pages and content after closing and reopening the database file`; desktop SIGKILL + restart screenshots |
@@ -35,7 +35,7 @@ Status values: `done` (implemented and covered by an automated test or recorded 
 | 12 | Edit offline | PASS | E2E `local editing keeps working offline` |
 | 13 | Invalid API key → recoverable error | PASS (mock AI) | E2E + unit `maps an invalid API key…`; the key is not echoed |
 | 14 | Audio overview with a supported provider | PASS (mock TTS) / unverified with a real provider | E2E `audio overview with a TTS-capable provider` |
-| 15 | Build the Windows installer and validate the installation | Build: **PASS** (CI). Install validation: **PENDING (CI step)**, plus a manual check on a real Windows 10/11 PC | See the verification table above |
+| 15 | Build the Windows installer and validate the installation | **PASS (automated)** | Build, install, launch and uninstall on Windows CI. A manual check on a real Windows 10/11 PC (SmartScreen, Start menu, UI) is still recommended |
 
 ## Features
 
@@ -86,7 +86,7 @@ Status values: `done` (implemented and covered by an automated test or recorded 
 1. Generic `db_exec` IPC (the export path issue was fixed by moving to `export_save`). See `docs/security/privacy-security.md`.
 2. The URL SSRF guard is hostname-literal only (no DNS rebinding protection).
 3. No real-provider AI test has been run.
-4. The Windows installer is unverified (scenario 15).
+4. The Windows installer has only been verified in CI, not interactively on a Windows 10/11 desktop.
 
 ```json
 {
@@ -94,11 +94,12 @@ Status values: `done` (implemented and covered by an automated test or recorded 
   "updated": "2026-10-27",
   "tests": { "vitest": { "passed": 52, "failed": 0 }, "cargo": { "passed": 10, "failed": 0 }, "playwright": { "passed": 10, "failed": 0 } },
   "acceptance": {
-    "1": "PENDING_CI", "2": "PASS", "3": "PASS", "4": "PASS", "5": "PASS", "6": "PASS", "7": "PASS",
-    "8": "PASS", "9": "PASS", "10": "PASS", "11": "PASS", "12": "PASS", "13": "PASS", "14": "PASS_MOCK", "15": "BUILD_PASS_INSTALL_PENDING"
+    "1": "PASS_AUTOMATED", "2": "PASS", "3": "PASS", "4": "PASS", "5": "PASS", "6": "PASS", "7": "PASS",
+    "8": "PASS", "9": "PASS", "10": "PASS", "11": "PASS", "12": "PASS", "13": "PASS", "14": "PASS_MOCK", "15": "PASS_AUTOMATED"
   },
   "not_started": ["youtube_ingestion", "cloud_sync", "auto_update"],
   "partial": ["pdf_export_direct", "ocr_offline", "live_ai_provider_verification", "benchmarks_desktop", "rea_competitor_research"],
-  "blocked": ["windows_install_validation", "code_signing"]
+  "blocked": ["code_signing"],
+  "manual_pending": ["interactive_install_on_windows_10_11"]
 }
 ```
