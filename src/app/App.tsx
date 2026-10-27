@@ -6,13 +6,14 @@ import { CommandPalette } from '../components/shell/CommandPalette';
 import { ToastHost, ConsentModal } from '../components/shell/Overlays';
 import { DialogHost, Spinner } from '../components/ui';
 import { useT } from '../i18n';
-import { Onboarding } from '../features/onboarding/Onboarding';
 import { createPage } from '../features/actions';
 import { savePrefs } from './services';
 import { HomePage } from '../features/home/HomePage';
-import { PageView } from '../features/pages/PageView';
 import { AiPreviewHost } from '../features/ai/AiPreview';
 
+// The editor (Tiptap/ProseMirror) and first-run flow are the heaviest modules; keep them out of the startup chunk.
+const PageView = lazy(() => import('../features/pages/PageView').then((m) => ({ default: m.PageView })));
+const Onboarding = lazy(() => import('../features/onboarding/Onboarding').then((m) => ({ default: m.Onboarding })));
 const NotesPage = lazy(() => import('../features/pages/NotesPage'));
 const WorkspacePage = lazy(() => import('../features/pages/WorkspacePage'));
 const NotebooksPage = lazy(() => import('../features/notebooks/NotebooksPage'));
@@ -113,7 +114,9 @@ export function App() {
   if (!workspaceId || !onboarded)
     return (
       <>
-        <Onboarding />
+        <Suspense fallback={null}>
+          <Onboarding />
+        </Suspense>
         <DialogHost labels={{ ok: 'OK', cancel: t('common.cancel') }} />
       </>
     );

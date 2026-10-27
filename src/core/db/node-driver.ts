@@ -1,12 +1,14 @@
-import { DatabaseSync } from 'node:sqlite';
+import type { DatabaseSync as DatabaseSyncT } from 'node:sqlite';
 import type { ExecResult, SqlDriver, SqlValue } from './driver';
 
 /** node:sqlite backend used by the automated test-suite and CLI tooling. */
 export class NodeDriver implements SqlDriver {
   readonly kind = 'node' as const;
-  private db: DatabaseSync;
+  private db: DatabaseSyncT;
 
   constructor(path = ':memory:') {
+    // Loaded via getBuiltinModule so bundler-based test environments (jsdom) don't try to resolve it.
+    const { DatabaseSync } = process.getBuiltinModule('node:sqlite') as typeof import('node:sqlite');
     this.db = new DatabaseSync(path);
   }
 

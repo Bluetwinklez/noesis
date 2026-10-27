@@ -1,0 +1,44 @@
+name: Release
+
+# Builds the Windows installers for a version tag and attaches them, with
+# SHA-256 checksums, to a draft GitHub release. Installers are UNSIGNED unless
+# code-signing is configured separately (see docs/releases/README.md).
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  windows-release:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+      - run: npm ci
+      - run: npm test
+      - run: npm run build
+      - name: Rust tests
+        working-directory: src-tauri
+        run: cargo test --locked
+      - run: npx tauri build
+      - name: Collect artifacts and checksums
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory out | Out-Null
+          Get-ChildItem src-tauri/target/release/bundle -Recurse -Include *.exe,*.msi | Copy-Item -Destination out
+          Get-ChildItem out | ForEach-Object { "{0}  {1}" -f (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLower(), $_.Name } | Set-Content out/SHA256SUMS.txt
+      - name: Draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: pwsh
+        run: |
+          gh release create "${{ github.ref_name }}" out/* --draft --title "Noesis ${{ github.ref_name }}" --notes-file docs/releases/v0.1.0.md

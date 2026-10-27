@@ -2,18 +2,18 @@
 
 Tarih: 2026-10-27. Proje klasörü: `C:\Users\dofle\Desktop\desktopp\noesis`
 
-## Durum özeti
+## Durum özeti (2026-10-27, bulut oturumu güncellemesi)
+Ayrıntılı ve güncel durum: `docs/implementation-status.md`.
+
 | Alan | Durum |
 |---|---|
-| Frontend (React + TS + Vite + Tailwind 4 + Tiptap 3) | Yazıldı, tip denetimi temiz, `npm run build` başarılı |
-| Rust/Tauri backend (`src-tauri/`) | Yazıldı, `cargo test` 10/10 geçti (debug derleme çalışıyor) |
-| Birim + entegrasyon testleri (Vitest) | 48/48 geçti |
-| E2E (Playwright, Edge, tarayıcı önizleme modu) | 9 senaryo yazıldı. Son düzeltmeden sonra yalnızca PDF senaryosu tek başına tekrar koşuldu ve geçti; 9'unun birlikte son koşusu yapılmadı |
-| Windows yükleyici (`npx tauri build`) | **BAŞARISIZ** — Windows "Uygulama Denetimi ilkesi bu dosyayı engelledi (os error 4551)". Muhtemelen Smart App Control / WDAC, release derlemede oluşan bir .exe'yi engelliyor. Kod hatası değil, makine ilkesi. Başka PC'de ya da Smart App Control kapalıyken tekrar denenmeli |
-| Dokümanlar (README, mimari, gizlilik, `docs/implementation-status.md`) | Yazılmadı |
-| GitHub Actions CI | Yazılmadı |
-| REA araştırma raporları | Yazılmadı (REA çalıştırması iptal edildi) |
-| Git | `git init` yapıldı, **hiç commit yok**, remote yok |
+| Vitest | 51/51 geçti (Linux, Node 22). `node:sqlite` artık `process.getBuiltinModule` ile yükleniyor; jsdom ortamındaki entegrasyon paketi Node 22'de bu yüzden kırılıyordu |
+| `cargo test` | 10/10 geçti |
+| E2E (Playwright, Chromium) | 10/10 geçti (yeni: markdown yapıştırma) |
+| Linux release derlemesi | `Noesis_0.1.0_amd64.deb` üretildi; gerçek masaüstü ikilisi Xvfb altında açıldı, SIGKILL sonrası veri korundu |
+| Windows yükleyici | Bu oturumda Windows yok. `.github/workflows/ci.yml` her push'ta `windows-latest` üzerinde imzasız NSIS+MSI ve SHA-256 üretir |
+| Dokümanlar, CI, REA raporları | Yazıldı (`README.md`, `docs/`) |
+| REA | Kuruldu (Node 24 ile), Noesis paketinin kendisi analiz edildi. Notion/NotebookLM hedefleri ağ politikası nedeniyle engellendi |
 
 ## Yeni bilgisayarda kurulum
 Gerekenler: Node 24+, Rust (rustup, MSVC), Visual Studio 2022 Build Tools (C++ iş yükü), WebView2 (Win11'de var).
@@ -47,7 +47,12 @@ Taşırken `node_modules/`, `dist/`, `src-tauri/target/` kopyalamaya gerek yok.
 - `tests/` — `unit/`, `integration/`, `e2e/app.spec.ts`, `fixtures/`
 - `docs/tasks/agy-tauri-backend.md` — Antigravity'ye verilen görev (kullanılmadı; backend elle yazıldı)
 
-## Sıradaki işler
+## Sıradaki işler (güncel)
+1. CI'nin ilk koşusundan çıkan Windows yükleyicisini temiz bir Windows'a kurup test et (kabul senaryosu 1 ve 15).
+2. Gerçek bir AI anahtarıyla elle test.
+3. Ağ izni verilirse REA ile Notion/NotebookLM herkese açık sayfalarını yeniden analiz et.
+
+## Eski sıradaki işler (ilk devir)
 1. Tüm E2E'yi birlikte tekrar koş (`npx playwright test`).
 2. Yükleyiciyi Smart App Control engellemeyen bir makinede derle; kur, aç, kapat-aç ile veri kalıcılığını kontrol et. Yükleyici imzasız olacak.
 3. README, `docs/implementation-status.md`, mimari, şema, gizlilik, AI yapılandırma dokümanları, sürüm notları, SHA-256 değerleri.

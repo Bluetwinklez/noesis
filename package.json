@@ -12,7 +12,7 @@
     "test:watch": "vitest",
     "e2e": "playwright test",
     "tauri": "tauri",
-    "bench": "vitest bench --run"
+    "bench": "vitest run --config vitest.bench.config.ts"
   },
   "dependencies": {
     "@sqlite.org/sqlite-wasm": "^3.54.1-build1",

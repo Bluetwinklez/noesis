@@ -15,9 +15,11 @@ export default defineConfig({
   reporter: [['list'], ['html', { open: 'never', outputFolder: 'playwright-report' }]],
   use: {
     baseURL: 'http://localhost:1420',
-    channel: process.env.PW_CHANNEL ?? 'msedge',
+    channel: process.env.PW_CHANNEL ?? (process.platform === 'win32' ? 'msedge' : undefined),
     locale: 'en-US',
     viewport: { width: 1440, height: 900 },
+    // Lets environments with a pre-installed Chromium (e.g. CI containers) reuse it.
+    launchOptions: process.env.PW_CHROMIUM_PATH ? { executablePath: process.env.PW_CHROMIUM_PATH } : undefined,
     trace: 'retain-on-failure',
     screenshot: 'only-on-failure',
   },
