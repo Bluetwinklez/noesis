@@ -175,8 +175,8 @@ export function Onboarding() {
                 [<Sparkles key="e" className="size-4 text-accent" />, t('ai.actions') + ' — ' + t('ai.previewHint')],
               ].map(([k, label], i) => (
                 <li key={i} className="flex items-center gap-3">
-                  <span className="flex w-16 justify-center">{k}</span>
-                  {label}
+                  <span className="flex w-16 shrink-0 justify-center">{k}</span>
+                  <span className="min-w-0">{label}</span>
                 </li>
               ))}
             </ul>
@@ -193,7 +193,7 @@ export function Onboarding() {
             </h2>
             {notebookId ? (
               <p className="mb-4 flex items-center gap-2 text-sm text-success">
-                <Check className="size-4" /> {t('nb.title')} ✓
+                <Check className="size-4" /> {t('onb.notebookReady')}
               </p>
             ) : (
               <Input value={nbTitle} onChange={(e) => setNbTitle(e.target.value)} placeholder={t('onb.notebookPlaceholder')} aria-label={t('onb.notebookPlaceholder')} />

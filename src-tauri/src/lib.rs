@@ -114,11 +114,28 @@ fn attachment_delete(state: State<'_, AppState>, key: String) -> Result<(), Stri
     }
 }
 
-/// Writes a user-chosen export file (path comes from the native save dialog).
+#[derive(serde::Deserialize)]
+struct SaveFilter {
+    name: String,
+    extensions: Vec<String>,
+}
+
+/// Shows the native save dialog and writes the export to the chosen file.
+/// The path never comes from the WebView, so page script cannot pick an
+/// arbitrary file to overwrite. Returns None when the user cancels.
 #[tauri::command]
-fn export_write(path: String, bytes: Vec<u8>) -> Result<(), String> {
-    let p = files::validate_user_path(&path, files::EXPORT_EXTENSIONS)?;
-    files::atomic_write(&p, &bytes)
+async fn export_save(app: tauri::AppHandle, default_name: String, filters: Vec<SaveFilter>, bytes: Vec<u8>) -> Result<Option<String>, String> {
+    use tauri_plugin_dialog::DialogExt;
+    let mut dialog = app.dialog().file().set_file_name(files::sanitize_file_name(&default_name));
+    for f in &filters {
+        let exts: Vec<&str> = f.extensions.iter().map(String::as_str).collect();
+        dialog = dialog.add_filter(&f.name, &exts);
+    }
+    let Some(chosen) = dialog.blocking_save_file() else { return Ok(None) };
+    let path = chosen.into_path().map_err(|e| e.to_string())?;
+    let p = files::validate_user_path(&path.to_string_lossy(), files::EXPORT_EXTENSIONS)?;
+    files::atomic_write(&p, &bytes)?;
+    Ok(Some(p.to_string_lossy().into_owned()))
 }
 
 #[tauri::command]
@@ -195,7 +212,7 @@ pub fn run() {
             attachment_write,
             attachment_read,
             attachment_delete,
-            export_write,
+            export_save,
             app_info
         ])
         .run(tauri::generate_context!())

@@ -126,11 +126,8 @@ export async function saveFile(
 ): Promise<string | null> {
   const bytes = typeof data === 'string' ? new TextEncoder().encode(data) : data;
   if (isTauri()) {
-    const { save } = await import('@tauri-apps/plugin-dialog');
-    const path = await save({ defaultPath: safeFileName(defaultName), filters });
-    if (!path) return null;
-    await tauriInvoke('export_write', { path, bytes: Array.from(bytes) });
-    return path;
+    // The Rust side owns the save dialog and the write, so the target path never comes from page script.
+    return tauriInvoke<string | null>('export_save', { defaultName: safeFileName(defaultName), filters: filters ?? [], bytes: Array.from(bytes) });
   }
   const blob = new Blob([bytes as BlobPart]);
   const a = document.createElement('a');

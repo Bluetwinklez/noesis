@@ -127,7 +127,7 @@ export function HomePage() {
                 <button key={nb.id} onClick={() => navigate({ name: 'notebook', id: nb.id })} className="rounded-xl border border-line bg-elevated p-3 text-left hover:shadow-soft">
                   <div className="text-xl">{nb.icon ?? '📓'}</div>
                   <div className="truncate text-sm font-medium">{nb.title}</div>
-                  <div className="text-xs text-faint">{nb.source_count} · {t('nb.sources')}</div>
+                  <div className="text-xs text-faint">{t('nb.sourceCount', { n: nb.source_count })}</div>
                 </button>
               ))}
             </div>

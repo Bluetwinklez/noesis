@@ -55,7 +55,7 @@ import { repos, useApp, wsId } from '../app/state';
 import { blobStore, openExternal, pickFiles } from '../lib/platform';
 import { sha256Hex } from '../lib/util';
 import { openAiPreview } from '../features/ai/AiPreview';
-import { markdownToHtml } from './markdown';
+import { looksLikeMarkdown, markdownToHtml } from './markdown';
 import type { AssistantAction } from '../ai/assistant';
 import { reportError } from '../app/services';
 import type { DocNode } from '../core/doc';
@@ -275,9 +275,17 @@ export function NoteEditor({ pageId, initialContent, onChange, onReady, editable
           }
           return false;
         },
-        handlePaste: (_view, event) => {
+        handlePaste: (view, event) => {
           const files = Array.from(event.clipboardData?.files ?? []).filter((f) => f.type.startsWith('image/'));
-          if (!files.length) return false;
+          if (!files.length) {
+            // Plain-text markdown (e.g. copied from a .md file or chat) becomes structured blocks.
+            const text = event.clipboardData?.getData('text/plain') ?? '';
+            const hasHtml = !!event.clipboardData?.getData('text/html');
+            if (hasHtml || !text || view.state.selection.$from.parent.type.spec.code || !looksLikeMarkdown(text)) return false;
+            event.preventDefault();
+            editorRef.current?.chain().focus().insertContent(markdownToHtml(text)).run();
+            return true;
+          }
           event.preventDefault();
           void (async () => {
             for (const f of files) {

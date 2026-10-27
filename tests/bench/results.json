@@ -1,0 +1,43 @@
+{
+  "date": "2026-10-27T07:53:40.034Z",
+  "node": "v22.22.0",
+  "platform": "linux-x64",
+  "seed_2000_pages_ms": 2836,
+  "results": [
+    {
+      "name": "full-text search, 2,000 pages",
+      "iterations": 50,
+      "median_ms": 4.605,
+      "p95_ms": 5.075,
+      "max_ms": 5.102
+    },
+    {
+      "name": "hybrid search, 2,000 pages (local vectors)",
+      "iterations": 20,
+      "median_ms": 36.703,
+      "p95_ms": 48.134,
+      "max_ms": 48.134
+    },
+    {
+      "name": "autosave 28k-word page (content + links + index)",
+      "iterations": 20,
+      "median_ms": 7.52,
+      "p95_ms": 12.432,
+      "max_ms": 12.432
+    },
+    {
+      "name": "chunk 300-page document",
+      "iterations": 20,
+      "median_ms": 4.225,
+      "p95_ms": 4.936,
+      "max_ms": 4.936
+    },
+    {
+      "name": "local-hash-512 embedding, 1 chunk",
+      "iterations": 200,
+      "median_ms": 0.489,
+      "p95_ms": 0.597,
+      "max_ms": 4.153
+    }
+  ]
+}
