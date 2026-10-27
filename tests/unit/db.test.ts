@@ -92,3 +92,22 @@ describe('restart persistence', () => {
     await d2.close();
   });
 });
+
+describe('migration v3 (timeline views)', () => {
+  it('keeps existing database views when upgrading and accepts the timeline type', async () => {
+    const { NodeDriver } = await import('../../src/core/db/node-driver');
+    const { Database } = await import('../../src/core/db/driver');
+    const { migrate, migrations } = await import('../../src/core/db/migrations');
+    const db = new Database(new NodeDriver(':memory:'));
+    await migrate(db, migrations.slice(0, 2)); // a v2 database
+    await db.run("INSERT INTO workspaces(id, name, created_at, updated_at) VALUES ('w','W',0,0)");
+    await db.run("INSERT INTO pages(id, workspace_id, kind, title, created_at, updated_at) VALUES ('d','w','database','DB',0,0)");
+    await db.run("INSERT INTO db_views(id, database_id, name, type, config_json, sort_order) VALUES ('v','d','Board','board','{\"groupBy\":\"x\"}',1)");
+    await expect(db.run("INSERT INTO db_views(id, database_id, name, type) VALUES ('t','d','T','timeline')")).rejects.toThrow();
+    await migrate(db);
+    expect(await db.get("SELECT name, type, config_json FROM db_views WHERE id = 'v'")).toEqual({ name: 'Board', type: 'board', config_json: '{"groupBy":"x"}' });
+    await db.run("INSERT INTO db_views(id, database_id, name, type) VALUES ('t','d','T','timeline')");
+    await db.run("DELETE FROM pages WHERE id = 'd'");
+    expect(await db.all('SELECT id FROM db_views')).toEqual([]); // cascade still works after the rebuild
+  });
+});

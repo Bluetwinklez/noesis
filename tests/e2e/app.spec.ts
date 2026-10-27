@@ -351,3 +351,18 @@ test('images are read with offline OCR, without an AI provider', async ({ page, 
   await page.getByText('scan', { exact: true }).click();
   await expect(page.getByLabel('Extracted text')).toContainText(/absorbs sunlight/i);
 });
+
+test('database timeline view shows dated rows and persists', async ({ page }) => {
+  const db = await freshApp(page);
+  await onboard(page, { sample: true });
+  await page.getByRole('treeitem', { name: /Projects/ }).getByRole('button', { name: 'Expand' }).click();
+  await page.getByRole('treeitem', { name: /Reading list/ }).click();
+  await page.getByRole('button', { name: 'Add view' }).click();
+  await page.getByRole('menuitem', { name: 'Timeline' }).click();
+  await expect(page.getByRole('grid', { name: 'Timeline' }).getByRole('gridcell')).toHaveCount(3);
+  await page.waitForTimeout(600);
+  await page.goto(`/?db=${db}`);
+  await page.getByRole('treeitem', { name: /Projects/ }).getByRole('button', { name: 'Expand' }).click();
+  await page.getByRole('treeitem', { name: /Reading list/ }).click();
+  await expect(page.getByRole('tab', { name: /Timeline/ })).toBeVisible();
+});
