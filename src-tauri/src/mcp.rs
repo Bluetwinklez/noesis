@@ -7,8 +7,9 @@
 //! bridge that forwards stdin lines to the endpoint and starts Noesis if needed.
 //!
 //! Connection details live in `<app data>/mcp.json` (port + token); only the
-//! local user can read it, and requests carrying an `Origin` header (web pages)
-//! are refused.
+//! local user can read it, and requests carrying an `Origin` header are refused
+//! unless they come from a browser extension (the Noesis web clipper), which
+//! still needs the token. Web pages can never reach the endpoint.
 
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value as Json};
@@ -78,8 +79,24 @@ fn header<'a>(req: &'a tiny_http::Request, name: &str) -> Option<&'a str> {
     req.headers().iter().find(|h| h.field.as_str().as_str().eq_ignore_ascii_case(name)).map(|h| h.value.as_str())
 }
 
-fn reply(req: tiny_http::Request, status: u16, body: &str, session: Option<&str>) {
+/// Browser-extension origins cannot be used by web pages, so they may call the endpoint (with the token).
+fn extension_origin(origin: &str) -> bool {
+    origin.len() < 200 && ["chrome-extension://", "moz-extension://", "safari-web-extension://"].iter().any(|p| origin.starts_with(p))
+}
+
+fn reply(req: tiny_http::Request, status: u16, body: &str, session: Option<&str>, cors: Option<&str>) {
     let mut res = tiny_http::Response::from_string(body).with_status_code(status);
+    if let Some(origin) = cors {
+        for (k, v) in [
+            ("Access-Control-Allow-Origin", origin),
+            ("Access-Control-Allow-Headers", "authorization, content-type, mcp-session-id"),
+            ("Access-Control-Allow-Methods", "POST"),
+            ("Access-Control-Expose-Headers", "Mcp-Session-Id"),
+            ("Vary", "Origin"),
+        ] {
+            res.add_header(tiny_http::Header::from_bytes(k, v).unwrap());
+        }
+    }
     if !body.is_empty() {
         res.add_header(tiny_http::Header::from_bytes("Content-Type", "application/json").unwrap());
     }
@@ -94,33 +111,38 @@ fn rpc_error(id: &Json, code: i64, message: &str) -> String {
 }
 
 fn handle(mut req: tiny_http::Request, token: &str, shared: &Shared, fwd: &dyn Forwarder) {
+    let cors = header(&req, "Origin").map(str::to_string);
+    let cors = cors.as_deref();
     if req.url() != "/mcp" {
-        return reply(req, 404, "", None);
+        return reply(req, 404, "", None, None);
     }
     // Browsers always send Origin; MCP clients do not. This blocks web pages
     // (including DNS-rebinding attacks) from talking to the local endpoint.
-    if header(&req, "Origin").is_some() {
-        return reply(req, 403, "", None);
+    if cors.is_some_and(|o| !extension_origin(o)) {
+        return reply(req, 403, "", None, None);
+    }
+    if *req.method() == tiny_http::Method::Options && cors.is_some() {
+        return reply(req, 204, "", None, cors);
     }
     let auth_ok = header(&req, "Authorization")
         .and_then(|v| v.strip_prefix("Bearer "))
         .is_some_and(|t| constant_time_eq(t.as_bytes(), token.as_bytes()));
     if !auth_ok {
-        return reply(req, 401, "", None);
+        return reply(req, 401, "", None, cors);
     }
     if *req.method() != tiny_http::Method::Post {
-        return reply(req, 405, "", None);
+        return reply(req, 405, "", None, cors);
     }
     let mut body = String::new();
     if req.as_reader().take(MAX_BODY as u64 + 1).read_to_string(&mut body).is_err() || body.len() > MAX_BODY {
-        return reply(req, 413, "", None);
+        return reply(req, 413, "", None, cors);
     }
     let msg: Json = match serde_json::from_str(&body) {
         Ok(v) => v,
-        Err(_) => return reply(req, 400, &rpc_error(&Json::Null, -32700, "Parse error"), None),
+        Err(_) => return reply(req, 400, &rpc_error(&Json::Null, -32700, "Parse error"), None, cors),
     };
     if !msg.is_object() {
-        return reply(req, 400, &rpc_error(&Json::Null, -32600, "Batch requests are not supported"), None);
+        return reply(req, 400, &rpc_error(&Json::Null, -32600, "Batch requests are not supported"), None, cors);
     }
     let id = msg.get("id").cloned().unwrap_or(Json::Null);
     let is_initialize = msg.get("method").and_then(Json::as_str) == Some("initialize");
@@ -143,11 +165,11 @@ fn handle(mut req: tiny_http::Request, token: &str, shared: &Shared, fwd: &dyn F
     fwd.forward(rid, &client, &body);
     match rx.recv_timeout(RESPONSE_TIMEOUT) {
         // Notifications get no JSON-RPC response.
-        Ok(answer) if answer.is_empty() => reply(req, 202, "", new_session.as_deref()),
-        Ok(answer) => reply(req, 200, &answer, new_session.as_deref()),
+        Ok(answer) if answer.is_empty() => reply(req, 202, "", new_session.as_deref(), cors),
+        Ok(answer) => reply(req, 200, &answer, new_session.as_deref(), cors),
         Err(_) => {
             shared.pending.lock().unwrap().remove(&rid);
-            reply(req, 200, &rpc_error(&id, -32001, "Noesis did not answer in time (is the app busy or waiting for approval?)"), None)
+            reply(req, 200, &rpc_error(&id, -32001, "Noesis did not answer in time (is the app busy or waiting for approval?)"), None, cors)
         }
     }
 }
@@ -440,6 +462,15 @@ mod tests {
         let mut out = String::new();
         s.read_to_string(&mut out).unwrap();
         assert!(out.starts_with("HTTP/1.1 403"), "{out}");
+        // The browser extension (web clipper) is let through, with CORS headers, but still needs the token.
+        for (token, expect) in [("secret-token", "HTTP/1.1 200"), ("wrong", "HTTP/1.1 401")] {
+            let mut s = TcpStream::connect(("127.0.0.1", ep.port)).unwrap();
+            write!(s, "POST /mcp HTTP/1.1\r\nHost: x\r\nOrigin: chrome-extension://abcdef\r\nAuthorization: Bearer {token}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}", body.len(), body).unwrap();
+            let mut out = String::new();
+            s.read_to_string(&mut out).unwrap();
+            assert!(out.starts_with(expect), "{out}");
+            assert!(out.to_ascii_lowercase().contains("access-control-allow-origin: chrome-extension://abcdef"), "{out}");
+        }
         let (status, _, body) = post(&ep, r#"{"jsonrpc":"2.0","id":7,"method":"ping"}"#, None).unwrap();
         assert_eq!(status, 200);
         assert!(body.contains("\"id\":7"));

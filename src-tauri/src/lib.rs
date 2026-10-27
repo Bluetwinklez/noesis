@@ -168,6 +168,8 @@ struct McpStatus {
     running: bool,
     port: Option<u16>,
     exe: String,
+    /// Shown in Settings so the user can paste it into the web clipper extension.
+    token: Option<String>,
 }
 
 /// Token shared with AI clients through mcp.json; created once, kept across restarts.
@@ -190,7 +192,8 @@ fn mcp_start(app: tauri::AppHandle, state: State<'_, AppState>, mcp_state: State
         let token = mcp_token(&state.data_dir)?;
         *server = Some(mcp::start(&mcp::endpoint_file(&state.data_dir), token, mcp_state.shared.clone(), std::sync::Arc::new(EventForwarder(app)))?);
     }
-    Ok(McpStatus { running: true, port: server.as_ref().map(|s| s.endpoint.port), exe: exe_path() })
+    let ep = server.as_ref().map(|s| s.endpoint.clone());
+    Ok(McpStatus { running: true, port: ep.as_ref().map(|e| e.port), exe: exe_path(), token: ep.map(|e| e.token) })
 }
 
 #[tauri::command]
@@ -206,8 +209,8 @@ fn mcp_stop(state: State<'_, AppState>, mcp_state: State<'_, McpState>) -> Resul
 #[tauri::command]
 fn mcp_status(mcp_state: State<'_, McpState>) -> McpStatus {
     let server = mcp_state.server.lock().ok();
-    let port = server.as_ref().and_then(|s| s.as_ref().map(|s| s.endpoint.port));
-    McpStatus { running: port.is_some(), port, exe: exe_path() }
+    let ep = server.as_ref().and_then(|s| s.as_ref().map(|s| s.endpoint.clone()));
+    McpStatus { running: ep.is_some(), port: ep.as_ref().map(|e| e.port), exe: exe_path(), token: ep.map(|e| e.token) }
 }
 
 #[tauri::command]

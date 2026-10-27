@@ -57,6 +57,8 @@ jobs:
       HAS_UPDATER_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY != '' }}
     steps:
       - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0 # release notes for continuous builds list commits since the last release
       - uses: actions/setup-node@v5
         with:
           node-version: 24
@@ -110,6 +112,7 @@ jobs:
         run: |
           New-Item -ItemType Directory out | Out-Null
           Get-ChildItem src-tauri/target/release/bundle -Recurse -Include *.exe,*.msi,*.sig | Copy-Item -Destination out
+          Compress-Archive -Path extensions/web-clipper/* -DestinationPath out/noesis-web-clipper.zip
           Get-ChildItem out -Exclude *.sig | ForEach-Object { "{0}  {1}" -f (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLower(), $_.Name } | Set-Content out/SHA256SUMS.txt
           if ($env:HAS_UPDATER_KEY -eq 'true') {
             node scripts/make-latest-json.mjs $env:RELEASE_TAG out (git log -1 --format=%s)
@@ -121,6 +124,13 @@ jobs:
         shell: pwsh
         run: |
           $notes = "docs/releases/$env:RELEASE_TAG.md"
+          if ($env:RELEASE_KIND -ne 'tag' -and !(Test-Path $notes)) {
+            # Continuous builds have no hand-written notes: list the commits since the previous release.
+            $prev = gh release view --json tagName -q .tagName 2>$null
+            $log = if ($prev) { git log --no-merges --format='- %s' "$prev..HEAD" } else { git log --no-merges -20 --format='- %s' }
+            $notes = "$env:RUNNER_TEMP/notes.md"
+            @("Automatic build from ``main``. Installed copies update themselves.", '', '## Changes', $log) | Set-Content $notes
+          }
           if (!(Test-Path $notes)) { throw "missing release notes $notes" }
           $files = (Get-ChildItem out/*).FullName
           if ($env:RELEASE_KIND -eq 'tag') {

@@ -15,6 +15,8 @@ export interface McpStatus {
   running: boolean;
   port: number | null;
   exe: string;
+  /** Endpoint key, shown so it can be pasted into the web clipper extension. */
+  token: string | null;
 }
 
 export interface ClientTarget {

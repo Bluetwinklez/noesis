@@ -13,7 +13,7 @@ import type { Repos } from '../core/store';
 import { search } from '../search/search';
 import { retrieve } from '../ai/rag';
 import { docToHtml, htmlToDoc } from '../editor/serialize';
-import { htmlToMarkdown, markdownToHtml } from '../editor/markdown';
+import { htmlToMarkdown, markdownToHtml, sanitizeHtml } from '../editor/markdown';
 import { extractDoc, type DocNode } from '../core/doc';
 
 export const MCP_PROTOCOL_VERSION = '2025-06-18';
@@ -186,6 +186,36 @@ const TOOLS: ToolDef[] = [
     },
   },
   {
+    name: 'clip_web_page',
+    title: 'Save a web page',
+    description: 'Saves a web page (or a selection of it) as a new page under "Web clips", with a link to the source. Used by the Noesis browser extension.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        title: { type: 'string' },
+        url: { type: 'string', description: 'Address of the clipped page (http/https)' },
+        html: { type: 'string', description: 'Clipped HTML; it is sanitized before saving' },
+        markdown: { type: 'string', description: 'Alternative to html' },
+      },
+      required: ['title', 'url'],
+    },
+    annotations: { readOnlyHint: false, destructiveHint: false },
+    async run(a, ctx) {
+      const title = str(a.title, 'title', 300).trim() || 'Web clip';
+      const url = str(a.url, 'url', 4000);
+      if (!/^https?:\/\//i.test(url)) throw new ToolError('url must start with http:// or https://');
+      const html = optStr(a.html, 'html', 3_000_000);
+      const md = optStr(a.markdown, 'markdown', 1_000_000);
+      const esc = (s: string) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]!);
+      const source = `<blockquote><p>🔗 <a href="${esc(url)}">${esc(url)}</a> · ${esc(new Date().toLocaleString())}</p></blockquote>`;
+      const body = html ? sanitizeHtml(html) : md ? markdownToHtml(md) : '';
+      const page = await ctx.repos.pages.create({ workspaceId: ctx.workspaceId, parentId: await clipsPage(ctx), title, icon: '🔖' });
+      await ctx.repos.pages.saveContent(page.id, htmlToDoc(source + body));
+      ctx.notify(`Saved “${title}” to Web clips.`);
+      return { id: page.id, title };
+    },
+  },
+  {
     name: 'create_task',
     title: 'Create a task',
     description: 'Adds a task to the current workspace.',
@@ -307,6 +337,17 @@ export async function handleMcp(msg: unknown, ctx: McpContext): Promise<JsonRpcR
       if (isNotification) return null;
       return fail(req.id, -32601, `Method not found: ${req.method}`);
   }
+}
+
+/** Clipped pages are filed under one "Web clips" page per workspace (created on first use). */
+async function clipsPage(ctx: McpContext): Promise<string> {
+  const key = `clipsPage:${ctx.workspaceId}`;
+  const id = await ctx.repos.settings.get<string | null>(key, null);
+  const existing = id ? await ctx.repos.pages.get(id) : null;
+  if (existing && !existing.deleted_at) return existing.id;
+  const page = await ctx.repos.pages.create({ workspaceId: ctx.workspaceId, title: 'Web clips', icon: '🔖' });
+  await ctx.repos.settings.set(key, page.id);
+  return page.id;
 }
 
 /** Plain-text summary of a page body, used in approval previews. */
