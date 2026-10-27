@@ -74,7 +74,15 @@ export function relLink(fromDir: string, toPath: string): string {
   return [...from.slice(i).map(() => '..'), ...to.slice(i)].map((seg) => encodeURIComponent(seg).replace(/\(/g, '%28').replace(/\)/g, '%29')).join('/');
 }
 
-const csvCell = (v: string) => (/[",\n\r]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v);
+/**
+ * CSV cell. Text that a spreadsheet would run as a formula (=, +, -, @, tab, CR at the start)
+ * gets a leading ' (OWASP "CSV injection"); plain numbers like -5 are left alone.
+ * The importer removes the ' again for Noesis exports.
+ */
+export const csvCell = (raw: string) => {
+  const v = /^[=+\-@\t\r]/.test(raw) && !/^[-+]?\d+([.,]\d+)?$/.test(raw) ? `'${raw}` : raw;
+  return /[",\n\r]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v;
+};
 
 export async function exportWorkspace(
   repos: Repos,

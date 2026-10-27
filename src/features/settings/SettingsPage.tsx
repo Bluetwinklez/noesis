@@ -1,5 +1,4 @@
 import { useEffect, useState } from 'react';
-import JSZip from 'jszip';
 import {
   Bell,
   Bot,
@@ -32,10 +31,7 @@ import { appInfo, isTauri, notify, pickFiles, revealDataDir, saveFile, secrets, 
 import { createBackup, rebuildSearchIndex, restoreBackup } from '../../core/backup';
 import { integrityCheck, LATEST_VERSION } from '../../core/db/migrations';
 import type { ProviderId } from '../../ai/types';
-import { formatBytes, relativeTime, safeFileName } from '../../lib/util';
-import { docToHtml } from '../../editor/serialize';
-import { htmlToMarkdown } from '../../editor/markdown';
-import type { DocNode } from '../../core/doc';
+import { formatBytes, relativeTime } from '../../lib/util';
 
 const APP_VERSION: string = import.meta.env.VITE_APP_VERSION ?? '0.1.0';
 
@@ -465,40 +461,6 @@ function Storage() {
           })}
         >
           {t('settings.restore')}
-        </Button>
-      </Row>
-      <Row label={t('settings.exportWorkspace')}>
-        <Button
-          size="sm"
-          icon={<Download className="size-3.5" />}
-          loading={busy === 'md'}
-          onClick={wrap('md', async () => {
-            const ws = useApp.getState().workspaceId!;
-            const pages = await repos().db.all<{ id: string; parent_id: string | null; title: string; content_json: string | null; kind: string }>(
-              'SELECT id, parent_id, title, content_json, kind FROM pages WHERE workspace_id = ? AND deleted_at IS NULL',
-              [ws],
-            );
-            const byId = new Map(pages.map((p) => [p.id, p]));
-            const pathOf = (p: (typeof pages)[number]): string => {
-              const parts: string[] = [];
-              let cur: (typeof pages)[number] | undefined = p;
-              let guard = 0;
-              while (cur && guard++ < 64) {
-                parts.unshift(safeFileName(cur.title || 'Untitled'));
-                cur = cur.parent_id ? byId.get(cur.parent_id) : undefined;
-              }
-              return parts.join('/');
-            };
-            const zip = new JSZip();
-            for (const p of pages) {
-              if (p.kind !== 'page') continue;
-              const body = p.content_json ? htmlToMarkdown(docToHtml(JSON.parse(p.content_json) as DocNode)) : '';
-              zip.file(`${pathOf(p)}.md`, `# ${p.title || 'Untitled'}\n\n${body}`);
-            }
-            await saveFile(`noesis-export-${new Date().toISOString().slice(0, 10)}.zip`, await zip.generateAsync({ type: 'uint8array' }), [{ name: 'Zip', extensions: ['zip'] }]);
-          })}
-        >
-          {t('common.export')}
         </Button>
       </Row>
       <p className="mt-4 text-xs text-muted">{t('settings.syncFuture')}</p>

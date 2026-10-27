@@ -1,8 +1,9 @@
 // @vitest-environment jsdom
 import { describe, expect, it } from 'vitest';
 import JSZip from 'jszip';
-import { exportWorkspace, relLink, safeName } from '../../src/export/exporter';
-import { importWorkspace } from '../../src/import/importer';
+import { csvCell, exportWorkspace, relLink, safeName } from '../../src/export/exporter';
+import { expandInputs, importWorkspace } from '../../src/import/importer';
+import { packBinary, unpackBinary } from '../../src/lib/platform';
 import { htmlToDoc } from '../../src/editor/serialize';
 import { markdownToHtml } from '../../src/editor/markdown';
 import { PAGE_LINK_PREFIX } from '../../src/core/doc';
@@ -18,6 +19,50 @@ describe('file names and links', () => {
     expect(safeName('  ...  ')).toBe('Untitled');
     expect(relLink('A/B', 'A/C/x y.md')).toBe('../C/x%20y.md');
     expect(relLink('', 'Notes (2).md')).toBe('Notes%20%282%29.md');
+  });
+});
+
+describe('hardening', () => {
+  it('neutralises spreadsheet formulas in CSV cells but keeps numbers', () => {
+    expect(csvCell('=HYPERLINK("http://x")')).toBe(`"'=HYPERLINK(""http://x"")"`);
+    expect(csvCell('@SUM(A1)')).toBe("'@SUM(A1)");
+    expect(csvCell('-5')).toBe('-5');
+    expect(csvCell('+3.5')).toBe('+3.5');
+    expect(csvCell('plain, text')).toBe('"plain, text"');
+  });
+
+  it('refuses archives that unpack to too much data', async () => {
+    const z = new JSZip();
+    z.file('huge.md', new Uint8Array(301 * 1024 * 1024)); // compresses to almost nothing
+    const bytes = await z.generateAsync({ type: 'uint8array', compression: 'DEFLATE' });
+    expect(bytes.byteLength).toBeLessThan(2 * 1024 * 1024);
+    await expect(expandInputs([{ path: 'bomb.zip', bytes }])).rejects.toThrow(/more data/);
+  });
+
+  it('round-trips binary IPC messages', () => {
+    const { meta, payload } = unpackBinary<{ fileName: string }>(packBinary({ fileName: 'ş ğ.png' }, new Uint8Array([7, 8, 9])));
+    expect(meta.fileName).toBe('ş ğ.png');
+    expect(Array.from(payload)).toEqual([7, 8, 9]);
+  });
+
+  it('imports a hand-edited export with invalid task values without failing halfway', async () => {
+    const z = new JSZip();
+    z.file('Note.md', '# Note\n\n=1+1 is fine here');
+    z.file('Noesis data/manifest.json', JSON.stringify({ format: 'noesis-export', version: 1, pages: [{ path: 'Note.md', title: 'Note', icon: 'x'.repeat(500) }] }));
+    z.file('Noesis data/tasks.json', JSON.stringify([
+      { ref: 'a', title: 'Bad values', priority: 99, status: 'exploded', recurrence: 'hourly', due_at: 'tomorrow' },
+      { ref: 'b', parent: 'a', title: 'Child', priority: -4 },
+      'not a task',
+    ]));
+    z.file('Noesis data/sources.json', '{ not json');
+    const b = await memoryStore();
+    const ws = (await b.workspaces.create('W')).id;
+    const r = await importWorkspace(b, ws, [{ path: 'x.zip', bytes: await z.generateAsync({ type: 'uint8array' }) }], { blobs: memoryBlobs(), rootTitle: () => 'root' });
+    expect(r).toMatchObject({ source: 'noesis', tasks: 2, sources: [] });
+    const tasks = await b.tasks.list(ws);
+    expect(tasks.find((t) => t.title === 'Bad values')).toMatchObject({ priority: 3, status: 'todo', recurrence: null, due_at: null });
+    expect(tasks.find((t) => t.title === 'Child')!.priority).toBe(0);
+    expect((await b.pages.listTree(ws)).find((p) => p.title === 'Note')!.icon).toBeNull();
   });
 });
 

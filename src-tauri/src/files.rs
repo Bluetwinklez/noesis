@@ -5,7 +5,12 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 
 pub const MAX_ATTACHMENT_BYTES: usize = 200 * 1024 * 1024;
-pub const EXPORT_EXTENSIONS: &[&str] = &["md", "html", "docx", "pdf", "json", "csv", "txt", "wav", "mp3", "noesisbak", "zip", "db"];
+/// Saving any document type is fine (attachments can be anything), but never a file
+/// Windows would run on double-click: a compromised page must not drop executables.
+pub const BLOCKED_EXTENSIONS: &[&str] = &[
+    "exe", "com", "scr", "pif", "bat", "cmd", "msi", "msp", "mst", "dll", "cpl", "sys", "drv", "ocx", "lnk", "url", "reg", "hta", "ps1", "psm1",
+    "psd1", "vbs", "vbe", "js", "jse", "wsf", "wsh", "wsc", "jar", "appx", "msix", "application", "gadget", "inf", "scf", "chm", "settingcontent-ms",
+];
 
 /// Removes characters Windows forbids in file names and caps the length.
 pub fn sanitize_file_name(name: &str) -> String {
@@ -70,14 +75,17 @@ pub fn atomic_write(path: &Path, bytes: &[u8]) -> Result<(), String> {
     })
 }
 
-pub fn validate_user_path(path: &str, allowed: &[&str]) -> Result<PathBuf, String> {
+pub fn validate_user_path(path: &str) -> Result<PathBuf, String> {
     let p = PathBuf::from(path);
     if !p.is_absolute() {
         return Err("path must be absolute".into());
     }
-    let ext = p.extension().and_then(|e| e.to_str()).map(|e| e.to_ascii_lowercase()).unwrap_or_default();
-    if !allowed.contains(&ext.as_str()) {
-        return Err(format!("file type .{ext} is not allowed here"));
+    let name = p.file_name().and_then(|n| n.to_str()).unwrap_or_default().to_ascii_lowercase();
+    // Windows ignores trailing dots and spaces ("evil.exe." runs as evil.exe).
+    let name = name.trim_end_matches(['.', ' ']);
+    let ext = name.rsplit_once('.').map(|(_, e)| e).unwrap_or_default();
+    if BLOCKED_EXTENSIONS.contains(&ext) {
+        return Err(format!("saving .{ext} files is not allowed"));
     }
     match p.parent() {
         Some(parent) if parent.is_dir() => Ok(p),
@@ -117,13 +125,15 @@ mod tests {
     #[test]
     fn export_paths_are_restricted() {
         let dir = tempfile::tempdir().unwrap();
-        let ok = dir.path().join("out.md");
-        assert!(validate_user_path(ok.to_str().unwrap(), EXPORT_EXTENSIONS).is_ok());
-        let bad = dir.path().join("evil.exe");
-        assert!(validate_user_path(bad.to_str().unwrap(), EXPORT_EXTENSIONS).is_err());
-        assert!(validate_user_path("relative.md", EXPORT_EXTENSIONS).is_err());
+        for ok in ["out.md", "photo.png", "table.xlsx", "README"] {
+            assert!(validate_user_path(dir.path().join(ok).to_str().unwrap()).is_ok(), "{ok}");
+        }
+        for bad in ["evil.exe", "EVIL.BAT", "x.ps1", "trick.exe.", "link.lnk ", "page.hta"] {
+            assert!(validate_user_path(dir.path().join(bad).to_str().unwrap()).is_err(), "{bad}");
+        }
+        assert!(validate_user_path("relative.md").is_err());
         let missing = dir.path().join("nope").join("x.md");
-        assert!(validate_user_path(missing.to_str().unwrap(), EXPORT_EXTENSIONS).is_err());
+        assert!(validate_user_path(missing.to_str().unwrap()).is_err());
     }
 
     #[test]
