@@ -93,4 +93,20 @@ describe('MCP server', () => {
     expect((await call('create_task', { title: 'x', due: 'not a date' })).isError).toBe(true);
     expect((await call('create_page', { title: '' })).isError).toBe(true);
   });
+
+  it('clips web pages into "Web clips", sanitized and with the source link', async () => {
+    const html = '<h2>Article</h2><p onclick="steal()">Body <b>text</b><script>alert(1)</script></p><img src="x" onerror="alert(2)"><a href="javascript:alert(3)">bad link</a><nav>menu</nav>';
+    const a = (await call('clip_web_page', { title: 'Interesting', url: 'https://example.com/post', html })).json();
+    const b = (await call('clip_web_page', { title: 'Second', url: 'https://example.com/2', markdown: '# Hi' })).json();
+    const pa = (await s.pages.get(a.id))!;
+    const pb = (await s.pages.get(b.id))!;
+    expect(pa.parent_id).toBe(pb.parent_id);
+    expect((await s.pages.get(pa.parent_id!))!.title).toBe('Web clips');
+    const stored = pa.content_json!;
+    expect(pa.content_text).toContain('Body text');
+    expect(stored).toContain('https://example.com/post');
+    for (const bad of ['steal', 'alert', 'onerror', 'javascript:']) expect(stored).not.toContain(bad);
+    expect((await call('clip_web_page', { title: 'x', url: 'file:///etc/passwd', html: '<p>x</p>' })).isError).toBe(true);
+    expect(notices.at(-1)).toContain('Web clips');
+  });
 });

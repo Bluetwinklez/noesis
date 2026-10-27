@@ -126,6 +126,12 @@ export function McpSettings() {
         <CopyBox label="JSON" text={stdioJson} />
       </div>
 
+      <div className="space-y-2">
+        <h3 className="font-medium">{t('mcp.clipper')}</h3>
+        <p className="text-xs text-muted">{t('mcp.clipperHint')}</p>
+        {status?.running && status.token ? <CopyBox label={t('mcp.clipperKey')} text={status.token} /> : <p className="text-xs text-faint">{t('mcp.clipperOff')}</p>}
+      </div>
+
       <details className="rounded-md border border-line p-3">
         <summary className="cursor-pointer font-medium">{t('mcp.tools')}</summary>
         <ul className="mt-2 space-y-1">
