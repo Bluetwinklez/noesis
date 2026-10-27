@@ -3,6 +3,7 @@ import { createProvider } from '../ai/providers';
 import { AiError, DEFAULT_AI_CONFIG, PROVIDER_DEFAULTS, type AiConfig, type AiProvider, type ProviderId } from '../ai/types';
 import { blobStore, fetchPublicUrl, notify, secrets } from '../lib/platform';
 import { IngestionPipeline } from '../ingestion/pipeline';
+import { applyPalette } from './palettes';
 import { t } from '../i18n';
 import type { Lang } from '../i18n';
 
@@ -48,6 +49,7 @@ export function applyTheme(prefs: Prefs) {
   const root = document.documentElement;
   const dark = prefs.theme === 'dark' || (prefs.theme === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
   root.classList.toggle('dark', dark);
+  applyPalette(root, prefs.palette, dark);
   root.style.setProperty('--accent-h', String(prefs.accentHue));
   root.style.setProperty('--editor-font-size', `${prefs.editorFontSize}px`);
 }

@@ -3,7 +3,7 @@ import { isTauri } from '../lib/platform';
 import { openStore } from '../core/store';
 import type { SqlDriver } from '../core/db/driver';
 import { useApp } from './state';
-import { loadSettings, startReminderLoop } from './services';
+import { applyTheme, loadSettings, startReminderLoop } from './services';
 import { startUpdateLoop } from './updater';
 import { startMcpIfEnabled } from '../mcp/host';
 
@@ -36,7 +36,7 @@ export async function boot(): Promise<void> {
   window.addEventListener('offline', () => useApp.setState({ online: false }));
   window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
     const { prefs } = useApp.getState();
-    if (prefs.theme === 'system') document.documentElement.classList.toggle('dark', window.matchMedia('(prefers-color-scheme: dark)').matches);
+    if (prefs.theme === 'system') applyTheme(prefs);
   });
   // Flush the browser-preview snapshot before the tab goes away.
   window.addEventListener('pagehide', () => void repos.db.flushNow());
