@@ -32,4 +32,26 @@ test('capture the English sample workspace for the README', async ({ page }) => 
   await page.keyboard.press('Control+Shift+l');
   await expect(page.locator('html')).toHaveClass(/dark/);
   await page.screenshot({ path: resolve(directory, 'dark-mode.png'), animations: 'disabled' });
+  await page.keyboard.press('Control+Shift+l');
+  await expect(page.locator('html')).not.toHaveClass(/dark/);
+
+  await page.getByRole('button', { name: 'Add view' }).click();
+  await page.getByRole('menuitem', { name: 'Timeline' }).click();
+  await expect(page.getByRole('grid', { name: 'Timeline' }).getByRole('gridcell')).toHaveCount(3);
+  await page.mouse.move(0, 0);
+  await page.screenshot({ path: resolve(directory, 'timeline.png'), animations: 'disabled' });
+
+  await page.keyboard.press('Control+Shift+Space');
+  await page.getByLabel('Title (optional)').fill('Idea for the thesis');
+  await page.getByLabel('Write anything — Markdown works. It goes to your Inbox page.').fill('- Compare Kuhn and Kahneman on **expert intuition**\n- Ask the beekeeping notebook about colony decisions');
+  await page.screenshot({ path: resolve(directory, 'quick-capture.png'), animations: 'disabled' });
+  await page.keyboard.press('Escape');
+
+  await page.keyboard.press('Control+,');
+  await page.getByRole('button', { name: 'Appearance', exact: true }).click();
+  await page.getByRole('radio', { name: /Nord/ }).click();
+  await page.keyboard.press('Control+Shift+l');
+  await expect(page.locator('html')).toHaveClass(/dark/);
+  await page.mouse.move(0, 0);
+  await page.screenshot({ path: resolve(directory, 'palettes.png'), animations: 'disabled' });
 });
