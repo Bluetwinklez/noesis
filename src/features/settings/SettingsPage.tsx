@@ -435,7 +435,7 @@ function Storage() {
             if (!f) return;
             if (!(await confirmDialog(t('settings.restore'), t('settings.restoreConfirm'), { danger: true }))) return;
             // Safety copy of the current data before replacing it.
-            await downloadBackup();
+            if (!(await downloadBackup())) return;
             const manifest = await restoreBackup(repos().db, f.bytes, blobStore);
             await repos().db.flushNow();
             useApp.getState().toast(t('settings.restored', { pages: manifest.tables.pages ?? 0 }), 'success');

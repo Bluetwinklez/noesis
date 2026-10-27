@@ -8,11 +8,43 @@ on:
     tags: ['v*']
 
 permissions:
-  contents: write
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
+  validate:
+    name: Validate release and browser workflows
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: node scripts/check-release.mjs
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm audit --audit-level=high --omit=dev
+      - run: npx playwright install --with-deps chromium
+      - run: npm run e2e
+        env:
+          PW_CHANNEL: chromium
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: release-browser-report
+          path: playwright-report/
   windows-release:
+    needs: validate
     runs-on: windows-latest
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -32,17 +64,7 @@ jobs:
       - run: npx tauri build
       - name: Install, launch and uninstall smoke test
         shell: pwsh
-        run: |
-          $setup = Get-ChildItem src-tauri/target/release/bundle/nsis/*-setup.exe | Select-Object -First 1
-          Start-Process $setup.FullName -ArgumentList '/S' -Wait
-          $exe = Join-Path $env:LOCALAPPDATA 'Noesis\noesis.exe'
-          if (!(Test-Path $exe)) { throw "noesis.exe not installed at $exe" }
-          $p = Start-Process $exe -PassThru
-          Start-Sleep -Seconds 20
-          if ($p.HasExited) { throw "Noesis exited early with code $($p.ExitCode)" }
-          if (!(Test-Path (Join-Path $env:APPDATA 'app.noesis.desktop\noesis.db'))) { throw 'database not created' }
-          Stop-Process -Id $p.Id -Force
-          Start-Process (Join-Path $env:LOCALAPPDATA 'Noesis\uninstall.exe') -ArgumentList '/S' -Wait
+        run: ./scripts/windows-smoke.ps1
       - name: Collect artifacts and checksums
         shell: pwsh
         run: |
@@ -52,8 +74,9 @@ jobs:
       - name: Publish pre-release
         env:
           GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.ref_name }}
         shell: pwsh
         run: |
-          $notes = "docs/releases/${{ github.ref_name }}.md"
+          $notes = "docs/releases/$env:RELEASE_TAG.md"
           if (!(Test-Path $notes)) { throw "missing release notes $notes" }
-          gh release create "${{ github.ref_name }}" (Get-ChildItem out/*).FullName --prerelease --title "Noesis ${{ github.ref_name }}" --notes-file $notes
+          gh release create "$env:RELEASE_TAG" (Get-ChildItem out/*).FullName --verify-tag --prerelease --title "Noesis $env:RELEASE_TAG — Knowledge Workspace Preview" --notes-file $notes

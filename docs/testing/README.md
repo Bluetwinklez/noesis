@@ -1,9 +1,9 @@
 # Testing
 
-| Layer | Command | Count (last run 2026-10-27, Linux, Node 22.22) | Covers |
+| Layer | Command | Recorded result (2026-10-27; environments below) | Covers |
 |---|---|---|---|
 | Typecheck | `npm run typecheck` | clean | whole TS codebase |
-| Unit + integration (Vitest, `node:sqlite`) | `npm test` | 51 passed / 6 files | migrations (incl. "newer schema" refusal), transactions, restart persistence (file DB reopened), pages CRUD/nesting/trash/backlinks/autosave snapshots, databases + views + formulas, tasks + recurrence, backup/restore + tamper detection, AI provider failure mapping, extraction of PDF/DOCX/MD/HTML/CSV/TXT, malformed fixtures, URL SSRF guard, hybrid retrieval, citation verification, "insufficient evidence" path |
+| Unit + integration (Vitest, `node:sqlite`) | `npm test` | 57 passed / 7 files, Windows Node 24 | migrations, transactions, restart persistence, pages, databases, tasks, complete backup/restore and attachment verification, AI failures, ingestion, retrieval and citations |
 | Rust (`cargo test`) | `cd src-tauri && cargo test` | 10 passed | SQLite FTS5 availability, typed params, transactions over IPC, path traversal, filename sanitising, export path restriction, atomic writes, corrupt-DB quarantine |
 | E2E (Playwright, browser preview) | `npx playwright test` | 10 passed | see below |
 
@@ -30,7 +30,7 @@ Desktop smoke test (manual, recorded): the release binary under Xvfb survived a 
 
 - The desktop shell end to end (Rust IPC + WebView2). `cargo test` covers the Rust side, and the TypeScript drivers share one interface. However, no automated test drives the packaged `.exe`.
 - Real AI providers (only the mock server is used).
-- Installer install/uninstall.
+- Interactive Windows 10/11 installation and full packaged UI workflows. CI separately smoke-tests silent install, process lifetime, database creation and uninstall on Windows Server; this is narrower evidence than an interactive desktop test.
 
 ## Fixtures
 
@@ -41,3 +41,8 @@ Desktop smoke test (manual, recorded): the release binary under Xvfb survived a 
 - Linux: Playwright uses bundled Chromium. Set `PW_CHROMIUM_PATH` to reuse a preinstalled binary whose revision differs from the Playwright version.
 - Windows: the default channel is `msedge`.
 - `node:sqlite` is loaded with `process.getBuiltinModule` so that jsdom-environment suites can use it under Vite's module runner.
+- Local native compilation on the Windows development machine is blocked by Application Control (`os error 4551`). Native Rust and installer results are recorded from GitHub Actions, not inferred from browser tests.
+
+## README screenshots
+
+`npm run screenshots` captures the English built-in sample workspace at 1440×960 into `docs/images/`. The capture script verifies editor content, selected notebook sources, board records and dark mode before saving each image. No real keys or user documents are used. These are browser-preview images, not native Windows installation evidence.

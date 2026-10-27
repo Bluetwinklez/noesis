@@ -48,10 +48,15 @@ export interface BlobAccess {
 
 export async function createBackup(db: Database, blobs: BlobAccess | null, appVersion = '0.1.0'): Promise<Uint8Array> {
   const data: Record<string, Row[]> = {};
-  for (const t of BACKUP_TABLES) data[t] = await db.all(`SELECT * FROM ${t}`);
+  // Read every table under the same lock and SQLite snapshot. An autosave or
+  // source import cannot leave the archive with mismatched parent/child rows.
+  await db.transaction(async (tx) => {
+    for (const t of BACKUP_TABLES) data[t] = await tx.all(`SELECT * FROM ${t}`);
+  });
   const dataJson = JSON.stringify(data);
   const zip = new JSZip();
   const attachments: BackupManifest['attachments'] = [];
+  if (data.attachments.length && !blobs) throw new BackupError('Attachment storage is required for a complete backup.');
   if (blobs) {
     for (const a of data.attachments as { storage_key: string }[]) {
       try {
@@ -59,7 +64,7 @@ export async function createBackup(db: Database, blobs: BlobAccess | null, appVe
         zip.file(`attachments/${encodeURIComponent(a.storage_key)}`, bytes);
         attachments.push({ key: a.storage_key, sha256: await sha256Hex(bytes), size: bytes.byteLength });
       } catch {
-        /* missing file: recorded as absent; restore keeps the metadata row */
+        throw new BackupError('An attachment could not be read. Backup cancelled to avoid creating an incomplete archive.');
       }
     }
   }
@@ -94,16 +99,34 @@ export async function inspectBackup(bytes: Uint8Array): Promise<{ manifest: Back
   if (!mf || !df) throw new BackupError('Backup archive is missing manifest.json or data.json.');
   const manifest = parseJson<BackupManifest | null>(await mf.async('string'), null);
   if (!manifest || manifest.format !== 'noesis-backup') throw new BackupError('Unrecognised backup format.');
+  if (manifest.formatVersion !== 1 || !Number.isInteger(manifest.schemaVersion) || manifest.schemaVersion < 1)
+    throw new BackupError('Unsupported backup format or schema version.');
   if (manifest.schemaVersion > LATEST_VERSION)
     throw new BackupError('This backup was created by a newer version of Noesis. Update the app to restore it.');
   const dataBytes = await df.async('uint8array');
   if ((await sha256Hex(dataBytes)) !== manifest.dataSha256)
     throw new BackupError('Backup integrity check failed: data checksum does not match (file is corrupted).');
   const data = parseJson<Record<string, Row[]> | null>(new TextDecoder().decode(dataBytes), null);
-  if (!data) throw new BackupError('Backup data is unreadable.');
-  for (const [t, n] of Object.entries(manifest.tables)) {
-    if ((data[t]?.length ?? 0) !== n) throw new BackupError(`Backup integrity check failed for table ${t}.`);
+  if (!data || Array.isArray(data) || typeof data !== 'object') throw new BackupError('Backup data is unreadable.');
+  if (!manifest.tables || typeof manifest.tables !== 'object' || Array.isArray(manifest.tables) || !Array.isArray(manifest.attachments))
+    throw new BackupError('Backup manifest is malformed.');
+  for (const t of BACKUP_TABLES) {
+    const n = manifest.tables[t];
+    if (!Number.isInteger(n) || n < 0 || !Array.isArray(data[t]) || data[t].length !== n || data[t].some((r) => !r || typeof r !== 'object' || Array.isArray(r)))
+      throw new BackupError(`Backup integrity check failed for table ${t}.`);
   }
+  const keys = new Set<string>();
+  for (const a of manifest.attachments) {
+    if (!a || typeof a.key !== 'string' || !a.key || keys.has(a.key) || !Number.isSafeInteger(a.size) || a.size < 0 || typeof a.sha256 !== 'string' || !/^[a-f0-9]{64}$/.test(a.sha256))
+      throw new BackupError('Backup attachment manifest is malformed.');
+    keys.add(a.key);
+    const file = zip.file(`attachments/${encodeURIComponent(a.key)}`);
+    if (!file) throw new BackupError('A required attachment is missing from the archive.');
+    const content = await file.async('uint8array');
+    if (content.byteLength !== a.size || (await sha256Hex(content)) !== a.sha256)
+      throw new BackupError('An attachment failed its size or checksum verification.');
+  }
+  if (data.attachments.some((a) => !keys.has(String(a.storage_key)))) throw new BackupError('Backup does not contain all referenced attachments.');
   return { manifest, data, zip };
 }
 
@@ -113,21 +136,23 @@ export async function inspectBackup(bytes: Uint8Array): Promise<{ manifest: Back
  */
 export async function restoreBackup(db: Database, bytes: Uint8Array, blobs: BlobAccess | null): Promise<BackupManifest> {
   const { manifest, data, zip } = await inspectBackup(bytes);
+  if (manifest.attachments.length && !blobs) throw new BackupError('Attachment storage is required to restore this backup.');
   // Write attachment files first; rows reference the new storage keys.
   const keyMap = new Map<string, string>();
   if (blobs) {
     for (const a of manifest.attachments) {
       const f = zip.file(`attachments/${encodeURIComponent(a.key)}`);
-      if (!f) continue;
+      if (!f) throw new BackupError('A required attachment is missing from the archive.');
       const content = await f.async('uint8array');
       if ((await sha256Hex(content)) !== a.sha256) throw new BackupError(`Attachment ${a.key} is corrupted.`);
       const name = a.key.replace(/^[0-9a-f-]{36}-/, '');
       keyMap.set(a.key, await blobs.put(name, content));
     }
   }
-  await db.run('PRAGMA foreign_keys = OFF');
-  try {
-    await db.transaction(async (tx) => {
+  await db.transaction(async (tx) => {
+      // Defer constraints only inside this transaction. Other queued operations
+      // must never observe foreign key enforcement disabled during a restore.
+      await tx.run('PRAGMA defer_foreign_keys = ON');
       for (const t of [...BACKUP_TABLES].reverse()) await tx.run(`DELETE FROM ${t}`);
       await tx.run('DELETE FROM search_index');
       for (const t of BACKUP_TABLES) {
@@ -146,10 +171,7 @@ export async function restoreBackup(db: Database, bytes: Uint8Array, blobs: Blob
       const fk = await tx.all('PRAGMA foreign_key_check');
       if (fk.length) throw new BackupError(`Backup contains ${fk.length} broken references; restore aborted.`);
       await rebuildSearchIndex(tx);
-    });
-  } finally {
-    await db.run('PRAGMA foreign_keys = ON');
-  }
+  });
   return manifest;
 }
 
