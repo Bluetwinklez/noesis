@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Check, Copy, Link2, Unlink } from 'lucide-react';
 import { useApp } from '../../app/state';
-import { reportError } from '../../app/services';
+import { reportError, savePrefs } from '../../app/services';
 import { isTauri } from '../../lib/platform';
 import { useT } from '../../i18n';
 import { Badge, Button, Switch } from '../../components/ui';
@@ -34,6 +34,7 @@ function CopyBox({ text, label }: { text: string; label: string }) {
 export function McpSettings() {
   const t = useT();
   const enabled = useApp((s) => s.prefs.mcpEnabled);
+  const autoApprove = useApp((s) => s.prefs.mcpAutoApprove);
   const toast = useApp((s) => s.toast);
   const [status, setStatus] = useState<McpStatus | null>(null);
   const [clients, setClients] = useState<ClientTarget[]>([]);
@@ -78,6 +79,13 @@ export function McpSettings() {
               .finally(() => setBusy(null));
           }}
         />
+      </div>
+      <div className="flex items-center justify-between gap-4 rounded-md border border-line p-3">
+        <div>
+          <div className="font-medium">{t('mcp.autoApprove')}</div>
+          <div className="text-xs text-muted">{t('mcp.autoApproveHint')}</div>
+        </div>
+        <Switch checked={autoApprove} label={t('mcp.autoApprove')} onChange={(v) => void savePrefs({ mcpAutoApprove: v }).catch(reportError)} />
       </div>
 
       <div>
