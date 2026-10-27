@@ -22,7 +22,8 @@ export default defineConfig({
     // sqlite-wasm (browser preview mode) needs cross-origin isolation for OPFS; we use in-memory + IndexedDB so plain headers suffice.
     watch: { ignored: ['**/src-tauri/**'] },
   },
-  optimizeDeps: { exclude: ['@sqlite.org/sqlite-wasm'] },
+  // Lazily imported exporters are pre-bundled so first use in dev/E2E does not trigger a re-optimisation reload.
+  optimizeDeps: { exclude: ['@sqlite.org/sqlite-wasm'], include: ['docx', 'pdfmake/build/pdfmake', 'pdfmake/build/vfs_fonts'] },
   envPrefix: ['VITE_', 'TAURI_ENV_'],
   build: {
     target: 'es2022',
