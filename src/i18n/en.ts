@@ -256,7 +256,7 @@ export const en = {
   'src.addToNotebook': 'Add to notebook',
   'src.pasteTitle': 'Title',
   'src.pasteBody': 'Paste text or a transcript here',
-  'src.supported': 'Supported: PDF, DOCX, TXT, Markdown, HTML, CSV, web links; images (OCR) and audio need an AI provider.',
+  'src.supported': 'Supported: PDF, DOCX, TXT, Markdown, HTML, CSV, web links; images and scanned PDFs (offline OCR); audio needs an AI provider.',
   'src.kind.pdf': 'PDF',
   'src.kind.docx': 'Word',
   'src.kind.txt': 'Text',

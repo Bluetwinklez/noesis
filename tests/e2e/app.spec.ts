@@ -316,3 +316,38 @@ test('quick capture saves a note to the Inbox', async ({ page }) => {
   await page.getByRole('treeitem', { name: /Idea/ }).click();
   await expect(editor(page).locator('strong')).toHaveText('buy');
 });
+
+test('images are read with offline OCR, without an AI provider', async ({ page, browser }) => {
+  test.setTimeout(180_000);
+  // Render a crisp text image to import.
+  const shot = await browser.newPage({ viewport: { width: 900, height: 220 } });
+  await shot.setContent('<body style="margin:0;background:#fff"><p style="font:48px Arial;margin:40px">Chlorophyll absorbs sunlight</p></body>');
+  const pngPath = test.info().outputPath('ocr.png');
+  await shot.screenshot({ path: pngPath });
+  await shot.close();
+
+  await freshApp(page);
+  await onboard(page);
+  await page.getByRole('button', { name: 'Sources' }).click();
+  const chooser = page.waitForEvent('filechooser');
+  await page.getByRole('button', { name: 'Import files' }).first().click();
+  await (await chooser).setFiles(pngPath);
+  await expect(page.getByText('Ready').first()).toBeVisible({ timeout: 120_000 });
+  await page.getByText('ocr', { exact: true }).click();
+  await expect(page.getByLabel('Extracted text')).toContainText(/Chlorophyll absorbs sunlight/i);
+
+  // A "scanned" PDF: the page is only an image, so there is no text layer to extract.
+  const { readFileSync } = await import('node:fs');
+  const pdfPage = await browser.newPage();
+  await pdfPage.setContent(`<img style="width:100%" src="data:image/png;base64,${readFileSync(pngPath).toString('base64')}">`);
+  const pdfPath = test.info().outputPath('scan.pdf');
+  await pdfPage.pdf({ path: pdfPath, format: 'A4' });
+  await pdfPage.close();
+  await page.keyboard.press('Escape');
+  const chooser2 = page.waitForEvent('filechooser');
+  await page.getByRole('button', { name: 'Import files' }).first().click();
+  await (await chooser2).setFiles(pdfPath);
+  await expect(page.getByText('Ready')).toHaveCount(2, { timeout: 120_000 });
+  await page.getByText('scan', { exact: true }).click();
+  await expect(page.getByLabel('Extracted text')).toContainText(/absorbs sunlight/i);
+});

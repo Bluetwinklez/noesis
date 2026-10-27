@@ -183,6 +183,9 @@ let pdfjsLoader: (() => Promise<PdfJs>) | null = null;
 export function setPdfJsLoader(loader: () => Promise<PdfJs>) {
   pdfjsLoader = loader;
 }
+export function getPdfJsLoader() {
+  return pdfjsLoader;
+}
 
 export async function extractPdf(bytes: Uint8Array, signal?: AbortSignal): Promise<ExtractResult> {
   if (!pdfjsLoader) throw new IngestionError('PDF support is not initialised.', 'extraction', 'unsupported');
@@ -219,7 +222,7 @@ export async function extractPdf(bytes: Uint8Array, signal?: AbortSignal): Promi
   const totalText = pages.reduce((n, p) => n + p.text.length, 0);
   if (totalText < 20)
     throw new IngestionError(
-      'No selectable text was found in this PDF. It is probably a scanned document; import the pages as images to run OCR.',
+      'No selectable text was found in this PDF and it could not be read with OCR.',
       'extraction',
       'empty',
     );

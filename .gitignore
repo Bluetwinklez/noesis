@@ -7,3 +7,4 @@ playwright-report
 *.log
 .env
 tsconfig.tsbuildinfo
+public/ocr
