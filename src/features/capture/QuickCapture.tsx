@@ -5,8 +5,6 @@ import { repos, useApp, wsId } from '../../app/state';
 import { reportError } from '../../app/services';
 import { isTauri } from '../../lib/platform';
 import { useT, t as translate } from '../../i18n';
-import { htmlToDoc } from '../../editor/serialize';
-import { markdownToHtml } from '../../editor/markdown';
 import { Button, Input, Kbd, Modal, Textarea } from '../../components/ui';
 
 export const useQuickCapture = create<{ open: boolean }>(() => ({ open: false }));
@@ -29,7 +27,10 @@ export async function saveQuickNote(title: string, body: string): Promise<string
   const name = title.trim() || firstLine || new Date().toLocaleString();
   const r = repos();
   const page = await r.pages.create({ workspaceId: wsId(), parentId: await inboxPage(), title: name });
-  if (body.trim()) await r.pages.saveContent(page.id, htmlToDoc(markdownToHtml(body)));
+  if (body.trim()) {
+    const [{ htmlToDoc }, { markdownToHtml }] = await Promise.all([import('../../editor/serialize'), import('../../editor/markdown')]);
+    await r.pages.saveContent(page.id, htmlToDoc(markdownToHtml(body)));
+  }
   return page.id;
 }
 

@@ -94,6 +94,7 @@ export const en = {
   'page.tags': 'Tags',
   'page.addTag': 'Add tag',
   'page.exportMd': 'Export as Markdown',
+  'page.exportDocx': 'Export as Word (.docx)',
   'page.exportHtml': 'Export as HTML',
   'page.exportPdf': 'Export as PDF (print)',
   'page.importMd': 'Import Markdown',

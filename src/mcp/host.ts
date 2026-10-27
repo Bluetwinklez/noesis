@@ -2,7 +2,7 @@ import { create } from 'zustand';
 import { isTauri } from '../lib/platform';
 import { useApp } from '../app/state';
 import { savePrefs } from '../app/services';
-import { handleMcp, type ApprovalRequest } from './server';
+import type { ApprovalRequest } from './server';
 
 /**
  * Connects the Rust MCP endpoint to the TypeScript MCP server: Rust emits
@@ -64,6 +64,8 @@ async function listen() {
     try {
       const { repos, workspaceId, toast } = useApp.getState();
       if (!repos || !workspaceId) throw new Error('Noesis is still starting.');
+      // Loaded on first use: the MCP server pulls in the editor schema and search.
+      const { handleMcp } = await import('./server');
       const res = await handleMcp(JSON.parse(payload.message), {
         repos,
         workspaceId,
