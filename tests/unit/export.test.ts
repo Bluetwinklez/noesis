@@ -109,9 +109,10 @@ describe('export everything and import it back', () => {
     expect(parent2).toMatchObject({ priority: 3, due_at: Date.UTC(2026, 10, 5), project_page_id: p2.id });
     expect(tasks2.find((t) => t.title === 'Collect quotes')!.parent_id).toBe(parent2.id);
 
-    expect(r.sources.map((x) => [x.title, x.kind, x.text, x.file])).toEqual([
-      ['Interview notes', 'note', 'Bees decide by quorum.', null],
+    // Same-millisecond sources have no defined order, so compare them sorted by title.
+    expect(r.sources.map((x) => [x.title, x.kind, x.text, x.file]).sort((x, y) => String(x[0]).localeCompare(String(y[0])))).toEqual([
       ['Article', 'url', null, null],
+      ['Interview notes', 'note', 'Bees decide by quorum.', null],
     ]);
   });
 });
