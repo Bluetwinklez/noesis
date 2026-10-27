@@ -277,6 +277,64 @@ fn open_database(db_path: &PathBuf) -> Result<(Connection, Option<String>), Stri
     }
 }
 
+/// Brings the main window forward and asks the UI to open the quick-capture box.
+#[cfg(desktop)]
+fn open_quick_capture(app: &tauri::AppHandle) {
+    use tauri::Emitter;
+    if let Some(w) = app.get_webview_window("main") {
+        let _ = w.show();
+        let _ = w.unminimize();
+        let _ = w.set_focus();
+    }
+    let _ = app.emit("quick-capture", ());
+}
+
+pub const QUICK_CAPTURE_SHORTCUT: &str = "CommandOrControl+Shift+Space";
+
+/// Tray icon (quick note / open / quit) and the system-wide quick-capture shortcut.
+#[cfg(desktop)]
+fn desktop_extras(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
+    use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
+    use tauri::tray::TrayIconBuilder;
+    use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
+
+    let quick = MenuItem::with_id(app, "quick", "Quick note", true, Some(QUICK_CAPTURE_SHORTCUT))?;
+    let open = MenuItem::with_id(app, "open", "Open Noesis", true, None::<&str>)?;
+    let quit = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
+    let menu = Menu::with_items(app, &[&quick, &open, &PredefinedMenuItem::separator(app)?, &quit])?;
+    let mut tray = TrayIconBuilder::with_id("main").tooltip("Noesis").menu(&menu).on_menu_event(|app, event| match event.id().as_ref() {
+        "quick" => open_quick_capture(app),
+        "open" => {
+            if let Some(w) = app.get_webview_window("main") {
+                let _ = w.show();
+                let _ = w.unminimize();
+                let _ = w.set_focus();
+            }
+        }
+        "quit" => app.exit(0),
+        _ => {}
+    });
+    if let Some(icon) = app.default_window_icon() {
+        tray = tray.icon(icon.clone());
+    }
+    tray.build(app)?;
+
+    app.handle().plugin(
+        tauri_plugin_global_shortcut::Builder::new()
+            .with_handler(|app, _shortcut, event| {
+                if event.state() == ShortcutState::Pressed {
+                    open_quick_capture(app);
+                }
+            })
+            .build(),
+    )?;
+    // Another app may already own the combination; quick capture then stays available from the tray.
+    if let Err(e) = app.global_shortcut().register(QUICK_CAPTURE_SHORTCUT) {
+        eprintln!("Noesis: quick-capture shortcut unavailable: {e}");
+    }
+    Ok(())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let mut builder = tauri::Builder::default();
@@ -304,6 +362,8 @@ pub fn run() {
             let (conn, recovered_from) = open_database(&db_path).map_err(|e| -> Box<dyn std::error::Error> { e.into() })?;
             app.manage(McpState::default());
             app.manage(AppState { conn: Mutex::new(conn), data_dir, db_path, attachments_dir, recovered_from });
+            #[cfg(desktop)]
+            desktop_extras(app)?;
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
