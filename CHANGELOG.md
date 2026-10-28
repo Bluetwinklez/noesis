@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- Condense long Studio sources in bounded parts before summaries, study guides, FAQs, timelines, briefings, comparisons, flashcards, quizzes and audio scripts, so the end of a document is considered.
+- Share source context fairly, including source wrappers in the character budget; show condensation progress, coverage and warnings for omitted sections or shortened provider output in English and Turkish.
+- Preserve Studio notes and coverage in workspace ZIP exports/imports, remap source links on import, and persist generated notes before opening their dialog.
+
 ## 0.1.0 — Early preview
 
 ### Workspace

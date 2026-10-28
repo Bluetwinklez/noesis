@@ -148,6 +148,29 @@ test('source-grounded notebook answer with navigable citations', async ({ page }
   await expect(page.getByRole('dialog')).toContainText('Edited summary text');
 });
 
+test('Studio condenses a long source and preserves its coverage note after reload', async ({ page }) => {
+  const db = await freshApp(page);
+  await onboard(page);
+  await configureMockAi(page);
+  await page.getByRole('button', { name: 'AI Notebooks' }).click();
+  await page.getByRole('button', { name: 'New notebook' }).first().click();
+  const chooser = page.waitForEvent('filechooser');
+  await page.getByRole('button', { name: 'Import files', exact: true }).first().click();
+  await (await chooser).setFiles({ name: 'Long field report.txt', mimeType: 'text/plain', buffer: Buffer.from('The excavation project carefully catalogues ancient artefacts. '.repeat(2000) + '\nFINAL FINDING: 731 artefacts were recovered in Izmir.') });
+  await expect(page.getByLabel('Use Long field report')).toBeEnabled({ timeout: 30000 });
+  await page.getByRole('button', { name: 'Summary', exact: true }).click();
+  const dialog = page.getByRole('dialog');
+  await expect(dialog.getByRole('status', { name: 'Source coverage' })).toContainText(/Long source condensed in \d+ parts/, { timeout: 30000 });
+  await expect(dialog).toContainText('Citations open the original sources');
+  await page.keyboard.press('Escape');
+  await page.goto(`/?db=${db}`);
+  await page.getByRole('button', { name: 'AI Notebooks' }).click();
+  await page.getByRole('button', { name: /Untitled notebook/ }).click();
+  await page.getByRole('tab', { name: 'Notes', exact: true }).click();
+  await page.getByRole('button', { name: /Summary/ }).last().click();
+  await expect(page.getByRole('dialog').getByRole('status', { name: 'Source coverage' })).toContainText('Long source condensed');
+});
+
 test('invalid API key produces a recoverable error', async ({ page }) => {
   await freshApp(page);
   await onboard(page);
