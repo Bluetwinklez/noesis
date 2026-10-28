@@ -32,6 +32,7 @@ import { PalettePicker } from '../../components/PalettePicker';
 import { checkForUpdates, installUpdate, setUpdatePrefs, useUpdates } from '../../app/updater';
 import { appInfo, isTauri, notify, pickFiles, revealDataDir, saveFile, secrets, blobStore } from '../../lib/platform';
 import { createBackup, rebuildSearchIndex, restoreBackup } from '../../core/backup';
+import { VISUAL_THEMES } from '../../app/visual-themes';
 import { integrityCheck, LATEST_VERSION } from '../../core/db/migrations';
 import type { ProviderId } from '../../ai/types';
 import { formatBytes, relativeTime } from '../../lib/util';
@@ -227,6 +228,30 @@ export function Appearance() {
   const prefs = useApp((s) => s.prefs);
   return (
     <section>
+      <div className="border-b border-line pb-5">
+        <div className="mb-1 font-medium">{t('settings.visualTheme')}</div>
+        <p className="mb-3 text-xs text-muted">{t('settings.visualThemeHint')}</p>
+        <div className="grid grid-cols-2 gap-3 lg:grid-cols-4" role="radiogroup" aria-label={t('settings.visualTheme')}>
+          {VISUAL_THEMES.map((style) => (
+            <button
+              key={style.id}
+              role="radio"
+              aria-checked={prefs.visualTheme === style.id}
+              aria-label={t(`settings.visualTheme.${style.id}`)}
+              data-theme-preview={style.id}
+              className={cx('theme-preview overflow-hidden rounded-xl border p-2 text-left transition', prefs.visualTheme === style.id ? 'border-accent ring-2 ring-accent-soft' : 'border-line-strong hover:border-accent')}
+              onClick={() => void savePrefs({ visualTheme: style.id, palette: style.palette, accentHue: style.accentHue })}
+            >
+              <span className="theme-preview-scene mb-2 block h-16 overflow-hidden rounded-lg border border-black/10">
+                <span className="theme-preview-sidebar block h-full w-1/4" />
+                <span className="theme-preview-card absolute left-[34%] top-[28%] h-[52%] w-[55%] rounded-md border" />
+              </span>
+              <span className="block text-sm font-medium">{t(`settings.visualTheme.${style.id}`)}</span>
+              <span className="block text-[11px] text-muted">{t(`settings.visualTheme.${style.id}.hint`)}</span>
+            </button>
+          ))}
+        </div>
+      </div>
       <Row label={t('settings.theme')}>
         <div className="flex gap-1">
           {(['light', 'dark', 'system'] as const).map((th) => (

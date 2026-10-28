@@ -47,6 +47,38 @@ async function configureMockAi(page: Page, key = 'test-key') {
   await page.getByRole('button', { name: 'Save', exact: true }).click();
 }
 
+test('complete visual themes are selectable and survive a restart', async ({ page }) => {
+  const db = await freshApp(page);
+  await onboard(page);
+  await page.getByRole('button', { name: 'Settings', exact: true }).click();
+  await page.getByRole('button', { name: 'Appearance', exact: true }).click();
+
+  for (const [label, id] of [
+    ['Pastel Library', 'library'],
+    ['Kawaii Retro', 'kawaii'],
+    ['Sherwood', 'sherwood'],
+    ['Classic Noesis', 'classic'],
+  ] as const) {
+    await page.getByRole('radio', { name: label }).click();
+    await expect(page.locator('html')).toHaveAttribute('data-visual-theme', id);
+    await expect(page.getByRole('radio', { name: label })).toHaveAttribute('aria-checked', 'true');
+    await page.screenshot({ path: test.info().outputPath(`${id}-theme.png`), fullPage: true });
+  }
+
+  await page.getByRole('radio', { name: 'Sherwood' }).click();
+  await page.getByRole('button', { name: 'Accent hue 220' }).click();
+  await expect(page.locator('html')).toHaveAttribute('style', /--accent-h:\s*220/);
+  await expect.poll(() => page.evaluate(async () => {
+    const state = (window as unknown as { __noesis: { getState(): { repos: Repos } } }).__noesis.getState();
+    const saved = await state.repos.settings.get<{ visualTheme?: string; accentHue?: number }>('prefs', {});
+    await state.repos.db.flushNow();
+    return { visualTheme: saved.visualTheme, accentHue: saved.accentHue };
+  })).toEqual({ visualTheme: 'sherwood', accentHue: 220 });
+  await page.goto(`/?db=${db}`);
+  await expect(page.locator('html')).toHaveAttribute('data-visual-theme', 'sherwood');
+  await expect(page.locator('html')).toHaveAttribute('style', /--accent-h:\s*220/);
+});
+
 async function importFixture(page: Page, button: string, file: string) {
   const chooser = page.waitForEvent('filechooser');
   await page.getByRole('button', { name: button }).first().click();
