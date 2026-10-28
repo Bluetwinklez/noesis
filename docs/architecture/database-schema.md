@@ -9,7 +9,7 @@ Migration v5 adds `chat_messages.insufficient INTEGER NOT NULL DEFAULT 0 CHECK (
 - IDs are UUID strings; timestamps are Unix epoch milliseconds.
 - Each migration runs in its own transaction and is recorded in `schema_migrations(version, name, applied_at)`. A database newer than the app refuses to open instead of being downgraded.
 - Large binaries (attachments, imported files, audio) live in the attachment store on disk, not in SQLite. Rows reference them by a stable `storage_key`.
-- `PRAGMA integrity_check` and `PRAGMA foreign_key_check` run at startup (`integrityCheck`). On desktop, a database that fails the check is moved aside and a fresh one is created (see `src-tauri/src/lib.rs`).
+- Startup runs SQLite quick-check and surfaces storage failures through independent recovery. A corrupt database stays in place until a validated restore preserves it as a recovery copy and installs the replacement. Backup reconstruction uses integrity and foreign-key checks before installation; see [error recovery](../testing/error-recovery.md).
 
 ## Tables
 

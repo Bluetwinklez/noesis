@@ -17,8 +17,8 @@ async function idbGet(key: string): Promise<Uint8Array | undefined> {
   const db = await idb();
   return new Promise((resolve, reject) => {
     const req = db.transaction(IDB_STORE).objectStore(IDB_STORE).get(key);
-    req.onsuccess = () => resolve(req.result as Uint8Array | undefined);
-    req.onerror = () => reject(req.error);
+    req.onsuccess = () => { db.close(); resolve(req.result as Uint8Array | undefined); };
+    req.onerror = () => { db.close(); reject(req.error); };
   });
 }
 
@@ -27,8 +27,8 @@ async function idbPut(key: string, value: Uint8Array): Promise<void> {
   return new Promise((resolve, reject) => {
     const tx = db.transaction(IDB_STORE, 'readwrite');
     tx.objectStore(IDB_STORE).put(value, key);
-    tx.oncomplete = () => resolve();
-    tx.onerror = () => reject(tx.error);
+    tx.oncomplete = () => { db.close(); resolve(); };
+    tx.onerror = () => { db.close(); reject(tx.error); };
   });
 }
 
@@ -40,21 +40,50 @@ async function idbPut(key: string, value: Uint8Array): Promise<void> {
 export class WasmDriver implements SqlDriver {
   readonly kind = 'wasm' as const;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  private constructor(private sqlite3: any, private db: any, private key: string) {}
+  private constructor(private sqlite3: any, private db: any, private key: string | null) {}
 
   static async open(key = 'main'): Promise<WasmDriver> {
+    const snapshot = await idbGet(key);
+    return this.fromBytes(snapshot, key);
+  }
+
+  /** Isolated in-memory database; never reads or overwrites the failed snapshot. */
+  static async empty(): Promise<WasmDriver> {
+    return this.fromBytes(undefined, null);
+  }
+
+  private static async fromBytes(snapshot: Uint8Array | undefined, key: string | null): Promise<WasmDriver> {
     const sqlite3 = await sqlite3InitModule();
     const db = new sqlite3.oo1.DB(':memory:', 'c');
-    const snapshot = await idbGet(key).catch(() => undefined);
-    if (snapshot && snapshot.byteLength > 0) {
-      const p = sqlite3.wasm.allocFromTypedArray(snapshot);
-      const rc = sqlite3.capi.sqlite3_deserialize(
-        db.pointer!, 'main', p, snapshot.byteLength, snapshot.byteLength,
-        sqlite3.capi.SQLITE_DESERIALIZE_FREEONCLOSE | sqlite3.capi.SQLITE_DESERIALIZE_RESIZEABLE,
-      );
-      if (rc !== 0) throw new Error(`Stored browser database could not be loaded (code ${rc}).`);
-    }
-    return new WasmDriver(sqlite3, db, key);
+    try {
+      if (snapshot) {
+        if (!snapshot.byteLength) throw new Error('Stored browser database is empty.');
+        const p = sqlite3.wasm.allocFromTypedArray(snapshot);
+        const rc = sqlite3.capi.sqlite3_deserialize(
+          db.pointer!, 'main', p, snapshot.byteLength, snapshot.byteLength,
+          sqlite3.capi.SQLITE_DESERIALIZE_FREEONCLOSE | sqlite3.capi.SQLITE_DESERIALIZE_RESIZEABLE,
+        );
+        if (rc !== 0) throw new Error(`Stored browser database could not be loaded (code ${rc}).`);
+      }
+      if (db.selectValue('PRAGMA quick_check') !== 'ok') throw new Error('Stored browser database failed its integrity check.');
+      return new WasmDriver(sqlite3, db, key);
+    } catch (error) { db.close(); throw error; }
+  }
+
+  static readSnapshot = idbGet;
+  static async installSnapshot(key: string, bytes: Uint8Array) {
+    const db = await idb();
+    await new Promise<void>((resolve, reject) => {
+      const tx = db.transaction(IDB_STORE, 'readwrite');
+      const store = tx.objectStore(IDB_STORE);
+      const previous = store.get(key);
+      previous.onsuccess = () => {
+        if (previous.result !== undefined) store.put(previous.result, `${key}.pre-recovery-${crypto.randomUUID()}`);
+        store.put(bytes, key);
+      };
+      tx.oncomplete = () => { db.close(); resolve(); };
+      tx.onabort = tx.onerror = () => { db.close(); reject(tx.error); };
+    });
   }
 
   async exec(sql: string, params: SqlValue[] = []): Promise<ExecResult> {
@@ -68,6 +97,7 @@ export class WasmDriver implements SqlDriver {
   }
 
   async flush() {
+    if (this.key === null) return;
     const bytes: Uint8Array = this.sqlite3.capi.sqlite3_js_db_export(this.db.pointer);
     await idbPut(this.key, bytes);
   }
@@ -75,4 +105,5 @@ export class WasmDriver implements SqlDriver {
   async exportBytes(): Promise<Uint8Array> {
     return this.sqlite3.capi.sqlite3_js_db_export(this.db.pointer);
   }
+  async close() { this.db.close(); }
 }

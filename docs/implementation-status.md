@@ -6,6 +6,14 @@ Status values: `done` (implemented and covered by an automated test or recorded 
 
 ## Verification runs (this revision)
 
+### Independent error recovery (2026-10-28)
+
+- App-wide and route-level error boundaries show render errors, reload the failed subtree and copy details. A route failure keeps the sidebar active; page/database/notebook/settings routes share this boundary and reset it on navigation.
+- Boot failure opens a standalone bilingual recovery screen without repositories or Settings. It restores a validated backup, exports stored raw database bytes (plus native WAL/SHM), copies diagnostics, and opens the fixed automatic-backups folder on desktop.
+- Restore reconstructs and integrity-checks a separate in-memory SQLite database before installing it. Browser replacement preserves the prior snapshot in the same IndexedDB transaction; Rust validates a staging file, preserves original DB/WAL/SHM files and attempts rollback if installation fails. Attachments are restored to new keys before database installation; failed attempts may leave unreferenced attachment files.
+- Native startup retains a corrupt database in place and keeps the UI available even without a database connection. It no longer silently creates an empty workspace after corruption. Browser storage read failures also surface instead of falling back to an empty database.
+- The initial render regression test failed without a boundary. Focused boundary/reconstruction tests, corrupt-browser-database restore/export E2E and 22 Rust tests passed; strict Clippy passed after correcting two warnings. Full local verification passed: npm ci, typecheck, production build, **121 Vitest tests / 21 files**, **24 Playwright scenarios**, **4 mock evaluation cases**, **22 Rust tests**, strict Clippy and **1 benchmark test**. Production build took **3.88 s**. Existing 2,000-page full-text search median/p95: **6.978/7.239 ms**; hybrid: **34.739/47.823 ms**. Native recovery UI/IPC end to end and power failure during file replacement are not verified.
+
 ### Interrupted source recovery (2026-10-28)
 
 - Boot marks sources left in `processing` as retryable errors across every workspace before exposing repositories or starting background services. It preserves extraction stage, original attachments, extracted text and chunks; it does not automatically send data to an AI provider. Recovery is idempotent and persisted before boot continues. No schema change is needed.
@@ -111,7 +119,7 @@ Status values: `done` (implemented and covered by an automated test or recorded 
 | Settings (all §21 sections) | done | |
 | Onboarding (7 steps, AI skippable) | done | Two cosmetic issues fixed in this revision |
 | i18n English + Turkish | done | |
-| Backup/restore, integrity check, corrupt-DB quarantine | done | |
+| Backup/restore, integrity check, independent corrupt-DB recovery | done | |
 | Keyring secret storage | done | Linux/Windows backends compiled; Windows Credential Manager not verified on a real Windows host in this session |
 | Cloud sync | not-started | No sync code; the architecture doc describes the seam |
 | Quick capture (global shortcut, tray) | done | `Ctrl+Shift+Space` system-wide; notes go to an Inbox page |
@@ -148,6 +156,7 @@ Status values: `done` (implemented and covered by an automated test or recorded 
 {
   "version": "0.1.0",
   "updated": "2026-10-28",
+  "error_recovery": { "vitest": 121, "vitest_files": 21, "playwright": 24, "mock_eval": 4, "cargo": 22, "clippy": "PASS -D warnings", "benchmark_tests": 1, "native_recovery_ui_verified": false },
   "source_recovery": { "vitest": 117, "vitest_files": 19, "playwright": 22, "mock_eval": 4, "cargo": 20, "clippy": "PASS -D warnings", "benchmark_tests": 1, "native_ocr_termination_verified": false },
   "answer_evidence": { "schema": 5, "vitest": 115, "vitest_files": 18, "playwright": 21, "mock_eval": 4, "cargo": 20, "clippy": "PASS -D warnings", "benchmark_tests": 1, "live_provider_verified": false },
   "studio_long_sources": { "vitest": 105, "vitest_files": 15, "playwright": 20, "cargo": 20, "clippy": "PASS -D warnings", "benchmark_tests": 1, "environment": "Windows Node 24.20.0 Rust 1.99.1", "live_provider_verified": false },

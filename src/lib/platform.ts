@@ -232,6 +232,7 @@ export interface AppInfo {
   dbPath: string;
   dbBytes: number;
   attachmentsBytes: number;
+  startupError?: string | null;
 }
 
 export async function appInfo(): Promise<AppInfo | null> {
