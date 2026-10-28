@@ -319,6 +319,21 @@ test('quick capture saves a note to the Inbox', async ({ page }) => {
   await expect(editor(page).locator('strong')).toHaveText('buy');
 });
 
+test('typing in a dialog keeps focus in the field being typed in', async ({ page }) => {
+  await freshApp(page);
+  await onboard(page);
+  await page.keyboard.press('Control+Shift+Space');
+  const title = page.getByLabel('Title (optional)');
+  await expect(title).toBeFocused();
+  await page.keyboard.type('Plan', { delay: 40 });
+  const body = page.getByLabel('Write anything — Markdown works. It goes to your Inbox page.');
+  await body.click();
+  await page.keyboard.type('buy milk and bread', { delay: 40 }); // every keystroke re-renders the dialog
+  await expect(title).toHaveValue('Plan');
+  await expect(body).toHaveValue('buy milk and bread');
+  await expect(body).toBeFocused();
+});
+
 test('images are read with offline OCR, without an AI provider', async ({ page, browser }) => {
   test.setTimeout(180_000);
   // Render a crisp text image to import.
