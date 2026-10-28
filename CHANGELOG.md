@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Recover sources left in processing at startup with a localized retry message, retain their original files/text, and prevent concurrent processing across pipeline instances. Initialize boot only once under React StrictMode.
+
 - Persist unsupported-answer warnings with a new v5 migration, including legacy backups, and preserve chat evidence flags in workspace exports/imports.
 - Mark uncited sentences in cited answers, keep citation click-through and Markdown formatting, and clarify that a citation number does not prove a claim.
 - Add a separate four-case evidence evaluation harness, deterministic mock CI checks and owner-run live-provider configuration.

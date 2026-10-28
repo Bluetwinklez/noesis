@@ -45,12 +45,17 @@ export interface FileInput {
 
 const STAGES: PipelineStage[] = ['import', 'validation', 'extraction', 'normalization', 'chunking', 'embedding', 'indexing', 'done'];
 export const stageIndex = (s: PipelineStage) => STAGES.indexOf(s);
+// Share reservations between pipeline instances using the same repository.
+const activeByRepo = new WeakMap<SourceRepo, Map<string, AbortController>>();
 
 /** Ingestion pipeline: Import → Validation → Extraction → Normalization → Chunking → Embedding → Indexing. */
 export class IngestionPipeline {
-  private running = new Map<string, AbortController>();
+  private running: Map<string, AbortController>;
 
-  constructor(private deps: PipelineDeps) {}
+  constructor(private deps: PipelineDeps) {
+    this.running = activeByRepo.get(deps.sources) ?? new Map();
+    activeByRepo.set(deps.sources, this.running);
+  }
 
   cancel(sourceId: string) {
     this.running.get(sourceId)?.abort();
