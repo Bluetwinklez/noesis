@@ -13,6 +13,7 @@ import { AiPreviewHost } from '../features/ai/AiPreview';
 import { UpdateBanner } from '../components/shell/UpdateBanner';
 import { McpApprovalDialog } from '../features/mcp/McpApprovalDialog';
 import { QuickCapture, openQuickCapture } from '../features/capture/QuickCapture';
+import { ErrorBoundary } from '../components/ErrorBoundary';
 
 // The editor (Tiptap/ProseMirror) and first-run flow are the heaviest modules; keep them out of the startup chunk.
 const PageView = lazy(() => import('../features/pages/PageView').then((m) => ({ default: m.PageView })));
@@ -116,6 +117,7 @@ export function App() {
   const t = useT();
   const workspaceId = useApp((s) => s.workspaceId);
   const onboarded = useApp((s) => s.prefs.onboarded);
+  const route = useApp((s) => s.route);
   useGlobalShortcuts();
 
   if (!workspaceId || !onboarded)
@@ -141,7 +143,7 @@ export function App() {
               </div>
             }
           >
-            <RouteView />
+            <ErrorBoundary key={JSON.stringify(route)}><RouteView /></ErrorBoundary>
           </Suspense>
         </div>
       </main>

@@ -18,7 +18,7 @@
 │ db.rs     rusqlite (bundled SQLite with FTS5), single connection, typed params    │
 │ files.rs  attachment store: atomic writes, key validation, export path checks     │
 │ lib.rs    commands, keyring (Windows Credential Manager), integrity check on      │
-│           startup (corrupt DB moved aside), single-instance, plugins              │
+│           startup (corrupt DB kept for recovery), single-instance, plugins              │
 └───────────────────────────────────────────────────────────────────────────────────┘
 ```
 
