@@ -331,6 +331,8 @@ fn client_config_paths(id: &str) -> Vec<PathBuf> {
     let Some(home) = home() else { return vec![] };
     match id {
         "claude-desktop" => {
+            // Pushes are per-platform (cfg), so vec![] cannot express this.
+            #[allow(clippy::vec_init_then_push)]
             let mut v = Vec::new();
             #[cfg(windows)]
             {
