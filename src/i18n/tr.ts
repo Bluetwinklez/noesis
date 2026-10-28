@@ -261,6 +261,7 @@ export const tr: Record<keyof typeof en, string> = {
   'src.drop': 'İçe aktarmak için dosyaları bırak',
   'src.status.pending': 'Bekliyor',
   'src.status.processing': 'İşleniyor',
+  'src.interrupted': 'İşlem yarıda kesildi — yeniden dene',
   'src.status.ready': 'Hazır',
   'src.status.error': 'Başarısız',
   'src.stage': 'Aşama: {stage}',

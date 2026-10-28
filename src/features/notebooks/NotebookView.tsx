@@ -21,6 +21,7 @@ import {
   X,
 } from 'lucide-react';
 import { repos, useApp, wsId } from '../../app/state';
+import { INTERRUPTED_SOURCE_ERROR } from '../../app/recover-sources';
 import { useT, type MessageKey } from '../../i18n';
 import { Button, confirmDialog, cx, EmptyState, IconButton, MenuButton, Modal, promptDialog, Spinner, Tabs, Textarea, useAsync, type MenuItem } from '../../components/ui';
 import { errorMessage, providerWithConsent, reportError } from '../../app/services';
@@ -199,7 +200,7 @@ function SourcesPanel({ notebookId, sources }: { notebookId: string; sources: Nb
             <button className="min-w-0 flex-1 text-left" onClick={() => navigate({ name: 'sources', id: s.id })}>
               <div className="truncate text-[13px] font-medium">{s.title}</div>
               {s.status === 'ready' ? <div className="text-[11px] text-faint uppercase">{t(`src.kind.${s.kind}` as MessageKey)}</div> : <StatusBadge s={s} />}
-              {s.status === 'error' && <div className="mt-0.5 line-clamp-3 text-[11px] text-danger">{s.error}</div>}
+              {s.status === 'error' && <div className="mt-0.5 line-clamp-3 text-[11px] text-danger">{s.error === INTERRUPTED_SOURCE_ERROR ? t('src.interrupted') : s.error}</div>}
             </button>
             <IconButton
               size="sm"

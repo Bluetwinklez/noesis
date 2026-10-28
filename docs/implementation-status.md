@@ -6,6 +6,12 @@ Status values: `done` (implemented and covered by an automated test or recorded 
 
 ## Verification runs (this revision)
 
+### Interrupted source recovery (2026-10-28)
+
+- Boot marks sources left in `processing` as retryable errors across every workspace before exposing repositories or starting background services. It preserves extraction stage, original attachments, extracted text and chunks; it does not automatically send data to an AI provider. Recovery is idempotent and persisted before boot continues. No schema change is needed.
+- A shared per-repository reservation prevents separate pipeline instances from processing the same source concurrently. React StrictMode now shares one boot promise, avoiding duplicate storage initialization/recovery and event loops. The existing reprocess action clears the error and rebuilds the source from its retained input.
+- Regression-first tests failed for unrecovered processing state and duplicate pipeline execution before the fix. Full local verification passed: npm ci, typecheck, production build, **117 Vitest tests / 19 files**, **22 Playwright scenarios**, **4 mock evaluation cases**, **20 Rust tests**, strict Clippy and **1 benchmark test**. Existing 2,000-page full-text search median/p95: **8.737/13.240 ms**; hybrid: **41.339/55.273 ms**. Native termination during OCR and live AI services were not tested.
+
 ### Persisted answer evidence (2026-10-28)
 
 - New migration v5 adds a persisted insufficient-evidence flag. Existing uncited completed assistant messages and restored v4 backups are normalized; user messages are unchanged. ZIP transfer now carries chat messages and their flag, remapping source identities.
@@ -142,6 +148,7 @@ Status values: `done` (implemented and covered by an automated test or recorded 
 {
   "version": "0.1.0",
   "updated": "2026-10-28",
+  "source_recovery": { "vitest": 117, "vitest_files": 19, "playwright": 22, "mock_eval": 4, "cargo": 20, "clippy": "PASS -D warnings", "benchmark_tests": 1, "native_ocr_termination_verified": false },
   "answer_evidence": { "schema": 5, "vitest": 115, "vitest_files": 18, "playwright": 21, "mock_eval": 4, "cargo": 20, "clippy": "PASS -D warnings", "benchmark_tests": 1, "live_provider_verified": false },
   "studio_long_sources": { "vitest": 105, "vitest_files": 15, "playwright": 20, "cargo": 20, "clippy": "PASS -D warnings", "benchmark_tests": 1, "environment": "Windows Node 24.20.0 Rust 1.99.1", "live_provider_verified": false },
   "tests": { "vitest": { "passed": 57, "failed": 0, "environment": "Windows Node 24" }, "cargo": { "passed": 10, "failed": 0, "scope": "previous development revision CI" }, "playwright": { "passed": 10, "failed": 0, "environment": "Windows Edge browser preview" } },
