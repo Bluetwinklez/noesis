@@ -1,6 +1,6 @@
 # Testing
 
-Latest local verification (2026-10-28, Windows, Node 24.20.0, Rust 1.99.1): **117 Vitest tests / 19 files**, **22 Playwright scenarios**, **4 separate mock evaluation cases**, **20 Rust tests**, strict Clippy and the benchmark suite passed. [Answer evidence evaluation](evidence-eval.md) documents flag persistence, sentence highlighting and the optional owner-run live harness. [Interrupted source recovery](source-recovery.md) covers startup flagging and retry. The table below retains earlier evidence. [Studio source coverage](studio-context.md) documents the new regression tests, bounded condensation, transfer behavior and limitations.
+Latest local verification (2026-10-28, Windows, Node 24.20.0, Rust 1.99.1): **121 Vitest tests / 21 files**, **24 Playwright scenarios**, **4 separate mock evaluation cases**, **22 Rust tests**, strict Clippy and the benchmark suite passed. [Answer evidence evaluation](evidence-eval.md) documents flag persistence, sentence highlighting and the optional owner-run live harness. [Interrupted source recovery](source-recovery.md) covers startup flagging and retry. [Error recovery](error-recovery.md) covers view boundaries and independent backup reconstruction. The table below retains earlier evidence. [Studio source coverage](studio-context.md) documents the new regression tests, bounded condensation, transfer behavior and limitations.
 
 | Layer | Command | Recorded result (2026-10-27; environments below) | Covers |
 |---|---|---|---|

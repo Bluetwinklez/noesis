@@ -1,5 +1,5 @@
 import { setPdfJsLoader } from '../ingestion/extractors';
-import { isTauri } from '../lib/platform';
+import { appInfo, isTauri } from '../lib/platform';
 import { openStore } from '../core/store';
 import type { SqlDriver } from '../core/db/driver';
 import { useApp } from './state';
@@ -26,6 +26,8 @@ async function initializeApp(): Promise<void> {
 
   let driver: SqlDriver;
   if (isTauri()) {
+    const info = await appInfo();
+    if (info?.startupError) throw new Error(info.startupError);
     const { TauriDriver } = await import('../core/db/tauri-driver');
     driver = new TauriDriver();
   } else {
