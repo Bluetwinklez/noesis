@@ -35,6 +35,7 @@ import { htmlToMarkdown, markdownToHtml, printHtml, standaloneHtml } from '../..
 import { pickFiles, saveFile } from '../../lib/platform';
 import { exportDocx, exportPdf } from './exportDocx';
 import { reportError } from '../../app/services';
+import { registerFlusher } from '../../app/pendingWrites';
 import type { Page, PageMeta } from '../../core/types';
 import { localHashEmbed, cosine } from '../../search/vectors';
 import { openAiPreview } from '../ai/AiPreview';
@@ -105,12 +106,14 @@ export function PageView({ id }: { id: string }) {
     [id],
   );
 
-  // Flush pending edits when leaving the page or the window.
+  // Flush pending edits when leaving the page or the window; quitting and updating wait for them.
   useEffect(() => {
     const flush = () => saveContent.flush();
     window.addEventListener('beforeunload', flush);
+    const unregister = registerFlusher(() => saveContent.settle());
     return () => {
       window.removeEventListener('beforeunload', flush);
+      unregister();
       flush();
       useSaveStatus.setState({ status: 'idle' });
     };
@@ -124,7 +127,13 @@ export function PageView({ id }: { id: string }) {
       }, 400),
     [id, bump],
   );
-  useEffect(() => () => saveTitle.flush(), [saveTitle]);
+  useEffect(() => {
+    const unregister = registerFlusher(() => saveTitle.settle());
+    return () => {
+      unregister();
+      saveTitle.flush();
+    };
+  }, [saveTitle]);
 
   const onChange = useCallback(
     (doc: DocNode, editor: TEditor) => {

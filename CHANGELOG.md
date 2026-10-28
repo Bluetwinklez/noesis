@@ -12,6 +12,7 @@
 
 ### Reliability
 
+- Closing the window, quitting from the tray and installing an update first finish delayed saves (no lost last edits).
 - Consistent database snapshots for backup creation.
 - Explicit failure for missing attachments instead of incomplete backups.
 - Backup format, schema, table and attachment verification before restore.

@@ -377,6 +377,7 @@ pub const QUICK_CAPTURE_SHORTCUT: &str = "CommandOrControl+Shift+Space";
 fn desktop_extras(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
     use tauri::tray::TrayIconBuilder;
+    use tauri::Emitter;
     use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
 
     let quick = MenuItem::with_id(app, "quick", "Quick note", true, Some(QUICK_CAPTURE_SHORTCUT))?;
@@ -392,7 +393,15 @@ fn desktop_extras(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>
                 let _ = w.set_focus();
             }
         }
-        "quit" => app.exit(0),
+        "quit" => {
+            // The window finishes pending saves and exits itself; exit anyway if it does not answer.
+            let _ = app.emit("quit-requested", ());
+            let app = app.clone();
+            std::thread::spawn(move || {
+                std::thread::sleep(std::time::Duration::from_secs(5));
+                app.exit(0);
+            });
+        }
         _ => {}
     });
     if let Some(icon) = app.default_window_icon() {

@@ -18,16 +18,21 @@ export function parseJson<T>(raw: unknown, fallback: T): T {
   }
 }
 
-export function debounce<A extends unknown[]>(fn: (...args: A) => void, ms: number) {
+export function debounce<A extends unknown[], R>(fn: (...args: A) => R, ms: number) {
   let t: ReturnType<typeof setTimeout> | null = null;
   let lastArgs: A | null = null;
+  let running: unknown = undefined;
+  const call = (args: A) => {
+    running = fn(...args);
+    return running as R;
+  };
   const wrapped = (...args: A) => {
     lastArgs = args;
     if (t) clearTimeout(t);
     t = setTimeout(() => {
       t = null;
       lastArgs = null;
-      fn(...args);
+      call(args);
     }, ms);
   };
   wrapped.cancel = () => {
@@ -41,8 +46,13 @@ export function debounce<A extends unknown[]>(fn: (...args: A) => void, ms: numb
       t = null;
       const a = lastArgs;
       lastArgs = null;
-      fn(...a);
+      call(a);
     }
+  };
+  /** Runs a pending call now and waits for it (and for a call already running) to finish. */
+  wrapped.settle = async () => {
+    wrapped.flush();
+    await Promise.resolve(running).catch(() => undefined);
   };
   return wrapped;
 }
