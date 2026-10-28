@@ -259,6 +259,7 @@ export const en = {
   'src.drop': 'Drop files to import',
   'src.status.pending': 'Waiting',
   'src.status.processing': 'Processing',
+  'src.interrupted': 'Processing interrupted — retry',
   'src.status.ready': 'Ready',
   'src.status.error': 'Failed',
   'src.stage': 'Stage: {stage}',
