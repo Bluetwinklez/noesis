@@ -7,7 +7,7 @@
  */
 import JSZip from 'jszip';
 import type { Repos } from '../core/store';
-import type { CellValue, DbProperty, Page, Task } from '../core/types';
+import type { CellValue, DbProperty, Page, Task, NotebookNote } from '../core/types';
 import { PAGE_LINK_PREFIX, type DocNode } from '../core/doc';
 import { docToHtml } from '../editor/serialize';
 import { htmlToMarkdown } from '../editor/markdown';
@@ -36,6 +36,7 @@ export interface ExportedTask {
 }
 
 export interface ExportedSource {
+  ref?: string;
   title: string;
   kind: string;
   origin: string;
@@ -43,6 +44,13 @@ export interface ExportedSource {
   file: string | null;
   /** Extracted text (also written as Markdown for reading). */
   text: string | null;
+}
+
+export interface ExportedNotebook {
+  title: string;
+  description: string;
+  sources: { ref: string; selected: boolean }[];
+  notes: Pick<NotebookNote, 'kind' | 'title' | 'content_md' | 'data' | 'citations'>[];
 }
 
 export interface ExportManifest {
@@ -188,7 +196,7 @@ export async function exportWorkspace(
   const usedNotes = new Set<string>();
   for (const s of sources) {
     const file = s.attachment_id ? (fileOf.get(s.attachment_id) ?? null) : null;
-    exportedSources.push({ title: s.title, kind: s.kind, origin: s.origin, file, text: file ? null : s.text_content || null });
+    exportedSources.push({ ref: s.id, title: s.title, kind: s.kind, origin: s.origin, file, text: file ? null : s.text_content || null });
     if (s.text_content) {
       let name = safeName(s.title, 'Source');
       for (let n = 2; usedNotes.has(name.toLowerCase()); n++) name = `${safeName(s.title, 'Source')} (${n})`;
@@ -197,6 +205,15 @@ export async function exportWorkspace(
     }
   }
   zip.file(`${DATA_DIR}/sources.json`, JSON.stringify(exportedSources, null, 2));
+  // Studio outputs carry their coverage and original source identities across moves.
+  const notebooks: ExportedNotebook[] = [];
+  for (const nb of await repos.notebooks.list(workspaceId)) {
+    notebooks.push({ title: nb.title, description: nb.description,
+      sources: (await repos.notebooks.sources(nb.id)).map((s) => ({ ref: s.id, selected: !!s.selected })),
+      notes: (await repos.notebooks.notes(nb.id)).map(({ kind, title, content_md, data, citations }) => ({ kind, title, content_md, data, citations })),
+    });
+  }
+  zip.file(`${DATA_DIR}/notebooks.json`, JSON.stringify(notebooks, null, 2));
 
   const manifest: ExportManifest = {
     format: EXPORT_FORMAT,

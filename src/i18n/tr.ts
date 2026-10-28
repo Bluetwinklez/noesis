@@ -1,6 +1,16 @@
 import type { en } from './en';
 
 export const tr: Record<keyof typeof en, string> = {
+  'nb.coverage.title': 'Kaynak kapsamı',
+  'nb.coverage.invalidBudget': 'Studio bağlam bütçesi geçersiz.',
+  'nb.coverage.tooMany': 'Studio bağlam bütçesi için çok fazla kaynak var. Daha az kaynak seç.',
+  'nb.coverage.emptySummary': 'Bir kaynağın özeti boş geldi. Daha az kaynakla yeniden dene.',
+  'nb.coverage.progress': '{title}: {total} parçanın {done} kadarı yoğunlaştırıldı…',
+  'nb.coverage.condensed': 'Uzun kaynak {n} parçada yoğunlaştırıldı',
+  'nb.coverage.full': 'Kaynağın tamamı dahil edildi',
+  'nb.coverage.partial': 'Kısmi kapsam: {total} karakterin {done} kadarı işlendi. Bazı bölümler atlandı; daha fazla ayrıntı için daha az veya daha küçük kaynak seç.',
+  'nb.coverage.clipped': 'Bir özet sınırı aştığı için kısaltıldı. Ayrıntılar eksik olabilir.',
+  'nb.coverage.lossy': 'Yoğunlaştırma bazı ayrıntıları atlayabilir. Atıflar asıl kaynağı açar; kesin ifadeler için kaynağı kontrol et.',
   'app.name': 'Noesis',
   'nav.home': 'Ana sayfa',
   'nav.workspace': 'Çalışma alanım',
