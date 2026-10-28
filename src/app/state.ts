@@ -31,7 +31,26 @@ export interface Prefs {
   sidebarCollapsed: boolean;
   editorFontSize: number;
   fullWidth: boolean;
-  serif: boolean;
+  /** @deprecated kept so older saved settings migrate to `editorFont`. */
+  serif?: boolean;
+  /** Interface size in percent (scales every rem-based size). */
+  uiScale: number;
+  /** Animations: follow the OS setting, always reduce, or always play. */
+  motion: 'system' | 'reduce' | 'full';
+  editorFont: 'sans' | 'serif' | 'mono';
+  lineHeight: 'compact' | 'normal' | 'relaxed';
+  spellcheck: boolean;
+  showWordCount: boolean;
+  /** What opens at start: the home page or the page open when the app was closed. */
+  startPage: 'home' | 'last';
+  /** First day of the week in calendars and timelines (0 = Sunday, 1 = Monday). */
+  weekStart: 0 | 1;
+  /** Desktop: keep backups in the app data folder automatically. */
+  autoBackup: 'off' | 'daily' | 'weekly';
+  autoBackupKeep: number;
+  lastAutoBackupAt: number | null;
+  /** Permanently delete pages that stayed in the trash this many days (0 = never). */
+  trashRetentionDays: number;
   notifyReminders: boolean;
   /** Provider ids with standing permission to receive content. */
   cloudConsents: string[];
@@ -55,7 +74,18 @@ export const DEFAULT_PREFS: Prefs = {
   sidebarCollapsed: false,
   editorFontSize: 16,
   fullWidth: false,
-  serif: false,
+  uiScale: 100,
+  motion: 'system',
+  editorFont: 'sans',
+  lineHeight: 'normal',
+  spellcheck: true,
+  showWordCount: true,
+  startPage: 'home',
+  weekStart: 1,
+  autoBackup: 'off',
+  autoBackupKeep: 7,
+  lastAutoBackupAt: null,
+  trashRetentionDays: 0,
   notifyReminders: true,
   cloudConsents: [],
   onboarded: false,

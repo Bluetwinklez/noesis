@@ -36,7 +36,11 @@ export function configForProvider(id: ProviderId, current: AiConfig): AiConfig {
 
 export async function loadSettings() {
   const r = repos();
-  const prefs = { ...DEFAULT_PREFS, ...(await r.settings.get<Partial<Prefs>>('prefs', {})) };
+  const stored = await r.settings.get<Partial<Prefs>>('prefs', {});
+  const prefs = { ...DEFAULT_PREFS, ...stored };
+  // Older versions had a serif on/off switch.
+  if (!stored.editorFont && stored.serif) prefs.editorFont = 'serif';
+  delete prefs.serif;
   const lang = await r.settings.get<Lang>('lang', navigator.language?.startsWith('tr') ? 'tr' : 'en');
   const ai = { ...DEFAULT_AI_CONFIG, ...(await r.settings.get<Partial<AiConfig>>('ai', {})) };
   const workspaceId = await r.settings.get<string | null>('workspaceId', null);
@@ -53,7 +57,14 @@ export function applyTheme(prefs: Prefs) {
   applyPalette(root, prefs.palette, dark);
   root.style.setProperty('--accent-h', String(prefs.accentHue));
   root.style.setProperty('--editor-font-size', `${prefs.editorFontSize}px`);
+  root.style.fontSize = prefs.uiScale === 100 ? '' : `${prefs.uiScale}%`;
+  root.style.setProperty('--editor-line-height', LINE_HEIGHTS[prefs.lineHeight] ?? LINE_HEIGHTS.normal);
+  root.style.setProperty('--editor-font', `var(${EDITOR_FONTS[prefs.editorFont] ?? EDITOR_FONTS.sans})`);
+  root.classList.toggle('reduce-motion', prefs.motion === 'reduce' || (prefs.motion === 'system' && window.matchMedia('(prefers-reduced-motion: reduce)').matches));
 }
+
+const LINE_HEIGHTS: Record<Prefs['lineHeight'], string> = { compact: '1.5', normal: '1.7', relaxed: '1.95' };
+const EDITOR_FONTS: Record<Prefs['editorFont'], string> = { sans: '--font-sans', serif: '--font-serif', mono: '--font-mono' };
 
 /** Builds the active provider, or null when AI is off. */
 export async function activeProvider(): Promise<AiProvider | null> {

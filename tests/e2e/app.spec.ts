@@ -445,3 +445,50 @@ test('export everything and import it on another computer', async ({ page }) => 
   await page.getByRole('button', { name: 'Tasks', exact: true }).click();
   await expect(page.getByText('Finish literature review')).toBeVisible();
 });
+
+test('settings: editor font, spacing, week start, interface size, start page and reset', async ({ page }) => {
+  const db = await freshApp(page);
+  await onboard(page, { sample: true });
+  await page.getByRole('button', { name: 'Settings' }).click();
+  await expect(page.getByRole('radiogroup', { name: 'Open on start' })).toBeVisible(); // General is the first section
+
+  await page.getByRole('radiogroup', { name: 'Week starts on' }).getByRole('radio', { name: 'Sunday' }).click();
+  await page.getByRole('radiogroup', { name: 'Open on start' }).getByRole('radio', { name: 'Last opened page' }).click();
+
+  await page.getByRole('button', { name: 'Editor', exact: true }).click();
+  await page.getByRole('radiogroup', { name: 'Editor font' }).getByRole('radio', { name: 'Monospace' }).click();
+  await page.getByRole('radiogroup', { name: 'Line spacing' }).getByRole('radio', { name: 'Relaxed' }).click();
+  await page.getByLabel('Editor text size').fill('20');
+
+  await page.getByRole('button', { name: 'Appearance', exact: true }).click();
+  await page.getByRole('radiogroup', { name: 'Interface size' }).getByRole('radio', { name: '110%' }).click();
+  await expect(page.locator('html')).toHaveCSS('font-size', '17.6px');
+
+  // The editor uses the chosen font, size and spacing.
+  await page.getByRole('treeitem', { name: /Welcome tour/ }).click();
+  const ed = editor(page);
+  await expect(ed).toHaveCSS('font-size', '20px');
+  await expect(ed).toHaveCSS('line-height', '39px');
+  expect(await ed.evaluate((el) => getComputedStyle(el).fontFamily)).toMatch(/Cascadia|monospace/);
+
+  // Calendar weeks start on Sunday.
+  await page.getByRole('treeitem', { name: /Projects/ }).getByRole('button', { name: 'Expand' }).click();
+  await page.getByRole('treeitem', { name: /Reading list/ }).click();
+  await page.getByRole('tab', { name: /Calendar/ }).click();
+  await expect(page.getByText('Sun', { exact: true }).first()).toBeVisible();
+  const firstHeader = await page.locator('text=/^(Sun|Mon)$/').first().textContent();
+  expect(firstHeader).toBe('Sun');
+
+  // "Last opened page" reopens the Reading list after a restart.
+  await page.waitForTimeout(400);
+  await page.goto(`/?db=${db}`);
+  await expect(page.getByRole('tab', { name: /Calendar/ })).toBeVisible();
+
+  // Reset brings the defaults back.
+  await page.getByRole('button', { name: 'Settings' }).click();
+  await page.getByRole('button', { name: 'Reset settings' }).click();
+  await page.getByRole('dialog').getByRole('button', { name: /OK|Confirm|Reset/ }).last().click();
+  await expect(page.getByText('Settings reset.')).toBeVisible();
+  await expect(page.getByRole('radiogroup', { name: 'Week starts on' }).getByRole('radio', { name: 'Monday' })).toHaveAttribute('aria-checked', 'true');
+  await expect(page.locator('html')).toHaveCSS('font-size', '16px');
+});

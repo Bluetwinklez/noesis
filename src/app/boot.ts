@@ -6,6 +6,7 @@ import { useApp } from './state';
 import { applyTheme, loadSettings, startReminderLoop } from './services';
 import { startUpdateLoop } from './updater';
 import { startMcpIfEnabled } from '../mcp/host';
+import { openStartPage, startMaintenance } from './maintenance';
 
 export async function boot(): Promise<void> {
   setPdfJsLoader(async () => {
@@ -40,7 +41,10 @@ export async function boot(): Promise<void> {
   });
   // Flush the browser-preview snapshot before the tab goes away.
   window.addEventListener('pagehide', () => void repos.db.flushNow());
+  await openStartPage();
+  window.matchMedia('(prefers-reduced-motion: reduce)').addEventListener('change', () => applyTheme(useApp.getState().prefs));
   startReminderLoop();
+  startMaintenance();
   startUpdateLoop();
   startMcpIfEnabled();
   // Dev-only handle for debugging and e2e diagnostics.

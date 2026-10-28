@@ -143,6 +143,48 @@ fn attachment_delete(state: State<'_, AppState>, key: String) -> Result<(), Stri
 }
 
 #[derive(serde::Deserialize)]
+struct AutoBackupMeta {
+    keep: usize,
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct AutoBackups {
+    dir: String,
+    count: usize,
+}
+
+/// Writes an automatic backup into `<app data>/backups` and keeps only the newest `keep`.
+/// The folder is fixed on the Rust side: the WebView cannot choose where it goes.
+#[tauri::command]
+fn backup_auto_save(state: State<'_, AppState>, request: tauri::ipc::Request<'_>) -> Result<AutoBackups, String> {
+    let (AutoBackupMeta { keep }, bytes) = split_binary::<AutoBackupMeta>(raw_body(&request)?)?;
+    let dir = state.data_dir.join("backups");
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    let name = format!("noesis-auto-{}.noesisbak", chrono_like_stamp());
+    files::atomic_write(&dir.join(name), bytes)?;
+    let count = files::prune_backups(&dir, keep.clamp(1, 100))?;
+    Ok(AutoBackups { dir: dir.to_string_lossy().into_owned(), count })
+}
+
+/// UTC timestamp `YYYYMMDD-HHMMSS` that sorts by time (no chrono dependency needed).
+fn chrono_like_stamp() -> String {
+    let secs = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
+    let (days, rem) = ((secs / 86_400) as i64, secs % 86_400);
+    // Civil-from-days (Howard Hinnant), valid for all dates after 1970.
+    let z = days + 719_468;
+    let era = z.div_euclid(146_097);
+    let doe = z - era * 146_097;
+    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = doy - (153 * mp + 2) / 5 + 1;
+    let m = if mp < 10 { mp + 3 } else { mp - 9 };
+    let y = yoe + era * 400 + i64::from(m <= 2);
+    format!("{y:04}{m:02}{d:02}-{:02}{:02}{:02}", rem / 3600, rem / 60 % 60, rem % 60)
+}
+
+#[derive(serde::Deserialize)]
 struct SaveFilter {
     name: String,
     extensions: Vec<String>,
@@ -413,6 +455,7 @@ pub fn run() {
             secret_delete,
             attachment_write,
             attachment_read,
+            backup_auto_save,
             attachment_delete,
             export_save,
             fetch_public_url,
@@ -431,6 +474,14 @@ pub fn run() {
 #[cfg(test)]
 mod binary_ipc_tests {
     use super::*;
+
+    #[test]
+    fn backup_stamps_sort_by_time() {
+        let s = chrono_like_stamp();
+        assert_eq!(s.len(), 15);
+        assert!(s.starts_with("20"), "{s}");
+        assert_eq!(&s[8..9], "-");
+    }
 
     #[test]
     fn binary_messages_round_trip_and_reject_garbage() {
