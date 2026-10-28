@@ -8,6 +8,10 @@ export interface Migration {
 
 const FTS_TOKENIZER = "tokenize = 'unicode61 remove_diacritics 2'";
 
+export const LEGACY_EVIDENCE_SQL = `UPDATE chat_messages SET insufficient = 1
+WHERE role = 'assistant' AND status = 'complete'
+AND CASE WHEN json_valid(citations_json) THEN json_array_length(citations_json) = 0 ELSE 1 END;`;
+
 export const migrations: Migration[] = [
   {
     version: 1,
@@ -307,6 +311,12 @@ DROP TABLE db_properties;
 ALTER TABLE db_properties_v4 RENAME TO db_properties;
 CREATE INDEX idx_props_db ON db_properties(database_id, sort_order);
 `,
+  },
+  {
+    version: 5,
+    name: 'message_evidence_warning',
+    sql: `ALTER TABLE chat_messages ADD COLUMN insufficient INTEGER NOT NULL DEFAULT 0 CHECK (insufficient IN (0,1));
+${LEGACY_EVIDENCE_SQL}`,
   },
 ];
 

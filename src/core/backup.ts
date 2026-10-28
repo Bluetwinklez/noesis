@@ -1,6 +1,6 @@
 import JSZip from 'jszip';
 import type { Database, Executor, Row, SqlValue } from './db/driver';
-import { LATEST_VERSION } from './db/migrations';
+import { LATEST_VERSION, LEGACY_EVIDENCE_SQL } from './db/migrations';
 import { indexUpsert } from './repos/search-index';
 import { parseJson, sha256Hex } from '../lib/util';
 import type { CellValue, PropertyType } from './types';
@@ -168,6 +168,7 @@ export async function restoreBackup(db: Database, bytes: Uint8Array, blobs: Blob
           );
         }
       }
+      if (manifest.schemaVersion < 5) await tx.run(LEGACY_EVIDENCE_SQL);
       const fk = await tx.all('PRAGMA foreign_key_check');
       if (fk.length) throw new BackupError(`Backup contains ${fk.length} broken references; restore aborted.`);
       await rebuildSearchIndex(tx);

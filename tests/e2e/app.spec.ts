@@ -130,6 +130,7 @@ test('source-grounded notebook answer with navigable citations', async ({ page }
   await ask.fill('Which enzyme catalyses carbon fixation?');
   await ask.press('Enter');
   await expect(page.getByText('Sources used')).toBeVisible({ timeout: 20_000 });
+  await expect(page.locator('[data-evidence="uncited"]').first()).toBeVisible();
   await expect(page.getByText(/RuBisCO|Calvin|chloroplast|Photosynthesis/i).first()).toBeVisible();
   // Fabricated marker [9] must be removed.
   await expect(page.getByText('[9]')).toHaveCount(0);
@@ -169,6 +170,27 @@ test('Studio condenses a long source and preserves its coverage note after reloa
   await page.getByRole('tab', { name: 'Notes', exact: true }).click();
   await page.getByRole('button', { name: /Summary/ }).last().click();
   await expect(page.getByRole('dialog').getByRole('status', { name: 'Source coverage' })).toContainText('Long source condensed');
+});
+
+test('unsupported and uncited answers show a persisted evidence warning', async ({ page }) => {
+  const db = await freshApp(page);
+  await onboard(page);
+  await configureMockAi(page);
+  await page.getByRole('button', { name: 'AI Notebooks' }).click();
+  await page.getByRole('button', { name: 'New notebook' }).first().click();
+  await importFixture(page, 'Import files', 'sample.pdf');
+  await expect(page.getByLabel('Use Photosynthesis Field Notes')).toBeEnabled({ timeout: 20000 });
+  const ask = page.getByLabel('Ask a question about the selected sources…');
+  await ask.fill('Which enzyme catalyses carbon fixation? NOESIS_UNCITED_REPLY');
+  await ask.press('Enter');
+  await expect(page.getByRole('note').filter({ hasText: 'No source supports this answer' })).toHaveCount(1);
+  await ask.fill('Which city hosted the 2012 Olympics?');
+  await ask.press('Enter');
+  await expect(page.getByRole('note').filter({ hasText: 'No source supports this answer' })).toHaveCount(2);
+  await page.goto(`/?db=${db}`);
+  await page.getByRole('button', { name: 'AI Notebooks' }).click();
+  await page.getByRole('button', { name: /Untitled notebook/ }).click();
+  await expect(page.getByRole('note').filter({ hasText: 'No source supports this answer' })).toHaveCount(2);
 });
 
 test('invalid API key produces a recoverable error', async ({ page }) => {

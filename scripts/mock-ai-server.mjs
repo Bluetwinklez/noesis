@@ -26,6 +26,8 @@ function answerFor(messages, json) {
   const user = [...messages].reverse().find((m) => m.role === 'user');
   const text = typeof user?.content === 'string' ? user.content : (user?.content ?? []).map((p) => p.text ?? '').join('');
   const sentence = firstSourceSentence(text);
+  if (text.includes('NOESIS_UNCITED_REPLY')) return 'RuBisCO catalyses carbon fixation.';
+  if (text.includes('Which city hosted the 2012 Olympics?')) return 'The selected sources do not contain information that answers this question.';
   if (json) {
     if (/flashcards/i.test(text)) return JSON.stringify({ cards: [{ front: 'What is described in source 1?', back: `${sentence ?? 'n/a'} [1]` }, { front: 'Key term?', back: 'From the sources [1]' }] });
     if (/multiple-choice/i.test(text))

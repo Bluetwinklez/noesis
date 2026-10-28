@@ -128,18 +128,18 @@ export class NotebookRepo {
 
   // ---- chat ----
   async messages(notebookId: string): Promise<ChatMessage[]> {
-    const rows = await this.db.all<Omit<ChatMessage, 'citations'> & { citations_json: string }>(
+    const rows = await this.db.all<Omit<ChatMessage, 'citations' | 'insufficient'> & { citations_json: string; insufficient: number }>(
       'SELECT * FROM chat_messages WHERE notebook_id = ? ORDER BY created_at, rowid',
       [notebookId],
     );
-    return rows.map(({ citations_json, ...r }) => ({ ...r, citations: parseJson<Citation[]>(citations_json, []) }));
+    return rows.map(({ citations_json, insufficient, ...r }) => ({ ...r, insufficient: !!insufficient, citations: parseJson<Citation[]>(citations_json, []) }));
   }
 
-  async addMessage(m: Omit<ChatMessage, 'id' | 'created_at'>): Promise<ChatMessage> {
-    const msg: ChatMessage = { ...m, id: uid(), created_at: now() };
+  async addMessage(m: Omit<ChatMessage, 'id' | 'created_at' | 'insufficient'> & { insufficient?: boolean }): Promise<ChatMessage> {
+    const msg: ChatMessage = { ...m, insufficient: m.insufficient ?? (m.role === 'assistant' && m.status === 'complete' && m.citations.length === 0), id: uid(), created_at: now() };
     await this.db.run(
-      'INSERT INTO chat_messages(id, notebook_id, role, content, citations_json, status, created_at) VALUES (?,?,?,?,?,?,?)',
-      [msg.id, msg.notebook_id, msg.role, msg.content, JSON.stringify(msg.citations), msg.status, msg.created_at],
+      'INSERT INTO chat_messages(id, notebook_id, role, content, citations_json, status, insufficient, created_at) VALUES (?,?,?,?,?,?,?,?)',
+      [msg.id, msg.notebook_id, msg.role, msg.content, JSON.stringify(msg.citations), msg.status, msg.insufficient ? 1 : 0, msg.created_at],
     );
     return msg;
   }

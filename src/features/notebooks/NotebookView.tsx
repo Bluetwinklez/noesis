@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { createPortal } from 'react-dom';
 import {
   ArrowUp,
   BookMarked,
@@ -33,6 +32,7 @@ import { Markdown } from '../ai/AiPreview';
 import { markdownToHtml } from '../../editor/markdown';
 import { AudioStudio } from './AudioStudio';
 import { StudioCoverage } from './StudioCoverage';
+import { EvidenceAnswer as AnswerText } from './EvidenceAnswer';
 import type { SourceCoverage, StudioPreparation } from '../../ai/studio-context';
 import { createPage } from '../actions';
 
@@ -235,62 +235,6 @@ function SourcesPanel({ notebookId, sources }: { notebookId: string; sources: Nb
   );
 }
 
-function CitationChip({ c, onOpen }: { c: Citation; onOpen: (c: Citation) => void }) {
-  return (
-    <button
-      onClick={() => onOpen(c)}
-      title={`${c.sourceTitle}${c.pageNumber ? ` · p. ${c.pageNumber}` : ''}\n\n${c.excerpt}`}
-      className="mx-0.5 inline-flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-accent-soft px-1 align-text-top text-[11px] font-semibold text-accent hover:bg-accent hover:text-white"
-    >
-      {c.n}
-    </button>
-  );
-}
-
-/** Renders an answer, turning [n] markers into clickable citation chips. */
-function AnswerText({ text, citations, onOpen }: { text: string; citations: Citation[]; onOpen: (c: Citation) => void }) {
-  const byN = new Map(citations.map((c) => [c.n, c]));
-  const parts = text.split(/(\[\d+\])/g);
-  // Markdown per segment would break lists; render markdown and replace markers via placeholders.
-  const placeholder = (n: number) => `@@CITE${n}@@`;
-  const md = parts.map((p) => (/^\[\d+\]$/.test(p) && byN.has(Number(p.slice(1, -1))) ? placeholder(Number(p.slice(1, -1))) : p)).join('');
-  const ref = useRef<HTMLDivElement>(null);
-  const [nodes, setNodes] = useState<{ el: HTMLElement; c: Citation }[]>([]);
-  useEffect(() => {
-    if (!ref.current) return;
-    const walker = document.createTreeWalker(ref.current, NodeFilter.SHOW_TEXT);
-    const found: Text[] = [];
-    while (walker.nextNode()) if (/@@CITE\d+@@/.test(walker.currentNode.nodeValue ?? '')) found.push(walker.currentNode as Text);
-    const created: { el: HTMLElement; c: Citation }[] = [];
-    for (const tn of found) {
-      const frag = document.createDocumentFragment();
-      for (const piece of (tn.nodeValue ?? '').split(/(@@CITE\d+@@)/)) {
-        const m = piece.match(/^@@CITE(\d+)@@$/);
-        if (m && byN.has(Number(m[1]))) {
-          const span = document.createElement('span');
-          created.push({ el: span, c: byN.get(Number(m[1]))! });
-          frag.appendChild(span);
-        } else frag.appendChild(document.createTextNode(piece));
-      }
-      tn.replaceWith(frag);
-    }
-    setNodes(created);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [md]);
-  return (
-    <div ref={ref}>
-      <Markdown text={md} />
-      {nodes.map(({ el, c }, i) => (
-        <PortalChip key={i} el={el} c={c} onOpen={onOpen} />
-      ))}
-    </div>
-  );
-}
-
-function PortalChip({ el, c, onOpen }: { el: HTMLElement; c: Citation; onOpen: (c: Citation) => void }) {
-  return createPortal(<CitationChip c={c} onOpen={onOpen} />, el);
-}
-
 function openCitation(c: Citation) {
   useApp.getState().navigate({ name: 'sources', id: c.sourceId, highlight: c.charEnd > c.charStart ? { start: c.charStart, end: c.charEnd } : undefined });
 }
@@ -336,7 +280,8 @@ function ChatPanel({ notebookId, selected, hasSources, onSaved }: { notebookId: 
           setStreaming(partial);
         },
       });
-      await repos().notebooks.addMessage({ notebook_id: notebookId, role: 'assistant', content: res.text, citations: res.citations, status: 'complete' });
+      await repos().notebooks.addMessage({ notebook_id: notebookId, role: 'assistant', content: res.text, citations: res.citations, status: 'complete', insufficient: res.insufficient });
+      await repos().db.flushNow();
     } catch (e) {
       setPendingQ(null);
       const cancelled = c.signal.aborted;
@@ -437,15 +382,16 @@ function MessageBubble({ m, notebookId, onSaved }: { m: ChatMessage; notebookId:
   const lang = useApp((s) => s.lang);
   const bump = useApp((s) => s.bump);
   if (m.role === 'user') return <div className="ml-auto w-fit max-w-[80%] whitespace-pre-wrap rounded-2xl rounded-br-md bg-accent px-4 py-2.5 text-sm text-white">{m.content}</div>;
-  const insufficient = m.content.startsWith(noEvidenceMessage(lang)) || m.content.startsWith(noEvidenceMessage(lang === 'tr' ? 'en' : 'tr'));
+  const insufficient = m.insufficient || m.content.startsWith(noEvidenceMessage(lang)) || m.content.startsWith(noEvidenceMessage(lang === 'tr' ? 'en' : 'tr'));
   return (
     <div className={cx('group rounded-2xl border bg-elevated px-4 py-3 text-sm', m.status === 'error' ? 'border-danger/40' : 'border-line')}>
-      {insufficient && <div className="mb-2 inline-flex items-center gap-1 rounded-md bg-warning/12 px-2 py-0.5 text-xs text-warning"><FileQuestion className="size-3" /> {t('nb.insufficient')}</div>}
+      {insufficient && <div role="note" className="mb-2 inline-flex items-center gap-1 rounded-md bg-warning/12 px-2 py-0.5 text-xs text-warning"><FileQuestion className="size-3" /> {t('nb.unsupportedAnswer')}</div>}
       <AnswerText text={m.content} citations={m.citations} onOpen={openCitation} />
       {m.status === 'cancelled' && <div className="mt-1 text-xs text-faint">— {t('common.stop')}</div>}
       {m.citations.length > 0 && (
         <div className="mt-3 border-t border-line pt-2">
           <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-faint">{t('nb.citations')}</div>
+          <p className="mb-2 text-xs text-muted">{t('nb.citationDisclaimer')}</p>
           <div className="space-y-1">
             {m.citations.map((c) => (
               <button key={c.n} onClick={() => openCitation(c)} className="flex w-full items-start gap-2 rounded-md p-1.5 text-left hover:bg-hover">

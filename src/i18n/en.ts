@@ -1,4 +1,8 @@
 export const en = {
+  'nb.unsupportedAnswer': 'No source supports this answer',
+  'nb.uncitedSentence': 'This sentence has no source citation. Review the evidence.',
+  'nb.citationDisclaimer': 'A citation links to a source; it does not by itself verify the claim.',
+  'nb.citationPage': '{title} · p. {n}',
   'nb.coverage.title': 'Source coverage',
   'nb.coverage.invalidBudget': 'Invalid Studio context budget.',
   'nb.coverage.tooMany': 'Too many sources for the Studio context budget. Select fewer sources.',
