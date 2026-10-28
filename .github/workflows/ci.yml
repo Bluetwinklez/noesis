@@ -77,9 +77,11 @@ jobs:
           $exe = Join-Path $env:LOCALAPPDATA 'Noesis\noesis.exe'
           if (!(Test-Path $exe)) { throw "noesis.exe not installed at $exe" }
           $p = Start-Process $exe -PassThru
-          Start-Sleep -Seconds 20
-          if ($p.HasExited) { throw "Noesis exited early with code $($p.ExitCode)" }
           $db = Join-Path $env:APPDATA 'app.noesis.desktop\noesis.db'
+          # First start on a cold runner (WebView2 init) can be slow: wait up to 60 s for the database.
+          for ($i = 0; $i -lt 60 -and !(Test-Path $db) -and !$p.HasExited; $i++) { Start-Sleep -Seconds 1 }
+          Start-Sleep -Seconds 5
+          if ($p.HasExited) { throw "Noesis exited early with code $($p.ExitCode)" }
           if (!(Test-Path $db)) { throw "database not created at $db" }
           Write-Host "Running (pid $($p.Id)); database: $((Get-Item $db).Length) bytes"
           Stop-Process -Id $p.Id -Force
