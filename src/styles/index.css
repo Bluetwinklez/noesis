@@ -161,8 +161,9 @@ button {
 /* ---- Editor (ProseMirror) ---- */
 .noesis-editor {
   outline: none;
-  font-size: 16px;
-  line-height: 1.7;
+  font-size: var(--editor-font-size, 16px);
+  line-height: var(--editor-line-height, 1.7);
+  font-family: var(--editor-font, var(--font-sans));
   padding-bottom: 30vh;
 }
 .noesis-editor > * + * {
@@ -499,4 +500,14 @@ button {
   body {
     overflow: visible;
   }
+}
+
+/* Settings → Appearance → Animations: reduce. */
+.reduce-motion *,
+.reduce-motion *::before,
+.reduce-motion *::after {
+  animation-duration: 0.01ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.01ms !important;
+  scroll-behavior: auto !important;
 }

@@ -806,6 +806,7 @@ function BoardView({ ctx, rows, view, addRow }: { ctx: Ctx; rows: DbRow[]; view:
 function CalendarView({ ctx, rows, view, addRow }: { ctx: Ctx; rows: DbRow[]; view: DbView; addRow: (v?: Record<string, CellValue>) => void }) {
   const t = useT();
   const lang = useApp((s) => s.lang);
+  const weekStart = useApp((s) => s.prefs.weekStart);
   const dateProp = ctx.props.find((p) => p.id === view.config.dateProperty) ?? ctx.props.find((p) => p.type === 'date');
   const [month, setMonth] = useState(() => {
     const d = new Date();
@@ -813,10 +814,10 @@ function CalendarView({ ctx, rows, view, addRow }: { ctx: Ctx; rows: DbRow[]; vi
   });
   const days = useMemo(() => {
     const start = new Date(month);
-    const offset = (start.getDay() + 6) % 7; // Monday first
+    const offset = (start.getDay() - weekStart + 7) % 7; // Settings → General → Week starts on
     start.setDate(start.getDate() - offset);
     return Array.from({ length: 42 }, (_, i) => new Date(start.getFullYear(), start.getMonth(), start.getDate() + i));
-  }, [month]);
+  }, [month, weekStart]);
   if (!dateProp) return <p className="py-8 text-center text-sm text-muted">{t('db.noDate')}</p>;
   const iso = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
   const byDay = new Map<string, DbRow[]>();
@@ -887,6 +888,7 @@ const parseDay = (v: CellValue) => (typeof v === 'string' && /^\d{4}-\d{2}-\d{2}
 function TimelineView({ ctx, rows, view }: { ctx: Ctx; rows: DbRow[]; view: DbView }) {
   const t = useT();
   const lang = useApp((s) => s.lang);
+  const weekStart = useApp((s) => s.prefs.weekStart);
   const startProp = ctx.props.find((p) => p.id === view.config.dateProperty) ?? ctx.props.find((p) => p.type === 'date');
   const endProp = ctx.props.find((p) => p.id === view.config.endDateProperty && p.type === 'date');
   const DAYS = 42;
@@ -894,7 +896,7 @@ function TimelineView({ ctx, rows, view }: { ctx: Ctx; rows: DbRow[]; view: DbVi
   const [from, setFrom] = useState(() => {
     const d = new Date();
     d.setHours(0, 0, 0, 0);
-    d.setDate(d.getDate() - ((d.getDay() + 6) % 7) - 7); // Monday of last week
+    d.setDate(d.getDate() - ((d.getDay() - useApp.getState().prefs.weekStart + 7) % 7) - 7); // first day of last week
     return d;
   });
   const [drag, setDrag] = useState<{ id: string; mode: 'move' | 'end'; x0: number; dx: number } | null>(null);
@@ -937,8 +939,8 @@ function TimelineView({ ctx, rows, view }: { ctx: Ctx; rows: DbRow[]; view: DbVi
           <div className="flex border-b border-line bg-inset text-[10px] text-faint">
             <div className="w-[200px] shrink-0 px-2 py-1">{startProp.name}</div>
             {days.map((d) => (
-              <div key={d.toString()} style={{ width: COL }} className={cx('shrink-0 py-1 text-center', isoDay(d) === today && 'font-semibold text-accent', d.getDay() === 1 && 'border-l border-line')}>
-                {d.getDay() === 1 || d.getDate() === 1 ? d.toLocaleDateString(lang, { day: 'numeric', month: 'short' }) : d.getDate()}
+              <div key={d.toString()} style={{ width: COL }} className={cx('shrink-0 py-1 text-center', isoDay(d) === today && 'font-semibold text-accent', d.getDay() === weekStart && 'border-l border-line')}>
+                {d.getDay() === weekStart || d.getDate() === 1 ? d.toLocaleDateString(lang, { day: 'numeric', month: 'short' }) : d.getDate()}
               </div>
             ))}
           </div>

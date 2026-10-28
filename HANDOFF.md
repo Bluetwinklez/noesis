@@ -17,4 +17,4 @@ Use Node.js 24 and Rust stable. Windows native builds require Visual Studio C++ 
 
 ## Remaining work
 
-Live AI provider verification, code signing, automatic updates, direct PDF export, offline OCR, trained local embeddings and synchronization remain future work. Do not present mock-provider tests as live-provider verification. Keep user documents, API keys and signing credentials out of source control and reports.
+The prioritized plan and current state are in [AGENTS.md](AGENTS.md). Live AI provider verification, code signing, trained local embeddings and synchronization remain future work. Do not present mock-provider tests as live-provider verification. Keep user documents, API keys and signing credentials out of source control and reports.

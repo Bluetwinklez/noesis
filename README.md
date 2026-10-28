@@ -74,7 +74,7 @@ Installed copies check for updates in the background and install them when you c
 
 ![Noesis appearance settings with eight colour palettes, Nord selected in dark mode](docs/images/palettes.png)
 
-Eight colour palettes (Paper, Slate, Nord, Solarized, Forest, Rosé, Midnight, High contrast), each with a light and a dark version, plus accent colours, editor font and width.
+Eight colour palettes (Paper, Slate, Nord, Solarized, Forest, Rosé, Midnight, High contrast), each with a light and a dark version, plus accent colours, interface size and reduced animations. The editor has its own settings: font (sans, serif, monospace), text size, line spacing, page width, spell check and word count. Choose whether Noesis opens on Home or on the last page, and on which day weeks start in calendars and timelines.
 
 <details>
   <summary><strong>See dark mode</strong></summary>
@@ -98,6 +98,8 @@ Eight colour palettes (Paper, Slate, Nord, Solarized, Forest, Rosé, Midnight, H
 4. Run the installer and complete onboarding. You can skip AI setup and start with sample content.
 
 **Requirements:** Windows 10 or 11, x64. The installer can download Microsoft WebView2 if it is missing. Installers are **not code-signed** (no Windows publisher certificate) and may trigger SmartScreen warnings or be blocked by device policy. Updates *are* signed with the project's update key and verified before installing.
+
+**Backups:** besides manual backups and **Export all**, the desktop app can back up automatically (daily or weekly) into its data folder and keep the newest 3–30 copies (**Settings → Storage & backups**). The trash can also empty itself after 7, 30 or 90 days.
 
 **Updates:** from v0.1.3 on, Noesis updates itself. It checks shortly after start and every few hours, downloads in the background and installs when you close it (or immediately from the banner). Coming from **v0.1.0**? That version has no updater: install the latest release once over it; your workspace is kept.
 
@@ -209,6 +211,7 @@ Noesis; notlarınızı, veritabanlarınızı ve kaynak belgelerinizi tek bir yer
 - **Güncelleme:** v0.1.3'ten itibaren uygulama kendini günceller; uygulamayı kapattığınızda kurulur. v0.1.0 kullanıyorsanız son sürümü bir kez elle üzerine kurun, verileriniz korunur.
 - **Neler var:** bloklu editör, iç içe sayfalar, veritabanları (tablo, pano, takvim, zaman çizelgesi; iki yönlü ilişki ve toplama), görevler, bilgi grafiği, kaynaklara dayalı yapay zekâ defterleri, çevrimdışı OCR (Türkçe dahil), PDF/Word dışa aktarma, Notion/Obsidian içe aktarma, 8 renk paleti.
 - **Başka bilgisayara taşıma:** *Ayarlar → Depolama ve yedekler → Tümünü dışa aktar…* her şeyi tek bir `.zip`'e koyar (sayfalar Markdown, veritabanları CSV, resimler, görevler, kaynaklar). Diğer bilgisayarda *İçe aktar…* ile o zip'i seçin.
+- **Otomatik yedek:** *Ayarlar → Depolama ve yedekler → Otomatik yedekleme* (günlük/haftalık, son 3–30 yedek saklanır).
 - **Hızlı not:** Windows'un herhangi bir yerinde `Ctrl+Shift+Space`. **Web kırpıcı** eklentisi ile tarayıcıdan sayfa kaydedin.
 - **Yapay zekâ asistanları:** *Ayarlar → AI bağlantıları* bölümünden Claude Desktop, Cursor, Windsurf veya LM Studio'ya tek tıkla bağlayın; mevcut bir sayfanın değiştirilmesi her zaman onayınızı gerektirir.
 - Hata bildirmek için [issue açın](https://github.com/Bluetwinklez/noesis/issues/new); API anahtarı veya özel belge paylaşmayın.

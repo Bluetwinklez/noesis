@@ -18,8 +18,11 @@ import {
   Trash2,
   Plus,
   Check,
+  SlidersHorizontal,
+  Type as TypeIcon,
 } from 'lucide-react';
-import { repos, useApp } from '../../app/state';
+import { DEFAULT_PREFS, repos, useApp, type Prefs } from '../../app/state';
+import { runAutoBackup } from '../../app/maintenance';
 import { LANGUAGES, useT, type MessageKey } from '../../i18n';
 import { Badge, Button, confirmDialog, cx, Input, Kbd, promptDialog, Select, Switch, useAsync } from '../../components/ui';
 import { activeProvider, apiKeyName, configForProvider, errorMessage, reportError, saveAiConfig, saveLang, savePrefs, setWorkspace } from '../../app/services';
@@ -36,7 +39,9 @@ import { formatBytes, relativeTime } from '../../lib/util';
 const APP_VERSION: string = import.meta.env.VITE_APP_VERSION ?? '0.1.0';
 
 const SECTIONS: { id: string; label: MessageKey; icon: React.ReactNode }[] = [
+  { id: 'general', label: 'settings.general', icon: <SlidersHorizontal className="size-4" /> },
   { id: 'appearance', label: 'settings.appearance', icon: <Palette className="size-4" /> },
+  { id: 'editor', label: 'settings.editor', icon: <TypeIcon className="size-4" /> },
   { id: 'language', label: 'settings.language', icon: <Globe className="size-4" /> },
   { id: 'ai', label: 'settings.ai', icon: <Bot className="size-4" /> },
   { id: 'mcp', label: 'mcp.title', icon: <Plug className="size-4" /> },
@@ -51,7 +56,7 @@ const SECTIONS: { id: string; label: MessageKey; icon: React.ReactNode }[] = [
 
 export default function SettingsPage({ section }: { section?: string }) {
   const t = useT();
-  const [cur, setCur] = useState(section ?? 'appearance');
+  const [cur, setCur] = useState(section ?? 'general');
   useEffect(() => {
     if (section) setCur(section);
   }, [section]);
@@ -72,7 +77,9 @@ export default function SettingsPage({ section }: { section?: string }) {
         ))}
       </nav>
       <div className="min-w-0 flex-1 pt-12">
+        {cur === 'general' && <General />}
         {cur === 'appearance' && <Appearance />}
+        {cur === 'editor' && <EditorSettings />}
         {cur === 'language' && <Language />}
         {cur === 'ai' && <AiSettings />}
         {cur === 'mcp' && <McpSettings />}
@@ -97,6 +104,119 @@ function Row({ label, hint, children }: { label: string; hint?: string; children
       </div>
       <div className="shrink-0">{children}</div>
     </div>
+  );
+}
+
+/** Segmented single choice (radio group of buttons). */
+function Choice<T extends string | number>({ value, options, onChange, label }: { value: T; options: { value: T; label: React.ReactNode }[]; onChange: (v: T) => void; label: string }) {
+  return (
+    <div role="radiogroup" aria-label={label} className="flex flex-wrap justify-end gap-1">
+      {options.map((o) => (
+        <Button key={String(o.value)} size="sm" role="radio" aria-checked={o.value === value} variant={o.value === value ? 'primary' : 'secondary'} onClick={() => onChange(o.value)}>
+          {o.label}
+        </Button>
+      ))}
+    </div>
+  );
+}
+
+function General() {
+  const t = useT();
+  const prefs = useApp((s) => s.prefs);
+  return (
+    <section>
+      <Row label={t('settings.startPage')} hint={t('settings.startPageHint')}>
+        <Choice
+          label={t('settings.startPage')}
+          value={prefs.startPage}
+          onChange={(v) => void savePrefs({ startPage: v })}
+          options={[
+            { value: 'home', label: t('settings.startPage.home') },
+            { value: 'last', label: t('settings.startPage.last') },
+          ]}
+        />
+      </Row>
+      <Row label={t('settings.weekStart')}>
+        <Choice
+          label={t('settings.weekStart')}
+          value={prefs.weekStart}
+          onChange={(v) => void savePrefs({ weekStart: v })}
+          options={[
+            { value: 1, label: t('settings.weekStart.monday') },
+            { value: 0, label: t('settings.weekStart.sunday') },
+          ]}
+        />
+      </Row>
+      <Row label={t('settings.reset')} hint={t('settings.resetHint')}>
+        <Button
+          size="sm"
+          onClick={async () => {
+            if (!(await confirmDialog(t('settings.reset'), t('settings.resetConfirm')))) return;
+            // Look and behaviour only: consents, AI connections and backup history stay as they are.
+            const keep: (keyof Prefs)[] = ['onboarded', 'cloudConsents', 'lastBackupAt', 'lastAutoBackupAt', 'mcpEnabled', 'mcpAutoApprove'];
+            const cur = useApp.getState().prefs;
+            await savePrefs({ ...DEFAULT_PREFS, ...Object.fromEntries(keep.map((k) => [k, cur[k]])) });
+            useApp.getState().toast(t('settings.resetDone'), 'success');
+          }}
+        >
+          {t('settings.reset')}
+        </Button>
+      </Row>
+    </section>
+  );
+}
+
+function EditorSettings() {
+  const t = useT();
+  const prefs = useApp((s) => s.prefs);
+  return (
+    <section>
+      <Row label={t('settings.editorFont')}>
+        <Choice
+          label={t('settings.editorFont')}
+          value={prefs.editorFont}
+          onChange={(v) => void savePrefs({ editorFont: v })}
+          options={[
+            { value: 'sans', label: <span style={{ fontFamily: 'var(--font-sans)' }}>{t('settings.editorFont.sans')}</span> },
+            { value: 'serif', label: <span style={{ fontFamily: 'var(--font-serif)' }}>{t('settings.editorFont.serif')}</span> },
+            { value: 'mono', label: <span style={{ fontFamily: 'var(--font-mono)' }}>{t('settings.editorFont.mono')}</span> },
+          ]}
+        />
+      </Row>
+      <Row label={t('settings.fontSize')}>
+        <div className="flex items-center gap-2">
+          <input type="range" min={13} max={22} value={prefs.editorFontSize} onChange={(e) => void savePrefs({ editorFontSize: Number(e.target.value) })} aria-label={t('settings.fontSize')} />
+          <span className="w-8 text-sm text-muted">{prefs.editorFontSize}</span>
+        </div>
+      </Row>
+      <Row label={t('settings.lineHeight')}>
+        <Choice
+          label={t('settings.lineHeight')}
+          value={prefs.lineHeight}
+          onChange={(v) => void savePrefs({ lineHeight: v })}
+          options={[
+            { value: 'compact', label: t('settings.lineHeight.compact') },
+            { value: 'normal', label: t('settings.lineHeight.normal') },
+            { value: 'relaxed', label: t('settings.lineHeight.relaxed') },
+          ]}
+        />
+      </Row>
+      <Row label={t('settings.fullWidth')}>
+        <Switch checked={prefs.fullWidth} onChange={(v) => void savePrefs({ fullWidth: v })} label={t('settings.fullWidth')} />
+      </Row>
+      <Row label={t('settings.spellcheck')} hint={t('settings.spellcheckHint')}>
+        <Switch checked={prefs.spellcheck} onChange={(v) => void savePrefs({ spellcheck: v })} label={t('settings.spellcheck')} />
+      </Row>
+      <Row label={t('settings.wordCount')}>
+        <Switch checked={prefs.showWordCount} onChange={(v) => void savePrefs({ showWordCount: v })} label={t('settings.wordCount')} />
+      </Row>
+      <div className="mt-6 rounded-lg border border-line p-4" style={{ fontFamily: 'var(--editor-font)', fontSize: 'var(--editor-font-size)', lineHeight: 'var(--editor-line-height)' }}>
+        <div className="mb-1 text-xs uppercase tracking-wide text-faint" style={{ fontFamily: 'var(--font-sans)' }}>
+          {t('settings.preview')}
+        </div>
+        {t('settings.previewText')}
+      </div>
+    </section>
   );
 }
 
@@ -136,17 +256,25 @@ export function Appearance() {
           ))}
         </div>
       </Row>
-      <Row label={t('settings.fontSize')}>
-        <div className="flex items-center gap-2">
-          <input type="range" min={13} max={21} value={prefs.editorFontSize} onChange={(e) => void savePrefs({ editorFontSize: Number(e.target.value) })} aria-label={t('settings.fontSize')} />
-          <span className="w-8 text-sm text-muted">{prefs.editorFontSize}</span>
-        </div>
+      <Row label={t('settings.uiScale')} hint={t('settings.uiScaleHint')}>
+        <Choice
+          label={t('settings.uiScale')}
+          value={prefs.uiScale}
+          onChange={(v) => void savePrefs({ uiScale: v })}
+          options={[90, 100, 110, 125].map((v) => ({ value: v, label: `${v}%` }))}
+        />
       </Row>
-      <Row label={t('settings.fullWidth')}>
-        <Switch checked={prefs.fullWidth} onChange={(v) => void savePrefs({ fullWidth: v })} label={t('settings.fullWidth')} />
-      </Row>
-      <Row label={t('settings.serif')}>
-        <Switch checked={prefs.serif} onChange={(v) => void savePrefs({ serif: v })} label={t('settings.serif')} />
+      <Row label={t('settings.motion')} hint={t('settings.motionHint')}>
+        <Choice
+          label={t('settings.motion')}
+          value={prefs.motion}
+          onChange={(v) => void savePrefs({ motion: v })}
+          options={[
+            { value: 'system', label: t('settings.motion.system') },
+            { value: 'reduce', label: t('settings.motion.reduce') },
+            { value: 'full', label: t('settings.motion.full') },
+          ]}
+        />
       </Row>
     </section>
   );
@@ -432,6 +560,52 @@ function Storage() {
         >
           {t('settings.backupNow')}
         </Button>
+      </Row>
+      <Row label={t('settings.autoBackup')} hint={isTauri() ? t('settings.autoBackupHint', { when: prefs.lastAutoBackupAt ? new Date(prefs.lastAutoBackupAt).toLocaleString() : t('settings.never') }) : t('settings.desktopOnly')}>
+        {isTauri() ? (
+          <Choice
+            label={t('settings.autoBackup')}
+            value={prefs.autoBackup}
+            onChange={(v) => void savePrefs({ autoBackup: v })}
+            options={[
+              { value: 'off', label: t('settings.autoBackup.off') },
+              { value: 'daily', label: t('settings.autoBackup.daily') },
+              { value: 'weekly', label: t('settings.autoBackup.weekly') },
+            ]}
+          />
+        ) : (
+          <span className="text-xs text-faint">—</span>
+        )}
+      </Row>
+      {isTauri() && prefs.autoBackup !== 'off' && (
+        <Row label={t('settings.autoBackupKeep')}>
+          <div className="flex items-center gap-2">
+            <Select
+              ariaLabel={t('settings.autoBackupKeep')}
+              value={String(prefs.autoBackupKeep)}
+              onChange={(v) => void savePrefs({ autoBackupKeep: Number(v) })}
+              options={[3, 7, 14, 30].map((n) => ({ value: String(n), label: t('settings.autoBackupKeepN', { n }) }))}
+            />
+            <Button
+              size="sm"
+              loading={busy === 'autoBackup'}
+              onClick={wrap('autoBackup', async () => {
+                const r = await runAutoBackup();
+                useApp.getState().toast(t('settings.autoBackupDone', { n: r.count, dir: r.dir }), 'success');
+              })}
+            >
+              {t('settings.autoBackupNow')}
+            </Button>
+          </div>
+        </Row>
+      )}
+      <Row label={t('settings.trashRetention')} hint={t('settings.trashRetentionHint')}>
+        <Choice
+          label={t('settings.trashRetention')}
+          value={prefs.trashRetentionDays}
+          onChange={(v) => void savePrefs({ trashRetentionDays: v })}
+          options={[0, 7, 30, 90].map((d) => ({ value: d, label: d ? t('settings.trashRetention.days', { n: d }) : t('settings.never') }))}
+        />
       </Row>
       <Row label={t('export.title')} hint={t('export.hint')}>
         <Button size="sm" icon={<Download className="size-3.5" />} loading={busy === 'exportAll'} onClick={wrap('exportAll', runExportAll)}>

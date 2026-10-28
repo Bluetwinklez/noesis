@@ -223,13 +223,17 @@ export function Modal({
   width?: number;
 }) {
   const ref = useRef<HTMLDivElement>(null);
+  // Callers often pass a new onClose on every render; the effect below must run only
+  // when the dialog opens, or each keystroke would re-run it and move focus away.
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
   useEffect(() => {
     if (!open) return;
     const prev = document.activeElement as HTMLElement | null;
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         e.stopPropagation();
-        onClose();
+        onCloseRef.current();
       }
       if (e.key === 'Tab' && ref.current) {
         const f = ref.current.querySelectorAll<HTMLElement>('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])');
@@ -246,12 +250,19 @@ export function Modal({
       }
     };
     window.addEventListener('keydown', onKey, true);
-    setTimeout(() => ref.current?.querySelector<HTMLElement>('[autofocus], input, textarea, button')?.focus(), 10);
+    // Initial focus: a field marked data-autofocus, else the first field. Never take focus
+    // away from something the user (or the dialog's content) already focused inside.
+    const timer = setTimeout(() => {
+      const el = ref.current;
+      if (!el || el.contains(document.activeElement)) return;
+      (el.querySelector<HTMLElement>('[data-autofocus]') ?? el.querySelector<HTMLElement>('input, textarea, select, button'))?.focus();
+    }, 10);
     return () => {
+      clearTimeout(timer);
       window.removeEventListener('keydown', onKey, true);
       prev?.focus?.();
     };
-  }, [open, onClose]);
+  }, [open]);
   if (!open) return null;
   return createPortal(
     <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/30 p-6 pt-[10vh] backdrop-blur-[2px]" onMouseDown={onClose}>
