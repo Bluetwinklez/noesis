@@ -7,14 +7,20 @@ import { getPdfJsLoader } from '../ingestion/extractors';
 import { applyPalette } from './palettes';
 import { t } from '../i18n';
 import type { Lang } from '../i18n';
+import { applyVisualTheme, visualThemeById } from './visual-themes';
 
 export const apiKeyName = (p: ProviderId) => `ai.${p}.apiKey`;
+
+let prefsSaveQueue: Promise<void> = Promise.resolve();
 
 export async function savePrefs(patch: Partial<Prefs>) {
   const prefs = { ...useApp.getState().prefs, ...patch };
   useApp.setState({ prefs });
-  await repos().settings.set('prefs', prefs);
   applyTheme(prefs);
+  // Fast consecutive controls (for example style then accent) must reach storage
+  // in the same order in which the UI applied them.
+  prefsSaveQueue = prefsSaveQueue.catch(() => undefined).then(() => repos().settings.set('prefs', prefs));
+  await prefsSaveQueue;
 }
 
 export async function saveLang(lang: Lang) {
@@ -38,6 +44,7 @@ export async function loadSettings() {
   const r = repos();
   const stored = await r.settings.get<Partial<Prefs>>('prefs', {});
   const prefs = { ...DEFAULT_PREFS, ...stored };
+  prefs.visualTheme = visualThemeById(stored.visualTheme).id;
   // Older versions had a serif on/off switch.
   if (!stored.editorFont && stored.serif) prefs.editorFont = 'serif';
   delete prefs.serif;
@@ -54,6 +61,7 @@ export function applyTheme(prefs: Prefs) {
   const root = document.documentElement;
   const dark = prefs.theme === 'dark' || (prefs.theme === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
   root.classList.toggle('dark', dark);
+  applyVisualTheme(root, prefs.visualTheme);
   applyPalette(root, prefs.palette, dark);
   root.style.setProperty('--accent-h', String(prefs.accentHue));
   root.style.setProperty('--editor-font-size', `${prefs.editorFontSize}px`);

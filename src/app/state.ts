@@ -3,6 +3,7 @@ import type { Repos } from '../core/store';
 import type { Lang } from '../i18n';
 import type { AiConfig } from '../ai/types';
 import { DEFAULT_AI_CONFIG } from '../ai/types';
+import type { VisualThemeId } from './visual-themes';
 
 export type Route =
   | { name: 'home' }
@@ -24,6 +25,8 @@ export type ThemePref = 'light' | 'dark' | 'system';
 
 export interface Prefs {
   theme: ThemePref;
+  /** Whole-interface visual style; palette and accent remain independently adjustable. */
+  visualTheme: VisualThemeId;
   accentHue: number;
   /** Colour palette id (see app/palettes.ts). */
   palette: string;
@@ -68,6 +71,7 @@ export interface Prefs {
 
 export const DEFAULT_PREFS: Prefs = {
   theme: 'system',
+  visualTheme: 'classic',
   accentHue: 252,
   palette: 'paper',
   sidebarWidth: 264,
