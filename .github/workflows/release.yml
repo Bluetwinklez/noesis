@@ -37,6 +37,9 @@ jobs:
       - run: npm ci
       - run: npm run typecheck
       - run: npm test
+      - run: npm run eval:ai
+        env:
+          NOESIS_EVAL_PROVIDER: mock
       - run: npm audit --audit-level=high --omit=dev
       - run: npx playwright install --with-deps chromium
       - run: npm run e2e

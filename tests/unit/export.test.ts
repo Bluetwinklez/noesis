@@ -78,6 +78,7 @@ describe('export everything and import it back', () => {
     await a.notebooks.addSource(nb.id, source.id);
     const data = { coverage: [{ sourceId: source.id, sourceTitle: 'Report', totalChars: 200000, representedChars: 200000, condensed: true, parts: 5, totalParts: 5, summaryClipped: false }] };
     await a.notebooks.addNote(nb.id, 'summary', 'Findings', '731 artefacts [1].', data, [{ n: 1, sourceId: source.id, sourceTitle: 'Report', chunkId: -1, pageNumber: null, charStart: 0, charEnd: 0, excerpt: '' }]);
+    await a.notebooks.addMessage({ notebook_id: nb.id, role: 'assistant', content: 'An unsupported answer.', citations: [], status: 'complete', insufficient: true });
     const backup = await createBackup(a.db, memoryBlobs());
     const restored = await memoryStore();
     await restoreBackup(restored.db, backup, memoryBlobs());
@@ -95,6 +96,7 @@ describe('export everything and import it back', () => {
     expect(newNote.data.coverage).toEqual([{ ...data.coverage[0], sourceId: newSource.id }]);
     expect(newNote.citations[0].sourceId).toBe(newSource.id);
     expect((await b.notebooks.sources(newNb.id))[0].id).toBe(newSource.id);
+    expect((await b.notebooks.messages(newNb.id))[0]).toMatchObject({ content: 'An unsupported answer.', insufficient: true });
   });
 
   it('round-trips pages, links, images, databases, tasks and sources', async () => {

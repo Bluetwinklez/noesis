@@ -6,6 +6,13 @@ Status values: `done` (implemented and covered by an automated test or recorded 
 
 ## Verification runs (this revision)
 
+### Persisted answer evidence (2026-10-28)
+
+- New migration v5 adds a persisted insufficient-evidence flag. Existing uncited completed assistant messages and restored v4 backups are normalized; user messages are unchanged. ZIP transfer now carries chat messages and their flag, remapping source identities.
+- Unsupported answers have a visible English/Turkish warning. Cited answers mark uncited sentences with a dotted underline and tooltip. Citation presence is not factual verification. Rendering sanitizes model HTML before adding trusted citation buttons, preserving Markdown and literal code references.
+- `npm run eval:ai` is separate from the default test suite. Four synthetic English/Turkish cases exercise real retrieval and answer assembly with a deterministic mock in CI/release validation; owner-supplied environment variables opt into a live chat provider. Scoring checks reference presence, retrieved-chunk keyword support and refusals, not semantic entailment. See [evidence evaluation](testing/evidence-eval.md).
+- Two initial regression tests failed on the old implementation (flag persistence and v4 backfill); a ZIP transfer assertion also failed before chat export/import was added. Full local verification passed: npm ci, typecheck, production build, **115 Vitest tests / 18 files**, **21 Playwright scenarios**, **4 mock evaluation cases**, **20 Rust tests**, strict Clippy and **1 benchmark test**. No live provider has been tested. Existing 2,000-page benchmarks measured full-text search median **12.224 ms** (p95 **16.726 ms**) and hybrid search median **38.362 ms** (p95 **53.049 ms**); these are not the item 5 acceptance workload.
+
 ### Long-source Studio context (2026-10-28)
 
 - Long sources are split into parts of at most 40,000 characters (approximately 10,000 tokens using the application's estimate). Up to 16 evenly spaced parts, including the final part, are condensed by the configured provider. Omitted sections and overlong provider summaries are reported explicitly.
@@ -135,6 +142,7 @@ Status values: `done` (implemented and covered by an automated test or recorded 
 {
   "version": "0.1.0",
   "updated": "2026-10-28",
+  "answer_evidence": { "schema": 5, "vitest": 115, "vitest_files": 18, "playwright": 21, "mock_eval": 4, "cargo": 20, "clippy": "PASS -D warnings", "benchmark_tests": 1, "live_provider_verified": false },
   "studio_long_sources": { "vitest": 105, "vitest_files": 15, "playwright": 20, "cargo": 20, "clippy": "PASS -D warnings", "benchmark_tests": 1, "environment": "Windows Node 24.20.0 Rust 1.99.1", "live_provider_verified": false },
   "tests": { "vitest": { "passed": 57, "failed": 0, "environment": "Windows Node 24" }, "cargo": { "passed": 10, "failed": 0, "scope": "previous development revision CI" }, "playwright": { "passed": 10, "failed": 0, "environment": "Windows Edge browser preview" } },
   "local_native_build": "Rust tests and strict Clippy passed locally; packaged installer not rebuilt in this run",

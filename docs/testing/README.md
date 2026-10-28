@@ -1,6 +1,6 @@
 # Testing
 
-Latest local verification (2026-10-28, Windows, Node 24.20.0, Rust 1.99.1): **105 Vitest tests / 15 files**, **20 Playwright scenarios**, **20 Rust tests**, strict Clippy and the benchmark suite passed. The table below retains earlier evidence. [Studio source coverage](studio-context.md) documents the new regression tests, bounded condensation, transfer behavior and limitations.
+Latest local verification (2026-10-28, Windows, Node 24.20.0, Rust 1.99.1): **115 Vitest tests / 18 files**, **21 Playwright scenarios**, **4 separate mock evaluation cases**, **20 Rust tests**, strict Clippy and the benchmark suite passed. [Answer evidence evaluation](evidence-eval.md) documents flag persistence, sentence highlighting and the optional owner-run live harness. The table below retains earlier evidence. [Studio source coverage](studio-context.md) documents the new regression tests, bounded condensation, transfer behavior and limitations.
 
 | Layer | Command | Recorded result (2026-10-27; environments below) | Covers |
 |---|---|---|---|
@@ -51,7 +51,7 @@ Desktop smoke test (manual, recorded): the release binary under Xvfb survived a 
 - Linux: Playwright uses bundled Chromium. Set `PW_CHROMIUM_PATH` to reuse a preinstalled binary whose revision differs from the Playwright version.
 - Windows: the default channel is `msedge`.
 - `node:sqlite` is loaded with `process.getBuiltinModule` so that jsdom-environment suites can use it under Vite's module runner.
-- Local native compilation on the Windows development machine is blocked by Application Control (`os error 4551`). Native Rust and installer results are recorded from GitHub Actions, not inferred from browser tests.
+- Local native Rust tests and strict Clippy passed with Rust 1.99.1 and the owner-installed Visual Studio 2022 C++ Build Tools. Packaged installer verification remains a separate CI check. Stop Vite/Playwright before npm ci on Windows to avoid locked native modules; keep sources frozen during E2E runs.
 
 ## README screenshots
 

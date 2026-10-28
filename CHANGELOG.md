@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Persist unsupported-answer warnings with a new v5 migration, including legacy backups, and preserve chat evidence flags in workspace exports/imports.
+- Mark uncited sentences in cited answers, keep citation click-through and Markdown formatting, and clarify that a citation number does not prove a claim.
+- Add a separate four-case evidence evaluation harness, deterministic mock CI checks and owner-run live-provider configuration.
+
 - Condense long Studio sources in bounded parts before summaries, study guides, FAQs, timelines, briefings, comparisons, flashcards, quizzes and audio scripts, so the end of a document is considered.
 - Share source context fairly, including source wrappers in the character budget; show condensation progress, coverage and warnings for omitted sections or shortened provider output in English and Turkish.
 - Preserve Studio notes and coverage in workspace ZIP exports/imports, remap source links on import, and persist generated notes before opening their dialog.

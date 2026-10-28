@@ -258,6 +258,7 @@ export interface ChatMessage {
   content: string;
   citations: Citation[];
   status: 'complete' | 'error' | 'cancelled';
+  insufficient: boolean;
   created_at: number;
 }
 
