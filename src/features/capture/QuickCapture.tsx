@@ -43,10 +43,6 @@ export function QuickCapture() {
   const [saving, setSaving] = useState(false);
   const bodyRef = useRef<HTMLTextAreaElement>(null);
   const titleRef = useRef<HTMLInputElement>(null);
-  // The modal focuses its first button; typing should start in the title instead.
-  useEffect(() => {
-    if (open) setTimeout(() => titleRef.current?.focus(), 30);
-  }, [open]);
 
   useEffect(() => {
     if (!isTauri()) return;
@@ -124,7 +120,7 @@ export function QuickCapture() {
       }
     >
       <div className="space-y-2">
-        <Input ref={titleRef} value={title} onChange={(e) => setTitle(e.target.value)} placeholder={t('capture.titlePlaceholder')} aria-label={t('capture.titlePlaceholder')} onKeyDown={(e) => e.key === 'Enter' && !e.ctrlKey && (e.preventDefault(), bodyRef.current?.focus())} />
+        <Input ref={titleRef} data-autofocus value={title} onChange={(e) => setTitle(e.target.value)} placeholder={t('capture.titlePlaceholder')} aria-label={t('capture.titlePlaceholder')} onKeyDown={(e) => e.key === 'Enter' && !e.ctrlKey && (e.preventDefault(), bodyRef.current?.focus())} />
         <Textarea ref={bodyRef} rows={8} value={body} onChange={(e) => setBody(e.target.value)} placeholder={t('capture.bodyPlaceholder')} aria-label={t('capture.bodyPlaceholder')} />
       </div>
     </Modal>

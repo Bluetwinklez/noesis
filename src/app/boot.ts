@@ -6,6 +6,8 @@ import { useApp } from './state';
 import { applyTheme, loadSettings, startReminderLoop } from './services';
 import { startUpdateLoop } from './updater';
 import { startMcpIfEnabled } from '../mcp/host';
+import { openStartPage, startMaintenance } from './maintenance';
+import { flushAllWrites, hookQuit } from './pendingWrites';
 
 export async function boot(): Promise<void> {
   setPdfJsLoader(async () => {
@@ -38,9 +40,13 @@ export async function boot(): Promise<void> {
     const { prefs } = useApp.getState();
     if (prefs.theme === 'system') applyTheme(prefs);
   });
-  // Flush the browser-preview snapshot before the tab goes away.
-  window.addEventListener('pagehide', () => void repos.db.flushNow());
+  // Finish delayed saves before the tab or window goes away.
+  window.addEventListener('pagehide', () => void flushAllWrites());
+  if (isTauri()) void hookQuit();
+  await openStartPage();
+  window.matchMedia('(prefers-reduced-motion: reduce)').addEventListener('change', () => applyTheme(useApp.getState().prefs));
   startReminderLoop();
+  startMaintenance();
   startUpdateLoop();
   startMcpIfEnabled();
   // Dev-only handle for debugging and e2e diagnostics.

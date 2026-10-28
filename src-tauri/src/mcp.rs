@@ -327,6 +327,8 @@ fn home() -> Option<PathBuf> {
 }
 
 /// Config files that use the common `{ "mcpServers": { name: { command, args } } }` shape.
+// Pushes below are per-platform (cfg), so vec![] cannot express them.
+#[allow(clippy::vec_init_then_push)]
 fn client_config_paths(id: &str) -> Vec<PathBuf> {
     let Some(home) = home() else { return vec![] };
     match id {

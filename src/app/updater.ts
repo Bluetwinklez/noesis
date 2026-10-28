@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { isTauri } from '../lib/platform';
+import { flushAllWrites } from './pendingWrites';
 import { useApp } from './state';
 import { savePrefs } from './services';
 import { t } from '../i18n';
@@ -74,7 +75,6 @@ export async function checkForUpdates(opts: { manual?: boolean } = {}): Promise<
     set({ status: 'ready', progress: 1 });
     // Never restart under the user's hands: with automatic installation the update is
     // applied when the window closes; otherwise the banner offers "Restart now".
-    if (useApp.getState().prefs.autoInstallUpdates) await installOnClose();
   } catch (e) {
     const raw = e instanceof Error ? e.message : String(e);
     // No signed build published yet (or offline): say so instead of the plugin's raw error.
@@ -90,23 +90,17 @@ export async function checkForUpdates(opts: { manual?: boolean } = {}): Promise<
 export async function installUpdate(): Promise<void> {
   if (!pending) return;
   useUpdates.setState({ status: 'installing' });
-  await useApp.getState().repos?.db.flushNow();
+  await flushAllWrites();
   await pending.install();
   const { relaunch } = await import('@tauri-apps/plugin-process');
   await relaunch();
 }
 
-let closeHooked = false;
-async function installOnClose() {
-  if (closeHooked) return;
-  closeHooked = true;
-  const { getCurrentWindow } = await import('@tauri-apps/api/window');
-  await getCurrentWindow().onCloseRequested(async (event) => {
-    if (!pending || !useApp.getState().prefs.autoInstallUpdates) return;
-    event.preventDefault();
-    await installUpdate();
-  });
-}
+/**
+ * With automatic installation a downloaded update is applied when the window closes
+ * (never under the user's hands); the close handler lives in pendingWrites.hookQuit.
+ */
+export const installOnClose = (): boolean => !!pending && useApp.getState().prefs.autoInstallUpdates;
 
 export function startUpdateLoop(): void {
   if (!isTauri()) return;

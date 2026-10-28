@@ -97,10 +97,15 @@ export class Database implements Executor {
     return result;
   }
 
-  /** Forces pending snapshot persistence (wasm driver). */
+  /**
+   * Waits until every statement queued so far has finished, then forces pending
+   * snapshot persistence (wasm driver). Safe to call before quitting.
+   */
   async flushNow() {
     if (this.flushTimer) clearTimeout(this.flushTimer);
     this.flushTimer = null;
-    if (this.driver.flush) await this.enqueue(() => this.driver.flush!());
+    await this.enqueue(async () => {
+      if (this.driver.flush) await this.driver.flush();
+    });
   }
 }
