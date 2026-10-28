@@ -1,6 +1,10 @@
 import type { en } from './en';
 
 export const tr: Record<keyof typeof en, string> = {
+  'nb.unsupportedAnswer': 'Bu yanıtı destekleyen kaynak yok',
+  'nb.uncitedSentence': 'Bu cümlede kaynak atfı yok. Kanıtı kontrol et.',
+  'nb.citationDisclaimer': 'Atıf bir kaynağa yönlendirir; tek başına iddianın doğruluğunu kanıtlamaz.',
+  'nb.citationPage': '{title} · s. {n}',
   'nb.coverage.title': 'Kaynak kapsamı',
   'nb.coverage.invalidBudget': 'Studio bağlam bütçesi geçersiz.',
   'nb.coverage.tooMany': 'Studio bağlam bütçesi için çok fazla kaynak var. Daha az kaynak seç.',

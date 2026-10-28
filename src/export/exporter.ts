@@ -7,7 +7,7 @@
  */
 import JSZip from 'jszip';
 import type { Repos } from '../core/store';
-import type { CellValue, DbProperty, Page, Task, NotebookNote } from '../core/types';
+import type { CellValue, DbProperty, Page, Task, NotebookNote, ChatMessage } from '../core/types';
 import { PAGE_LINK_PREFIX, type DocNode } from '../core/doc';
 import { docToHtml } from '../editor/serialize';
 import { htmlToMarkdown } from '../editor/markdown';
@@ -51,6 +51,7 @@ export interface ExportedNotebook {
   description: string;
   sources: { ref: string; selected: boolean }[];
   notes: Pick<NotebookNote, 'kind' | 'title' | 'content_md' | 'data' | 'citations'>[];
+  messages?: Pick<ChatMessage, 'role' | 'content' | 'citations' | 'status' | 'insufficient'>[];
 }
 
 export interface ExportManifest {
@@ -211,6 +212,7 @@ export async function exportWorkspace(
     notebooks.push({ title: nb.title, description: nb.description,
       sources: (await repos.notebooks.sources(nb.id)).map((s) => ({ ref: s.id, selected: !!s.selected })),
       notes: (await repos.notebooks.notes(nb.id)).map(({ kind, title, content_md, data, citations }) => ({ kind, title, content_md, data, citations })),
+      messages: (await repos.notebooks.messages(nb.id)).map(({ role, content, citations, status, insufficient }) => ({ role, content, citations, status, insufficient })),
     });
   }
   zip.file(`${DATA_DIR}/notebooks.json`, JSON.stringify(notebooks, null, 2));

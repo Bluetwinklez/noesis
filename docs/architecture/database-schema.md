@@ -1,6 +1,8 @@
 # Database schema
 
-Generated from `src/core/db/migrations.ts` (schema version 1). SQLite with `PRAGMA foreign_keys = ON`.
+The initial DDL below is retained for reference; current schema version is **5** in `src/core/db/migrations.ts`. SQLite uses `PRAGMA foreign_keys = ON`.
+
+Migration v5 adds `chat_messages.insufficient INTEGER NOT NULL DEFAULT 0 CHECK (insufficient IN (0,1))`. New RAG answers persist their evidence flag. Existing completed assistant messages with no valid citation array are marked unsupported; user messages are unchanged. Legacy v4 backups receive the same normalization during restore. Citation presence is not proof that a source supports a claim.
 
 ## Conventions
 
