@@ -276,6 +276,92 @@ test('backup export and restore', async ({ page }) => {
   await expect(page.getByRole('treeitem', { name: /After backup/ })).toHaveCount(0);
 });
 
+test('a throwing view shows recovery while sidebar navigation and retry keep working', async ({ page }) => {
+  await freshApp(page);
+  await onboard(page);
+  await page.evaluate(() => {
+    const app = (window as unknown as { __noesis: { getState(): { repos: Repos } } }).__noesis;
+    const original = app.getState().repos.notebooks.list.bind(app.getState().repos.notebooks);
+    // Inject invalid render results in this test's memory; never change stored data.
+    (window as unknown as { __restoreNotebookList: () => void }).__restoreNotebookList = () => { app.getState().repos.notebooks.list = original; };
+    app.getState().repos.notebooks.list = async () => [{ id: 'synthetic', title: { unexpected: true }, updated_at: Date.now() }] as unknown as Awaited<ReturnType<typeof original>>;
+  });
+  await page.getByRole('button', { name: 'AI Notebooks', exact: true }).click();
+  await expect(page.getByRole('alert')).toContainText('This view could not be displayed');
+  await expect(page.getByRole('complementary', { name: 'Sidebar' })).toBeVisible();
+  await page.getByRole('button', { name: 'Settings', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'Settings', exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'AI Notebooks', exact: true }).click();
+  await expect(page.getByRole('alert')).toContainText('This view could not be displayed');
+  await page.evaluate(() => (window as unknown as { __restoreNotebookList: () => void }).__restoreNotebookList());
+  await page.getByRole('button', { name: 'Reload view', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'AI Notebooks', exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Settings', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'Settings', exact: true })).toBeVisible();
+});
+
+test('a corrupt database opens independent recovery and restores a backup', async ({ page }) => {
+  const key = await freshApp(page);
+  await onboard(page);
+  await newPage(page, 'Recovery treasure');
+  await editor(page).click();
+  await page.keyboard.type('This text returns from the backup.');
+  await expect(page.getByText('Saved', { exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Settings', exact: true }).click();
+  await page.getByRole('button', { name: 'Storage & backups', exact: true }).click();
+  const downloadEvent = page.waitForEvent('download');
+  await page.getByRole('button', { name: 'Create backup', exact: true }).click();
+  const backup = await downloadEvent;
+  const path = await backup.path();
+  expect(path).toBeTruthy();
+  await page.evaluate(async (dbKey) => {
+    // Write only this test's isolated snapshot. No installed application data is used.
+    const state = (window as unknown as { __noesis: { getState(): { repos: Repos } } }).__noesis.getState();
+    await state.repos.db.flushNow();
+    // Simulate an already terminated writer so pagehide cannot overwrite the fixture.
+    state.repos.db.driver.flush = async () => {};
+    const db = await new Promise<IDBDatabase>((resolve, reject) => {
+      const req = indexedDB.open('noesis-storage', 1);
+      req.onsuccess = () => resolve(req.result); req.onerror = () => reject(req.error);
+    });
+    await new Promise<void>((resolve, reject) => {
+      const tx = db.transaction('snapshots', 'readwrite');
+      tx.objectStore('snapshots').put(new TextEncoder().encode('corrupt SQLite fixture'), dbKey);
+      tx.oncomplete = () => { db.close(); resolve(); }; tx.onerror = () => reject(tx.error);
+    });
+  }, key);
+  await page.reload();
+  await page.getByRole('button', { name: 'English', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'Database recovery' })).toBeVisible();
+  await page.screenshot({ path: test.info().outputPath('recovery-screen.png') });
+  // Failed restores leave the raw bytes available for export and another attempt.
+  let chooser = page.waitForEvent('filechooser');
+  page.once('dialog', (dialog) => dialog.accept());
+  await page.getByRole('button', { name: 'Restore backup', exact: true }).click();
+  await (await chooser).setFiles({ name: 'bad.noesisbak', mimeType: 'application/octet-stream', buffer: Buffer.from('invalid archive') });
+  await expect(page.getByRole('alert')).toContainText('not a valid Noesis backup');
+  const rawEvent = page.waitForEvent('download');
+  await page.getByRole('button', { name: 'Export raw database' }).click();
+  const raw = await rawEvent;
+  const JSZip = (await import('jszip')).default;
+  const zip = await JSZip.loadAsync(readFileSync((await raw.path())!));
+  expect(await zip.file('noesis.db')!.async('string')).toBe('corrupt SQLite fixture');
+  chooser = page.waitForEvent('filechooser');
+  page.once('dialog', (dialog) => dialog.accept());
+  await page.getByRole('button', { name: 'Restore backup', exact: true }).click();
+  await (await chooser).setFiles(path!);
+  await page.getByRole('treeitem', { name: /Recovery treasure/ }).click();
+  await expect(editor(page)).toContainText('This text returns from the backup.');
+  const preserved = await page.evaluate(async (dbKey) => {
+    const db = await new Promise<IDBDatabase>((resolve) => { const req = indexedDB.open('noesis-storage', 1); req.onsuccess = () => resolve(req.result); });
+    return new Promise<boolean>((resolve) => {
+      const req = db.transaction('snapshots').objectStore('snapshots').getAllKeys();
+      req.onsuccess = () => { db.close(); resolve(req.result.some((k) => String(k).startsWith(`${dbKey}.pre-recovery-`))); };
+    });
+  }, key);
+  expect(preserved).toBe(true);
+});
+
 test('local editing keeps working offline', async ({ page, context }) => {
   const db = await freshApp(page);
   await onboard(page);

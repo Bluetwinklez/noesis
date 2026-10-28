@@ -2,22 +2,23 @@ mod db;
 mod files;
 mod mcp;
 mod net;
+mod recovery;
 
 use rusqlite::Connection;
 use serde::Serialize;
 use serde_json::Value as Json;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use tauri::{Manager, State};
 
 const KEYRING_SERVICE: &str = "app.noesis.desktop";
 
 struct AppState {
-    conn: Mutex<Connection>,
+    conn: Mutex<Option<Connection>>,
+    startup_error: Mutex<Option<String>>,
     data_dir: PathBuf,
     db_path: PathBuf,
     attachments_dir: PathBuf,
-    recovered_from: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -28,18 +29,19 @@ struct AppInfo {
     db_path: String,
     db_bytes: u64,
     attachments_bytes: u64,
-    recovered_from: Option<String>,
+    startup_error: Option<String>,
 }
 
 #[tauri::command]
 fn db_exec(state: State<'_, AppState>, sql: String, params: Vec<Json>) -> Result<db::ExecResult, String> {
     let conn = state.conn.lock().map_err(|_| "database lock poisoned")?;
-    db::exec(&conn, &sql, &params)
+    db::exec(conn.as_ref().ok_or("Database unavailable; use recovery.")?, &sql, &params)
 }
 
 #[tauri::command]
 fn db_integrity(state: State<'_, AppState>) -> Result<Vec<String>, String> {
     let conn = state.conn.lock().map_err(|_| "database lock poisoned")?;
+    let conn = conn.as_ref().ok_or("Database unavailable; use recovery.")?;
     let mut stmt = conn.prepare("PRAGMA integrity_check").map_err(|e| e.to_string())?;
     let rows = stmt.query_map([], |r| r.get::<_, String>(0)).map_err(|e| e.to_string())?;
     rows.collect::<Result<Vec<_>, _>>().map_err(|e| e.to_string())
@@ -331,31 +333,52 @@ fn app_info(app: tauri::AppHandle, state: State<'_, AppState>) -> Result<AppInfo
         db_path: state.db_path.to_string_lossy().into(),
         db_bytes,
         attachments_bytes: files::dir_size(&state.attachments_dir),
-        recovered_from: state.recovered_from.clone(),
+        startup_error: state.startup_error.lock().map_err(|_| "recovery lock poisoned")?.clone(),
     })
 }
 
-/// Opens the database; a corrupt file is moved aside (never deleted) and a fresh one created.
-fn open_database(db_path: &PathBuf) -> Result<(Connection, Option<String>), String> {
-    match db::open(db_path) {
-        Ok(conn) if db::quick_check(&conn).unwrap_or(false) => Ok((conn, None)),
-        result => {
-            drop(result);
-            let stamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
-            let moved = db_path.with_extension(format!("db.corrupt-{stamp}"));
-            if db_path.exists() {
-                std::fs::rename(db_path, &moved).map_err(|e| format!("could not move corrupt database aside: {e}"))?;
-                for ext in ["db-wal", "db-shm"] {
-                    let side = db_path.with_extension(ext);
-                    if side.exists() {
-                        let _ = std::fs::rename(&side, moved.with_extension(format!("{ext}.corrupt")));
-                    }
-                }
-            }
-            let conn = db::open(db_path).map_err(|e| e.to_string())?;
-            Ok((conn, Some(moved.to_string_lossy().into())))
+#[tauri::command]
+fn recovery_install(state: State<'_, AppState>, request: tauri::ipc::Request<'_>) -> Result<(), String> {
+    let (_, bytes) = split_binary::<Json>(raw_body(&request)?)?;
+    let mut conn = state.conn.lock().map_err(|_| "database lock poisoned")?;
+    recovery::install(&mut conn, &state.db_path, bytes)?;
+    *state.startup_error.lock().map_err(|_| "recovery lock poisoned")? = None;
+    Ok(())
+}
+
+#[tauri::command]
+fn recovery_raw(state: State<'_, AppState>) -> Result<tauri::ipc::Response, String> {
+    let _guard = state.conn.lock().map_err(|_| "database lock poisoned")?;
+    let path = state.db_path.clone();
+    let mut entries = Vec::new();
+    let mut payload = Vec::new();
+    let sidecars = [path.with_extension("db-wal"), path.with_extension("db-shm")];
+    for (file, name) in [(path, "noesis.db"), (sidecars[0].clone(), "noesis.db-wal"), (sidecars[1].clone(), "noesis.db-shm")] {
+        if file.exists() {
+            let bytes = std::fs::read(file).map_err(|e| e.to_string())?;
+            entries.push(serde_json::json!({ "name": name, "size": bytes.len() }));
+            payload.extend(bytes);
         }
     }
+    if entries.is_empty() { return Err("No stored database file is available.".into()); }
+    Ok(tauri::ipc::Response::new(pack_binary(&serde_json::json!({ "files": entries }), &payload)))
+}
+
+#[tauri::command]
+fn recovery_open_backups(app: tauri::AppHandle, state: State<'_, AppState>) -> Result<(), String> {
+    use tauri_plugin_opener::OpenerExt;
+    let dir = state.data_dir.join("backups");
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    app.opener().open_path(dir.to_string_lossy().into_owned(), None::<String>).map_err(|e| e.to_string())
+}
+
+/// A corrupt database stays in place until a validated recovery replaces it.
+fn open_database(db_path: &Path) -> Result<Connection, String> {
+    let conn = db::open(db_path).map_err(|e| format!("Could not open database: {e}"))?;
+    if !db::quick_check(&conn).map_err(|e| e.to_string())? {
+        return Err("Database integrity check failed. Restore a backup to continue.".into());
+    }
+    Ok(conn)
 }
 
 /// Brings the main window forward and asks the UI to open the quick-capture box.
@@ -445,13 +468,16 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .setup(|app| {
             let data_dir = app.path().app_data_dir()?;
-            std::fs::create_dir_all(&data_dir)?;
             let attachments_dir = data_dir.join("attachments");
-            std::fs::create_dir_all(&attachments_dir)?;
             let db_path = data_dir.join("noesis.db");
-            let (conn, recovered_from) = open_database(&db_path).map_err(|e| -> Box<dyn std::error::Error> { e.into() })?;
+            let storage = std::fs::create_dir_all(&data_dir).and_then(|_| std::fs::create_dir_all(&attachments_dir));
+            let opened = storage.map_err(|e| e.to_string()).and_then(|_| open_database(&db_path));
+            let (conn, startup_error) = match opened {
+                Ok(conn) => (Some(conn), None),
+                Err(error) => (None, Some(error)),
+            };
             app.manage(McpState::default());
-            app.manage(AppState { conn: Mutex::new(conn), data_dir, db_path, attachments_dir, recovered_from });
+            app.manage(AppState { conn: Mutex::new(conn), startup_error: Mutex::new(startup_error), data_dir, db_path, attachments_dir });
             #[cfg(desktop)]
             desktop_extras(app)?;
             Ok(())
@@ -474,7 +500,10 @@ pub fn run() {
             mcp_respond,
             mcp_clients,
             mcp_connect_client,
-            app_info
+            app_info,
+            recovery_install,
+            recovery_raw,
+            recovery_open_backups
         ])
         .run(tauri::generate_context!())
         .expect("error while running Noesis");
@@ -513,14 +542,14 @@ mod tests {
     use super::*;
 
     #[test]
-    fn corrupt_database_is_moved_aside() {
+    fn corrupt_database_stays_available_for_recovery_after_repeated_starts() {
         let dir = tempfile::tempdir().unwrap();
         let p = dir.path().join("noesis.db");
         std::fs::write(&p, b"this is definitely not a sqlite database file, just garbage bytes.......").unwrap();
-        let (conn, recovered) = open_database(&p).unwrap();
-        assert!(recovered.is_some());
-        assert!(std::path::Path::new(&recovered.unwrap()).exists());
-        assert!(db::quick_check(&conn).unwrap());
+        let original = std::fs::read(&p).unwrap();
+        assert!(open_database(&p).is_err());
+        assert!(open_database(&p).is_err());
+        assert_eq!(std::fs::read(&p).unwrap(), original);
     }
 
     #[test]
@@ -528,11 +557,10 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let p = dir.path().join("noesis.db");
         {
-            let (c, _) = open_database(&p).unwrap();
+            let c = open_database(&p).unwrap();
             c.execute_batch("CREATE TABLE keep (x); INSERT INTO keep VALUES (1);").unwrap();
         }
-        let (c, recovered) = open_database(&p).unwrap();
-        assert!(recovered.is_none());
+        let c = open_database(&p).unwrap();
         let n: i64 = c.query_row("SELECT COUNT(*) FROM keep", [], |r| r.get(0)).unwrap();
         assert_eq!(n, 1);
     }

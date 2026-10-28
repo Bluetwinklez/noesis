@@ -33,7 +33,7 @@ Nothing leaves the machine unless the user configures an AI provider, consents t
 | Signed updates | Updates are verified against the minisign public key in `tauri.conf.json` before install; the private key is only a GitHub secret | `src-tauri/tauri.conf.json`, `.github/workflows/release.yml` |
 | Prompt-injection resistance | Sources are wrapped as untrusted DATA; the system prompt forbids following instructions found inside them; AI output never executes tools or actions; edits go through a preview that the user must accept | `src/ai/rag.ts` `buildGroundedPrompt`, `src/features/ai/AiPreview.tsx` |
 | Consent before cloud upload | Per-provider consent dialog (once / always); revocable; background jobs never prompt | `src/app/services.ts` |
-| Corruption detection | `PRAGMA integrity_check` + `foreign_key_check` at startup; a corrupt file is moved aside instead of being overwritten | `src-tauri/src/lib.rs` tests `corrupt_database_is_moved_aside` |
+| Corruption detection | Startup quick-check; failed databases stay in place for independent recovery. A restore validates integrity/foreign keys in staging and preserves original files before installation | `src-tauri/src/lib.rs`, `src-tauri/src/recovery.rs`, [recovery tests](../testing/error-recovery.md) |
 | Dependency checks | `npm audit` (high severity, production deps) and `cargo audit` in CI | `.github/workflows/ci.yml` |
 
 ## Known limitations (honest list)
