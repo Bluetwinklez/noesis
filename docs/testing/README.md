@@ -1,5 +1,7 @@
 # Testing
 
+Latest local verification (2026-10-28, Windows, Node 24.20.0, Rust 1.99.1): **105 Vitest tests / 15 files**, **20 Playwright scenarios**, **20 Rust tests**, strict Clippy and the benchmark suite passed. The table below retains earlier evidence. [Studio source coverage](studio-context.md) documents the new regression tests, bounded condensation, transfer behavior and limitations.
+
 | Layer | Command | Recorded result (2026-10-27; environments below) | Covers |
 |---|---|---|---|
 | Typecheck | `npm run typecheck` | clean | whole TS codebase |
