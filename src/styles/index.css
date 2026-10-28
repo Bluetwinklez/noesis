@@ -102,6 +102,55 @@ body {
   overflow: hidden;
 }
 
+/* Complete visual styles inspired by the user's references. These use CSS-only
+   scenery so themes remain fast, offline, scalable and safe to redistribute. */
+:root[data-visual-theme='library'] {
+  --radius: 16px;
+  --font-display: 'Iowan Old Style', 'Palatino Linotype', Georgia, serif;
+  --shadow-sm: 0 1px 2px rgb(69 52 35 / 8%);
+  --shadow-md: 0 7px 22px rgb(69 52 35 / 11%);
+  --shadow-lg: 0 22px 60px rgb(69 52 35 / 18%);
+}
+:root[data-visual-theme='library'] body {
+  background-image: radial-gradient(circle at 92% 4%, hsl(205 75% 82% / 0.3), transparent 22%), radial-gradient(circle at 8% 96%, hsl(112 45% 78% / 0.24), transparent 24%);
+}
+:root[data-visual-theme='library'] #root { margin: 14px; height: calc(100% - 28px); overflow: hidden; border: 1px solid var(--border-strong); border-radius: 20px; box-shadow: var(--shadow-lg); }
+:root[data-visual-theme='library'] main { background-image: linear-gradient(110deg, transparent 0 68%, hsl(42 65% 92% / 0.42)); }
+
+:root[data-visual-theme='kawaii'] {
+  --radius: 4px;
+  --font-sans: 'Segoe UI', Tahoma, sans-serif;
+  --font-display: 'Cascadia Mono', 'Segoe UI', monospace;
+  --shadow-sm: 2px 2px 0 hsl(280 55% 50% / 0.2);
+  --shadow-md: 4px 4px 0 hsl(280 55% 50% / 0.22);
+  --shadow-lg: 8px 8px 0 hsl(280 55% 35% / 0.25);
+}
+:root[data-visual-theme='kawaii'] body { background-image: linear-gradient(180deg, hsl(257 85% 80% / 0.42), transparent 26%), radial-gradient(circle at 8px 8px, hsl(315 90% 72% / 0.25) 1px, transparent 1.5px); background-size: auto, 16px 16px; }
+:root[data-visual-theme='kawaii'] #root { margin: 8px; height: calc(100% - 16px); border: 2px solid hsl(var(--accent-h) 75% 55%); box-shadow: var(--shadow-lg); }
+:root[data-visual-theme='kawaii'] button, :root[data-visual-theme='kawaii'] input, :root[data-visual-theme='kawaii'] textarea, :root[data-visual-theme='kawaii'] select { border-radius: 4px; }
+:root[data-visual-theme='kawaii'] main { background-image: repeating-linear-gradient(0deg, transparent 0 27px, hsl(var(--accent-h) 75% 65% / 0.035) 28px); }
+
+:root[data-visual-theme='sherwood'] {
+  --radius: 18px;
+  --font-sans: Georgia, 'Times New Roman', serif;
+  --font-display: Georgia, 'Times New Roman', serif;
+  --shadow-sm: 0 2px 3px rgb(32 48 27 / 12%);
+  --shadow-md: 0 8px 24px rgb(32 48 27 / 18%);
+  --shadow-lg: 0 22px 56px rgb(20 38 18 / 26%);
+}
+:root[data-visual-theme='sherwood'] body { background-image: radial-gradient(ellipse at 15% 100%, hsl(98 45% 28% / 0.35), transparent 30%), radial-gradient(ellipse at 90% 0%, hsl(82 50% 46% / 0.18), transparent 36%); }
+:root[data-visual-theme='sherwood'] #root { margin: 10px; height: calc(100% - 20px); overflow: hidden; border: 1px solid hsl(85 24% 32% / 0.48); border-radius: 22px; box-shadow: var(--shadow-lg); }
+:root[data-visual-theme='sherwood'] main { background-image: linear-gradient(180deg, hsl(78 50% 91% / 0.45), transparent 170px); }
+:root[data-visual-theme='sherwood'] aside, :root[data-visual-theme='sherwood'] [aria-label='Sidebar'] { background-image: linear-gradient(180deg, hsl(115 28% 20% / 0.14), transparent 45%); }
+
+.theme-preview-scene { position: relative; background: var(--preview-bg); }
+.theme-preview-sidebar { background: var(--preview-side); }
+.theme-preview-card { background: var(--preview-card); border-color: var(--preview-border); }
+[data-theme-preview='classic'] { --preview-bg: #fbfaf8; --preview-side: #f0eee9; --preview-card: #fff; --preview-border: #ddd8cf; }
+[data-theme-preview='library'] { --preview-bg: linear-gradient(135deg,#f5efe4,#dbeed0); --preview-side: #f0e8dc; --preview-card: #d8c9ef; --preview-border: #9b8e7d; }
+[data-theme-preview='kawaii'] { --preview-bg: linear-gradient(#c8a9ff,#ffd2ef); --preview-side: #f3c6ff; --preview-card: #fff1fb; --preview-border: #a65bd0; }
+[data-theme-preview='sherwood'] { --preview-bg: linear-gradient(#dfe6c8,#f0e4c8); --preview-side: #28452d; --preview-card: #f2ead7; --preview-border: #7d815a; }
+
 ::selection {
   background: var(--accent-soft);
 }

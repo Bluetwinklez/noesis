@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Add four selectable whole-interface styles: Classic Noesis, Pastel Library, Kawaii Retro and Sherwood. Each style supplies its own shape, typography, surface and scenery treatment while light/dark mode, eight colour palettes and accent colours remain independently adjustable.
+
 - Keep render failures inside app/view error boundaries with reload and diagnostic actions. Add independent startup recovery with validated backup restore, preserved original database copies, raw database export and the desktop automatic-backups folder. Corrupt databases no longer silently open as empty workspaces.
 
 - Recover sources left in processing at startup with a localized retry message, retain their original files/text, and prevent concurrent processing across pipeline instances. Initialize boot only once under React StrictMode.

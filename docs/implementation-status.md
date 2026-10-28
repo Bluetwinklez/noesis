@@ -6,6 +6,13 @@ Status values: `done` (implemented and covered by an automated test or recorded 
 
 ## Verification runs (this revision)
 
+### Selectable visual themes (2026-10-28)
+
+- Settings → Appearance now offers Classic Noesis, Pastel Library, Kawaii Retro and Sherwood as complete interface styles. They change typography, shapes, shadows, surfaces and offline CSS scenery across the app.
+- A style applies a recommended palette and accent when selected; light/dark mode, all eight palettes and accent colours remain independently editable afterward. The setting persists through the existing preferences store, and missing or unknown older values migrate safely to Classic Noesis.
+- Unit coverage verifies the complete registry and safe fallback. Browser E2E selects all four, captures visual evidence, changes an accent independently and verifies the style and accent after reload. See [visual theme verification](testing/visual-themes.md).
+- Full local verification passed: npm ci, typecheck, production build, **123 Vitest tests / 22 files**, **25 Playwright scenarios**, **4 mock evaluation cases**, **22 Rust tests**, strict Clippy and **1 benchmark test**. Production build took **4.25 s**. Existing 2,000-page full-text search median/p95 was **7.049/7.338 ms**; hybrid was **32.874/48.286 ms**. Packaged Windows WebView2 rendering and the reference images' exact typefaces/artwork are not automated or redistributed.
+
 ### Independent error recovery (2026-10-28)
 
 - App-wide and route-level error boundaries show render errors, reload the failed subtree and copy details. A route failure keeps the sidebar active; page/database/notebook/settings routes share this boundary and reset it on navigation.
@@ -93,7 +100,7 @@ Status values: `done` (implemented and covered by an automated test or recorded 
 | Area | Status | Notes |
 |---|---|---|
 | App shell, 12 navigation areas, Ctrl+K palette, breadcrumbs, recents, pinned, back/forward | done | |
-| Themes (light/dark/system), 8 colour palettes, accent colours, resizable and collapsible sidebar | done | Native Windows title bar (decorations on); no custom title bar |
+| Themes (4 interface styles, light/dark/system), 8 colour palettes, accent colours, resizable and collapsible sidebar | done | Complete styles use offline CSS scenery; native Windows title bar keeps system decorations |
 | Editor blocks and marks (spec §9 list) | done | |
 | Slash menu, markdown shortcuts, drag handle, block menu, undo/redo | done | |
 | Markdown paste → blocks | done | Added in this revision (unit + E2E) |
