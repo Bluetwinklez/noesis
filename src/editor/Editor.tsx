@@ -323,6 +323,12 @@ export function NoteEditor({ pageId, initialContent, onChange, onReady, editable
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [editor]);
 
+  // Settings → Editor → Spell check (the browser's own checker).
+  const spellcheck = useApp((s) => s.prefs.spellcheck);
+  useEffect(() => {
+    editor?.view.dom.setAttribute('spellcheck', spellcheck ? 'true' : 'false');
+  }, [editor, spellcheck]);
+
   if (!editor) return null;
   return (
     <div className="relative">

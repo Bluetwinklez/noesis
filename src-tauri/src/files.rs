@@ -93,6 +93,22 @@ pub fn validate_user_path(path: &str) -> Result<PathBuf, String> {
     }
 }
 
+/// Deletes the oldest `noesis-auto-*.noesisbak` files so that `keep` remain; returns how many are left.
+pub fn prune_backups(dir: &Path, keep: usize) -> Result<usize, String> {
+    let mut names: Vec<_> = fs::read_dir(dir)
+        .map_err(|e| e.to_string())?
+        .filter_map(Result::ok)
+        .map(|e| e.file_name().to_string_lossy().into_owned())
+        .filter(|n| n.starts_with("noesis-auto-") && n.ends_with(".noesisbak"))
+        .collect();
+    names.sort(); // timestamps sort chronologically
+    let excess = names.len().saturating_sub(keep);
+    for n in &names[..excess] {
+        fs::remove_file(dir.join(n)).map_err(|e| e.to_string())?;
+    }
+    Ok(names.len() - excess)
+}
+
 pub fn dir_size(dir: &Path) -> u64 {
     fs::read_dir(dir)
         .map(|it| it.filter_map(Result::ok).filter_map(|e| e.metadata().ok()).filter(|m| m.is_file()).map(|m| m.len()).sum())
@@ -134,6 +150,18 @@ mod tests {
         assert!(validate_user_path("relative.md").is_err());
         let missing = dir.path().join("nope").join("x.md");
         assert!(validate_user_path(missing.to_str().unwrap()).is_err());
+    }
+
+    #[test]
+    fn prunes_only_old_automatic_backups() {
+        let dir = tempfile::tempdir().unwrap();
+        for n in ["noesis-auto-20260101-000000.noesisbak", "noesis-auto-20260102-000000.noesisbak", "noesis-auto-20260103-000000.noesisbak", "manual.noesisbak"] {
+            fs::write(dir.path().join(n), b"x").unwrap();
+        }
+        assert_eq!(prune_backups(dir.path(), 2).unwrap(), 2);
+        assert!(!dir.path().join("noesis-auto-20260101-000000.noesisbak").exists());
+        assert!(dir.path().join("noesis-auto-20260103-000000.noesisbak").exists());
+        assert!(dir.path().join("manual.noesisbak").exists(), "manual backups are never touched");
     }
 
     #[test]

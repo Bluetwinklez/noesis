@@ -194,7 +194,7 @@ export function PageView({ id }: { id: string }) {
             <DatabaseView databaseId={id} />
           </Suspense>
         ) : (
-          <div className="mt-4" style={{ fontSize: prefs.editorFontSize, fontFamily: prefs.serif ? 'var(--font-serif)' : undefined }}>
+          <div className="mt-4">
             <NoteEditor
               pageId={id}
               initialContent={initial}
@@ -301,6 +301,7 @@ function IconPicker({ page }: { page: Page }) {
 }
 
 function PageHeaderBar({ page, editorRef, wordCount }: { page: Page; editorRef: React.RefObject<TEditor | null>; wordCount: number }) {
+  const showWordCount = useApp((s) => s.prefs.showWordCount);
   const t = useT();
   const bump = useApp((s) => s.bump);
   const navigate = useApp((s) => s.navigate);
@@ -397,7 +398,8 @@ function PageHeaderBar({ page, editorRef, wordCount }: { page: Page; editorRef: 
   return (
     <div className="flex h-9 items-center justify-end gap-1 text-xs text-faint">
       <span className="mr-2">
-        {page.kind === 'page' && t('page.words', { n: wordCount })} · {relativeTime(page.updated_at, useApp.getState().lang)}
+        {page.kind === 'page' && showWordCount && `${t('page.words', { n: wordCount })} · `}
+        {relativeTime(page.updated_at, useApp.getState().lang)}
       </span>
       <IconButton label={page.is_favorite ? t('page.unfavorite') : t('page.favorite')} onClick={() => void toggleFavorite(page.id, !!page.is_favorite)}>
         <Star className={cx('size-4', !!page.is_favorite && 'fill-amber-400 text-amber-400')} />
