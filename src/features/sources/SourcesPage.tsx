@@ -9,6 +9,7 @@ import { ACCEPTED_FILE_TYPES } from '../../ingestion/extractors';
 import { formatBytes, relativeTime } from '../../lib/util';
 import type { Source } from '../../core/types';
 import { stageIndex } from '../../ingestion/pipeline';
+import { INTERRUPTED_SOURCE_ERROR } from '../../app/recover-sources';
 
 const KIND_EMOJI: Record<string, string> = {
   pdf: '📕',
@@ -256,7 +257,7 @@ function SourceRow({ s, first, active, lang }: { s: Source; first: boolean; acti
         <div className="truncate text-xs text-faint">
           {t(`src.kind.${s.kind}` as MessageKey)} {s.size ? `· ${formatBytes(s.size)}` : ''} {s.page_count ? `· ${t('src.pages', { n: s.page_count })}` : ''} · {relativeTime(s.created_at, lang)}
         </div>
-        {s.status === 'error' && <div className="mt-1 text-xs text-danger">{s.error}</div>}
+        {s.status === 'error' && <div className="mt-1 text-xs text-danger">{s.error === INTERRUPTED_SOURCE_ERROR ? t('src.interrupted') : s.error}</div>}
         {s.status !== 'ready' && s.status !== 'error' && (
           <div className="mt-1.5 w-48">
             <Pipeline s={s} />
@@ -335,7 +336,7 @@ function SourcePreview({ id, highlight }: { id: string; highlight?: { start: num
           ))}
         </select>
       </div>
-      {s.status === 'error' && <div className="m-4 rounded-lg bg-danger/10 p-3 text-sm text-danger">{s.error}</div>}
+      {s.status === 'error' && <div className="m-4 rounded-lg bg-danger/10 p-3 text-sm text-danger">{s.error === INTERRUPTED_SOURCE_ERROR ? t('src.interrupted') : s.error}</div>}
       <div className="flex-1 overflow-y-auto p-5">
         <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-faint">{t('src.preview')}</div>
         {text ? (

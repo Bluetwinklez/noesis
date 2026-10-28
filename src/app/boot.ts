@@ -8,8 +8,15 @@ import { startUpdateLoop } from './updater';
 import { startMcpIfEnabled } from '../mcp/host';
 import { openStartPage, startMaintenance } from './maintenance';
 import { flushAllWrites, hookQuit } from './pendingWrites';
+import { recoverInterruptedSources } from './recover-sources';
 
-export async function boot(): Promise<void> {
+let bootPromise: Promise<void> | undefined;
+/** React StrictMode mounts effects twice; initialize storage and recovery once. */
+export function boot(): Promise<void> {
+  return bootPromise ??= initializeApp();
+}
+
+async function initializeApp(): Promise<void> {
   setPdfJsLoader(async () => {
     const pdfjs = await import('pdfjs-dist');
     const worker = await import('pdfjs-dist/build/pdf.worker.min.mjs?url');
@@ -26,6 +33,7 @@ export async function boot(): Promise<void> {
     driver = await WasmDriver.open(new URLSearchParams(location.search).get('db') ?? 'main');
   }
   const repos = await openStore(driver);
+  await recoverInterruptedSources(repos);
   useApp.setState({ repos, storageKind: driver.kind });
   await loadSettings();
 

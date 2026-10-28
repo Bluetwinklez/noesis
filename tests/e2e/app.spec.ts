@@ -1,6 +1,7 @@
 import { test, expect, type Page } from '@playwright/test';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import type { Repos } from '../../src/core/store';
 
 const FIX = join(import.meta.dirname, '..', 'fixtures');
 const MOCK_URL = 'http://127.0.0.1:11435/v1';
@@ -116,6 +117,30 @@ test('import a PDF, inspect extracted text and find it in search', async ({ page
   const results = page.getByRole('listbox');
   await expect(results).toContainText('Chloroplast notes');
   await expect(results).toContainText('Document passage');
+});
+
+test('startup flags interrupted source processing and the existing reprocess action recovers it', async ({ page }) => {
+  await freshApp(page);
+  await onboard(page);
+  await page.getByRole('button', { name: 'Sources', exact: true }).click();
+  await importFixture(page, 'Import files', 'sample.pdf');
+  await expect(page.getByText('Ready', { exact: true })).toBeVisible({ timeout: 20_000 });
+  // Persist the state left by a process stopped during PDF/OCR extraction.
+  await page.evaluate(async () => {
+    const state = (window as unknown as { __noesis: { getState(): { repos: Repos; workspaceId: string } } }).__noesis.getState();
+    const source = (await state.repos.sources.list(state.workspaceId))[0];
+    await state.repos.sources.setStatus(source.id, 'processing', 'extraction');
+    await state.repos.db.flushNow();
+  });
+  await page.reload();
+  await page.getByRole('button', { name: 'Sources', exact: true }).click();
+  await expect(page.getByText('Processing interrupted — retry', { exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Source actions' }).click();
+  await page.getByRole('menuitem', { name: 'Reprocess' }).click();
+  await expect(page.getByText('Ready', { exact: true })).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByText('Processing interrupted — retry', { exact: true })).toHaveCount(0);
+  await page.getByText('Photosynthesis Field Notes', { exact: true }).click();
+  await expect(page.getByLabel('Extracted text')).toContainText('RuBisCO');
 });
 
 test('source-grounded notebook answer with navigable citations', async ({ page }) => {
