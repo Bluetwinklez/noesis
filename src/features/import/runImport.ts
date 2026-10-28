@@ -4,6 +4,7 @@ import { ingestion } from '../../app/services';
 import { importWorkspace, type PendingSource } from '../../import/importer';
 import { exportWorkspace } from '../../export/exporter';
 import { t } from '../../i18n';
+import { restoreNotebookNotes } from '../../import/notebook-notes';
 
 /** Picks a Notion export zip, an Obsidian vault zip, a Noesis export or loose .md/.csv files and imports them. */
 export async function runImport(): Promise<void> {
@@ -21,7 +22,9 @@ export async function runImport(): Promise<void> {
         t(source === 'notion' ? 'import.rootNotion' : source === 'obsidian' ? 'import.rootObsidian' : source === 'noesis' ? 'import.rootNoesis' : 'import.rootGeneric'),
     },
   );
-  const sources = await restoreSources(r.sources);
+  const sourceIds = new Map<string, string>();
+  const sources = await restoreSources(r.sources, sourceIds);
+  await restoreNotebookNotes(repos(), wsId(), r.notebooks, sourceIds);
   app.bump();
   app.toast(t('import.done', { pages: r.pages, databases: r.databases, images: r.images }), 'success');
   if (r.tasks || sources) app.toast(t('import.doneExtra', { tasks: r.tasks, sources }), 'success');
@@ -29,7 +32,7 @@ export async function runImport(): Promise<void> {
 }
 
 /** Re-adds the research sources of a Noesis export; processing (extraction, indexing) runs in the background. */
-async function restoreSources(list: PendingSource[]): Promise<number> {
+async function restoreSources(list: PendingSource[], sourceIds: Map<string, string>): Promise<number> {
   const pipe = ingestion();
   let n = 0;
   for (const s of list) {
@@ -41,6 +44,7 @@ async function restoreSources(list: PendingSource[]): Promise<number> {
           ? await pipe.importText(wsId(), s.title, s.text)
           : null;
     if (!added) continue;
+    if (s.ref) sourceIds.set(s.ref, added.id);
     n++;
     if (added.title !== s.title && s.title) await repos().sources.rename(added.id, s.title);
     if (added.status !== 'error') void pipe.process(added.id).then(() => useApp.getState().bump(), () => undefined);

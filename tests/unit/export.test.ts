@@ -9,6 +9,8 @@ import { markdownToHtml } from '../../src/editor/markdown';
 import { PAGE_LINK_PREFIX } from '../../src/core/doc';
 import { sha256Hex } from '../../src/lib/util';
 import { memoryBlobs, memoryStore } from '../helpers';
+import { restoreNotebookNotes } from '../../src/import/notebook-notes';
+import { createBackup, restoreBackup } from '../../src/core/backup';
 
 const PNG = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 9, 8, 7]);
 
@@ -67,6 +69,34 @@ describe('hardening', () => {
 });
 
 describe('export everything and import it back', () => {
+  it('preserves Studio coverage in backups and notebook imports with new source identities', async () => {
+    const a = await memoryStore();
+    const ws = (await a.workspaces.create('Study')).id;
+    const source = await a.sources.create({ workspaceId: ws, title: 'Report', kind: 'note', origin: 'pasted' });
+    await a.sources.setExtracted(source.id, 'The project recovered 731 artefacts.', null, {});
+    const nb = await a.notebooks.create(ws, 'Research');
+    await a.notebooks.addSource(nb.id, source.id);
+    const data = { coverage: [{ sourceId: source.id, sourceTitle: 'Report', totalChars: 200000, representedChars: 200000, condensed: true, parts: 5, totalParts: 5, summaryClipped: false }] };
+    await a.notebooks.addNote(nb.id, 'summary', 'Findings', '731 artefacts [1].', data, [{ n: 1, sourceId: source.id, sourceTitle: 'Report', chunkId: -1, pageNumber: null, charStart: 0, charEnd: 0, excerpt: '' }]);
+    const backup = await createBackup(a.db, memoryBlobs());
+    const restored = await memoryStore();
+    await restoreBackup(restored.db, backup, memoryBlobs());
+    expect((await restored.notebooks.notes(nb.id))[0].data).toEqual(data);
+
+    const exported = await exportWorkspace(a, ws, memoryBlobs());
+    const b = await memoryStore();
+    const target = (await b.workspaces.create('Imported')).id;
+    const imported = await importWorkspace(b, target, [{ path: 'study.zip', bytes: exported.bytes }], { blobs: memoryBlobs(), rootTitle: () => 'Imported' });
+    const newSource = await b.sources.create({ workspaceId: target, title: 'Report', kind: 'note', origin: 'pasted' });
+    expect(imported.sources[0].ref).toBe(source.id);
+    await restoreNotebookNotes(b, target, imported.notebooks, new Map([[source.id, newSource.id]]));
+    const newNb = (await b.notebooks.list(target))[0];
+    const newNote = (await b.notebooks.notes(newNb.id))[0];
+    expect(newNote.data.coverage).toEqual([{ ...data.coverage[0], sourceId: newSource.id }]);
+    expect(newNote.citations[0].sourceId).toBe(newSource.id);
+    expect((await b.notebooks.sources(newNb.id))[0].id).toBe(newSource.id);
+  });
+
   it('round-trips pages, links, images, databases, tasks and sources', async () => {
     const a = await memoryStore();
     const blobsA = memoryBlobs();

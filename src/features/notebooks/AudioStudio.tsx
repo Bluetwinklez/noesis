@@ -8,6 +8,8 @@ import { generateAudioScript, type AudioLength, type SourceDoc } from '../../ai/
 import { blobStore, saveFile } from '../../lib/platform';
 import { sha256Hex } from '../../lib/util';
 import type { AudioOverview, Source } from '../../core/types';
+import type { SourceCoverage, StudioPreparation } from '../../ai/studio-context';
+import { StudioCoverage } from './StudioCoverage';
 
 const SPEEDS = [0.75, 1, 1.25, 1.5, 2];
 
@@ -22,6 +24,8 @@ export function AudioStudio({ notebookId, selected, loadDocs }: { notebookId: st
   const [focus, setFocus] = useState('');
   const [phase, setPhase] = useState<'idle' | 'script' | 'tts'>('idle');
   const [error, setError] = useState('');
+  const [coverage, setCoverage] = useState<SourceCoverage[]>([]);
+  const [progress, setProgress] = useState<Parameters<NonNullable<StudioPreparation['onProgress']>>[0] | null>(null);
   const [ttsAvailable, setTtsAvailable] = useState<{ tts: boolean; multi: boolean } | null>(null);
   const ctrl = useRef<AbortController | null>(null);
   const { data: overviews } = useAsync(() => repos().notebooks.audioOverviews(notebookId), [notebookId, version]);
@@ -34,13 +38,16 @@ export function AudioStudio({ notebookId, selected, loadDocs }: { notebookId: st
   const generate = async () => {
     if (!selected.length) return setError(t('nb.noSelected'));
     setError('');
+    setCoverage([]);
+    setProgress(null);
     const c = new AbortController();
     ctrl.current = c;
     try {
       const provider = await providerWithConsent();
       setPhase('script');
       const docs = await loadDocs();
-      const script = await generateAudioScript(provider, docs, { lang: audioLang, length, format, focus: focus.trim() || undefined, signal: c.signal });
+      const script = await generateAudioScript(provider, docs, { lang: audioLang, length, format, focus: focus.trim() || undefined, signal: c.signal, onCoverage: setCoverage, onProgress: setProgress });
+      setProgress(null);
       let attachmentId: string | null = null;
       let providerName = 'system-voice';
       if (provider.speech && provider.capabilities.tts) {
@@ -79,6 +86,7 @@ export function AudioStudio({ notebookId, selected, loadDocs }: { notebookId: st
       if (!c.signal.aborted) setError(errorMessage(e));
     } finally {
       setPhase('idle');
+      setProgress(null);
     }
   };
 
@@ -137,6 +145,7 @@ export function AudioStudio({ notebookId, selected, loadDocs }: { notebookId: st
         )}
       </div>
       {error && <p className="mt-2 text-xs text-danger" role="alert">{error}</p>}
+      <StudioCoverage coverage={coverage} progress={progress} />
       <div className="mt-3 space-y-3">
         {overviews?.map((o) => <AudioPlayer key={o.id} o={o} />)}
       </div>

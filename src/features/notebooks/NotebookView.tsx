@@ -32,6 +32,8 @@ import { AddSourceButtons, StatusBadge } from '../sources/SourcesPage';
 import { Markdown } from '../ai/AiPreview';
 import { markdownToHtml } from '../../editor/markdown';
 import { AudioStudio } from './AudioStudio';
+import { StudioCoverage } from './StudioCoverage';
+import type { SourceCoverage, StudioPreparation } from '../../ai/studio-context';
 import { createPage } from '../actions';
 
 type NbSource = Source & { selected: number };
@@ -522,34 +524,42 @@ function StudioPanel({ notebookId, selected, onCreated }: { notebookId: string; 
   const bump = useApp((s) => s.bump);
   const [running, setRunning] = useState<string | null>(null);
   const [error, setError] = useState('');
+  const [coverage, setCoverage] = useState<SourceCoverage[]>([]);
+  const [progress, setProgress] = useState<Parameters<NonNullable<StudioPreparation['onProgress']>>[0] | null>(null);
   const ctrl = useRef<AbortController | null>(null);
   useEffect(() => () => ctrl.current?.abort(), []);
   const run = async (kind: (typeof STUDIO)[number]['kind'], label: string) => {
     if (!selected.length) return setError(t('nb.noSelected'));
     setError('');
+    setCoverage([]);
+    setProgress(null);
     setRunning(kind);
     const c = new AbortController();
     ctrl.current = c;
     try {
       const provider = await providerWithConsent();
       const docs = await loadSourceDocs(selected);
+      let completedCoverage: SourceCoverage[] = [];
+      const preparation = { onProgress: setProgress, onCoverage: (items: SourceCoverage[]) => { completedCoverage = items; setCoverage(items); } };
       let note: NotebookNote;
       if (kind === 'flashcards') {
-        const cards = await generateFlashcards(provider, docs, lang, 12, c.signal);
-        note = await repos().notebooks.addNote(notebookId, 'flashcards', label, cards.map((x) => `**${x.front}**\n\n${x.back}`).join('\n\n---\n\n'), { cards });
+        const cards = await generateFlashcards(provider, docs, lang, 12, c.signal, preparation);
+        note = await repos().notebooks.addNote(notebookId, 'flashcards', label, cards.map((x) => `**${x.front}**\n\n${x.back}`).join('\n\n---\n\n'), { cards, coverage: completedCoverage });
       } else if (kind === 'quiz') {
-        const questions = await generateQuiz(provider, docs, lang, 8, c.signal);
-        note = await repos().notebooks.addNote(notebookId, 'quiz', label, questions.map((q, i) => `${i + 1}. ${q.question}`).join('\n'), { questions });
+        const questions = await generateQuiz(provider, docs, lang, 8, c.signal, preparation);
+        note = await repos().notebooks.addNote(notebookId, 'quiz', label, questions.map((q, i) => `${i + 1}. ${q.question}`).join('\n'), { questions, coverage: completedCoverage });
       } else {
-        const { markdown, citations } = await generateStudioDoc(provider, kind, docs, lang, c.signal);
-        note = await repos().notebooks.addNote(notebookId, kind, label, markdown, {}, citations);
+        const { markdown, citations, coverage: sourceCoverage } = await generateStudioDoc(provider, kind, docs, lang, c.signal, undefined, preparation);
+        note = await repos().notebooks.addNote(notebookId, kind, label, markdown, { coverage: sourceCoverage }, citations);
       }
+      await repos().db.flushNow();
       bump();
       onCreated(note);
     } catch (e) {
       if (!c.signal.aborted) setError(errorMessage(e));
     } finally {
       setRunning(null);
+      setProgress(null);
     }
   };
   return (
@@ -576,6 +586,7 @@ function StudioPanel({ notebookId, selected, onCreated }: { notebookId: string; 
           </Button>
         )}
         {error && <p className="mt-2 text-xs text-danger" role="alert">{error}</p>}
+        <StudioCoverage coverage={coverage} progress={progress} />
       </div>
     </div>
   );
@@ -658,6 +669,7 @@ function NoteDialog({ note, onClose }: { note: NotebookNote; onClose: () => void
         </>
       }
     >
+      <StudioCoverage coverage={Array.isArray(note.data.coverage) ? note.data.coverage as SourceCoverage[] : []} />
       {note.kind === 'flashcards' && Array.isArray(note.data.cards) ? (
         <Flashcards cards={note.data.cards as Flashcard[]} />
       ) : note.kind === 'quiz' && Array.isArray(note.data.questions) ? (

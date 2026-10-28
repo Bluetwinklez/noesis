@@ -18,6 +18,7 @@ import { markdownToHtml } from '../editor/markdown';
 import { parseCsv } from '../ingestion/extractors';
 import { sha256Hex } from '../lib/util';
 import { DATA_DIR, EXPORT_FORMAT, type ExportManifest, type ExportedSource, type ExportedTask } from '../export/exporter';
+import { parseNotebookNotes, type ImportedNotebook } from './notebook-notes';
 
 export interface ImportFile {
   path: string;
@@ -44,6 +45,7 @@ export interface ImportResult {
   tasks: number;
   /** Research sources (Noesis exports only); the caller re-ingests them. */
   sources: PendingSource[];
+  notebooks: ImportedNotebook[];
   skipped: string[];
 }
 
@@ -88,7 +90,7 @@ export async function expandInputs(files: ImportFile[]): Promise<ImportFile[]> {
   for (const f of files) await expand(f, 0);
   // Strip a shared top folder ("Export-1234/…", "MyVault/…") so the structure starts at its content.
   const tops = new Set(out.map((f) => (f.path.includes('/') ? f.path.split('/')[0] : '')));
-  if (tops.size === 1 && !tops.has('')) {
+  if (tops.size === 1 && !tops.has('') && !tops.has(DATA_DIR)) {
     const [top] = tops;
     for (const f of out) f.path = f.path.slice(top.length + 1);
   }
@@ -146,7 +148,7 @@ export async function importWorkspace(
   const images = new Map(files.filter((f) => IMAGE_EXT.test(f.path)).map((f) => [keyOf(f.path), f]));
   const imagesByName = new Map(files.filter((f) => IMAGE_EXT.test(f.path)).map((f) => [base(f.path).toLowerCase(), f]));
   const skipped = files.filter((f) => !/\.(md|csv)$/i.test(f.path) && !IMAGE_EXT.test(f.path) && !(manifest && isData(f))).map((f) => f.path);
-  if (!notes.length && !csvs.length) throw new Error('No Markdown (.md) or CSV files were found. Export from Notion as “Markdown & CSV”, or choose an Obsidian vault folder zip.');
+  if (!notes.length && !csvs.length && !manifest) throw new Error('No Markdown (.md) or CSV files were found. Export from Notion as “Markdown & CSV”, or choose an Obsidian vault folder zip.');
 
   const root = await repos.pages.create({ workspaceId, title: opts.rootTitle(source), icon: '📥' });
   const pageByPath = new Map<string, string>(); // key of .md / .csv path → page id
@@ -346,6 +348,7 @@ export async function importWorkspace(
           .filter((x): x is ExportedSource => !!x && typeof x === 'object')
           .slice(0, 10_000)
           .map((x) => ({
+            ref: typeof x.ref === 'string' ? x.ref.slice(0, 200) : undefined,
             title: String(x.title ?? '').slice(0, 500),
             kind: String(x.kind ?? ''),
             origin: String(x.origin ?? '').slice(0, 4000),
@@ -355,7 +358,8 @@ export async function importWorkspace(
       })()
     : [];
 
-  return { rootId: root.id, source, pages: notes.length, databases, images: imageCount, tasks: taskCount, sources, skipped };
+  const notebooks = manifest ? parseNotebookNotes(dataJson<unknown>('notebooks.json', [])) : [];
+  return { rootId: root.id, source, pages: notes.length, databases, images: imageCount, tasks: taskCount, sources, notebooks, skipped };
 }
 
 function parseManifest(bytes: Uint8Array): ExportManifest | null {

@@ -1,10 +1,20 @@
 # Implementation status
 
-Last updated: 2026-10-27 · Version 0.1.x (continuous builds) · Machine-readable block at the end.
+Last updated: 2026-10-28 · Version 0.1.x (continuous builds) · Machine-readable block at the end.
 
 Status values: `done` (implemented and covered by an automated test or recorded evidence) · `partial` · `not-started` · `blocked`.
 
 ## Verification runs (this revision)
+
+### Long-source Studio context (2026-10-28)
+
+- Long sources are split into parts of at most 40,000 characters (approximately 10,000 tokens using the application's estimate). Up to 16 evenly spaced parts, including the final part, are condensed by the configured provider. Omitted sections and overlong provider summaries are reported explicitly.
+- Integer fair sharing redistributes unused short-source space. Serialized source context, including escaped titles and wrappers, stays within its character budget; there is no per-source minimum that can overflow it. Actual provider token counts can differ from this estimate.
+- The shared preparation path covers all Studio documents, flashcards, quizzes and audio scripts. It checks cancellation between provider calls and reports progress and per-source coverage. Summaries are paraphrases; condensed citations link to the original source without fabricated quote offsets.
+- Studio note coverage persists in existing note JSON, backups and workspace ZIP round trips. ZIP imports recreate notebooks/notes and remap source identities. Audio generation displays coverage for the current session; existing saved audio records do not gain a coverage field.
+- Regression-first evidence: the original code failed all three tests for a final-document fact reaching the generation request, 50-source context budgeting (42,279 characters for an 8,000-character budget), and cancellation between map calls. The corrected path passed them. Additional tests cover fair sharing, capped partial coverage, all generation paths, source numbers, oversized summaries, untrusted wrapper-shaped text and metadata transfer.
+- Windows, Node 24.20.0, Rust 1.99.1: `npm ci` and typecheck passed; **105 Vitest tests / 15 files**, **20 Playwright scenarios**, **20 Rust tests**, strict `cargo clippy -- -D warnings` and the existing benchmark suite (**1 test**) passed. The final Playwright run used frozen sources; an earlier run affected by editing during Vite HMR was discarded. Production build passed. C++ Build Tools were installed by the owner; native test compilation now works locally.
+- Measured on this Windows machine while native checks were running: 2,000-page full-text search median **15.850 ms**, hybrid search median **91.262 ms** (p95 **229.045 ms**). These are existing baseline benchmarks, not the large-data acceptance workload from plan item 5. These are mock-provider results, not live-service verification.
 
 ### Feature round 2 (PR #2)
 
@@ -124,9 +134,10 @@ Status values: `done` (implemented and covered by an automated test or recorded 
 ```json
 {
   "version": "0.1.0",
-  "updated": "2026-10-27",
+  "updated": "2026-10-28",
+  "studio_long_sources": { "vitest": 105, "vitest_files": 15, "playwright": 20, "cargo": 20, "clippy": "PASS -D warnings", "benchmark_tests": 1, "environment": "Windows Node 24.20.0 Rust 1.99.1", "live_provider_verified": false },
   "tests": { "vitest": { "passed": 57, "failed": 0, "environment": "Windows Node 24" }, "cargo": { "passed": 10, "failed": 0, "scope": "previous development revision CI" }, "playwright": { "passed": 10, "failed": 0, "environment": "Windows Edge browser preview" } },
-  "local_native_build": "BLOCKED_APPLICATION_CONTROL_4551",
+  "local_native_build": "Rust tests and strict Clippy passed locally; packaged installer not rebuilt in this run",
   "readme_screenshots": { "result": "PASS", "count": 4, "mode": "browser_preview_sample_data" },
   "acceptance": {
     "1": "PASS_AUTOMATED", "2": "PASS", "3": "PASS", "4": "PASS", "5": "PASS", "6": "PASS", "7": "PASS",
