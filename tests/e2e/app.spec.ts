@@ -701,7 +701,9 @@ test('pages written by AI clients through MCP appear with their agent and reposi
   await onboard(page);
   await page.evaluate(async () => {
     const state = (window as unknown as { __noesis: { getState(): { repos: Repos; workspaceId: string } } }).__noesis.getState();
-    const { handleMcp } = await import(/* @vite-ignore */ '/src/mcp/server.ts');
+    // Loaded from the Vite dev server inside the page, not resolved by TypeScript.
+    const serverModule = '/src/mcp/server.ts';
+    const { handleMcp } = (await import(/* @vite-ignore */ serverModule)) as typeof import('../../src/mcp/server');
     const ctx = { repos: state.repos, workspaceId: state.workspaceId, client: 'Codex', approve: async () => true, notify: () => {} };
     for (const title of ['Agent note A', 'Agent note B'])
       await handleMcp({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'create_page', arguments: { title, markdown: 'See https://github.com/rojo-rbx/rojo' } } }, ctx);
