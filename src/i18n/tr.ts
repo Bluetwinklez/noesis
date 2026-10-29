@@ -422,6 +422,10 @@ export const tr: Record<keyof typeof en, string> = {
   'graph.edge.tag': 'etiketli',
   'graph.edge.source': 'kaynağı kullanıyor',
   'graph.edge.semantic': 'ilişkili (onaylı)',
+  'graph.edge.agent': 'yazdı',
+  'graph.edge.mention': 'bahsediyor',
+  'graph.agents': 'Yapay zekâ ajanları',
+  'graph.repos': 'Repolar',
 
   'search.placeholder': 'Sayfalarda, notlarda, belgelerde, görevlerde ara…',
   'search.mode.keyword': 'Anahtar kelime',

@@ -6,6 +6,7 @@ import { useT, type MessageKey } from '../../i18n';
 import { Button, EmptyState, IconButton, Spinner, useAsync, cx } from '../../components/ui';
 import { buildGraph, type EdgeKind, type GraphNode, type NodeKind } from './graphData';
 import { cosine, localHashEmbed } from '../../search/vectors';
+import { openExternal } from '../../lib/platform';
 
 type SimNode = GraphNode & SimulationNodeDatum;
 type SimLink = SimulationLinkDatum<SimNode> & { kind: EdgeKind };
@@ -16,6 +17,17 @@ const KIND_COLOR: Record<NodeKind, string> = {
   source: '#f59e0b',
   tag: '#10b981',
   notebook: '#ec4899',
+  agent: '#ef4444',
+  repo: '#64748b',
+};
+const KIND_LABEL: Record<NodeKind, MessageKey> = {
+  page: 'graph.pages',
+  database: 'nav.databases',
+  source: 'graph.sources',
+  tag: 'graph.tags',
+  notebook: 'graph.notebooks',
+  agent: 'graph.agents',
+  repo: 'graph.repos',
 };
 const EDGE_LABEL: Record<EdgeKind, MessageKey> = {
   link: 'graph.edge.link',
@@ -23,6 +35,8 @@ const EDGE_LABEL: Record<EdgeKind, MessageKey> = {
   source: 'graph.edge.source',
   semantic: 'graph.edge.semantic',
   parent: 'page.subpages',
+  agent: 'graph.edge.agent',
+  mention: 'graph.edge.mention',
 };
 
 export default function GraphPage() {
@@ -30,7 +44,7 @@ export default function GraphPage() {
   const version = useApp((s) => s.version);
   const navigate = useApp((s) => s.navigate);
   const { data, loading } = useAsync(() => buildGraph(repos().db, wsId()), [version]);
-  const [filters, setFilters] = useState<Record<NodeKind, boolean>>({ page: true, database: true, source: true, tag: true, notebook: true });
+  const [filters, setFilters] = useState<Record<NodeKind, boolean>>({ page: true, database: true, source: true, tag: true, notebook: true, agent: true, repo: true });
   const [query, setQuery] = useState('');
   const [selected, setSelected] = useState<SimNode | null>(null);
   const [suggestions, setSuggestions] = useState<{ a: GraphNode; b: GraphNode; score: number }[] | null>(null);
@@ -260,6 +274,7 @@ export default function GraphPage() {
     else if (n.kind === 'notebook') navigate({ name: 'notebook', id: n.refId });
     else if (n.kind === 'source') navigate({ name: 'sources', id: n.refId });
     else if (n.kind === 'tag') navigate({ name: 'notes' });
+    else if (n.kind === 'repo') void openExternal(`https://github.com/${n.refId}`);
   };
 
   const fit = () => {
@@ -334,7 +349,7 @@ export default function GraphPage() {
             />
           </div>
           <div className="flex items-center gap-1 rounded-lg border border-line bg-elevated/95 p-1 shadow-sm backdrop-blur">
-            {(['page', 'database', 'source', 'notebook', 'tag'] as NodeKind[]).map((k) => (
+            {(['page', 'database', 'source', 'notebook', 'tag', 'agent', 'repo'] as NodeKind[]).map((k) => (
               <button
                 key={k}
                 onClick={() => setFilters({ ...filters, [k]: !filters[k] })}
@@ -342,7 +357,7 @@ export default function GraphPage() {
                 className={cx('flex items-center gap-1.5 rounded-md px-2 py-1 text-xs', filters[k] ? 'bg-hover text-fg' : 'text-faint')}
               >
                 <span className="size-2.5 rounded-full" style={{ background: KIND_COLOR[k] }} />
-                {t(k === 'page' ? 'graph.pages' : k === 'database' ? 'nav.databases' : k === 'source' ? 'graph.sources' : k === 'tag' ? 'graph.tags' : 'graph.notebooks')}
+                {t(KIND_LABEL[k])}
               </button>
             ))}
           </div>

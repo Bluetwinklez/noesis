@@ -28,7 +28,11 @@ export const BACKUP_TABLES = [
   'audio_overviews',
   'semantic_links',
   'settings',
+  'agent_activity',
 ] as const;
+
+/** Tables added after the first backup format, with the schema version that introduced them. */
+const TABLE_SINCE: Partial<Record<(typeof BACKUP_TABLES)[number], number>> = { agent_activity: 6 };
 
 export interface BackupManifest {
   format: 'noesis-backup';
@@ -51,7 +55,9 @@ export async function createBackup(db: Database, blobs: BlobAccess | null, appVe
   // Read every table under the same lock and SQLite snapshot. An autosave or
   // source import cannot leave the archive with mismatched parent/child rows.
   await db.transaction(async (tx) => {
-    for (const t of BACKUP_TABLES) data[t] = await tx.all(`SELECT * FROM ${t}`);
+    const existing = new Set((await tx.all<{ name: string }>("SELECT name FROM sqlite_master WHERE type = 'table'")).map((r) => r.name));
+    // A database that has not been migrated yet has no rows in newer tables.
+    for (const t of BACKUP_TABLES) data[t] = existing.has(t) ? await tx.all(`SELECT * FROM ${t}`) : [];
   });
   const dataJson = JSON.stringify(data);
   const zip = new JSZip();
@@ -111,6 +117,11 @@ export async function inspectBackup(bytes: Uint8Array): Promise<{ manifest: Back
   if (!manifest.tables || typeof manifest.tables !== 'object' || Array.isArray(manifest.tables) || !Array.isArray(manifest.attachments))
     throw new BackupError('Backup manifest is malformed.');
   for (const t of BACKUP_TABLES) {
+    // Backups made before a table existed simply have no rows for it.
+    if ((TABLE_SINCE[t] ?? 0) > manifest.schemaVersion && !(t in manifest.tables)) {
+      data[t] = [];
+      continue;
+    }
     const n = manifest.tables[t];
     if (!Number.isInteger(n) || n < 0 || !Array.isArray(data[t]) || data[t].length !== n || data[t].some((r) => !r || typeof r !== 'object' || Array.isArray(r)))
       throw new BackupError(`Backup integrity check failed for table ${t}.`);

@@ -149,6 +149,7 @@ const TOOLS: ToolDef[] = [
       }
       const page = await ctx.repos.pages.create({ workspaceId: ctx.workspaceId, parentId, title });
       if (md.trim()) await ctx.repos.pages.saveContent(page.id, htmlToDoc(markdownToHtml(md)));
+      await ctx.repos.activity.record({ workspaceId: ctx.workspaceId, client: ctx.client, action: 'create_page', pageId: page.id });
       ctx.notify(`${ctx.client} created the page “${title}”.`);
       return { id: page.id, title };
     },
@@ -169,6 +170,7 @@ const TOOLS: ToolDef[] = [
       const extra = htmlToDoc(markdownToHtml(add));
       const merged: DocNode = { type: 'doc', content: [...(current.content ?? []), ...(extra.content ?? [])] };
       await ctx.repos.pages.saveContent(id, merged);
+      await ctx.repos.activity.record({ workspaceId: ctx.workspaceId, client: ctx.client, action: 'append_to_page', pageId: id });
       return { id, appended_characters: add.length };
     },
   },
@@ -211,6 +213,7 @@ const TOOLS: ToolDef[] = [
       const body = html ? sanitizeHtml(html) : md ? markdownToHtml(md) : '';
       const page = await ctx.repos.pages.create({ workspaceId: ctx.workspaceId, parentId: await clipsPage(ctx), title, icon: '🔖' });
       await ctx.repos.pages.saveContent(page.id, htmlToDoc(source + body));
+      await ctx.repos.activity.record({ workspaceId: ctx.workspaceId, client: ctx.client, action: 'clip_web_page', pageId: page.id });
       ctx.notify(`Saved “${title}” to Web clips.`);
       return { id: page.id, title };
     },
@@ -242,6 +245,7 @@ const TOOLS: ToolDef[] = [
         dueAt: due,
         priority: typeof a.priority === 'number' ? a.priority : undefined,
       });
+      await ctx.repos.activity.record({ workspaceId: ctx.workspaceId, client: ctx.client, action: 'create_task', taskId: task.id });
       ctx.notify(`${ctx.client} added the task “${title}”.`);
       return { id: task.id, title: task.title };
     },
