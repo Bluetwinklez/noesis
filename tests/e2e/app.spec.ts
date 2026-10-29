@@ -695,3 +695,30 @@ test('settings: editor font, spacing, week start, interface size, start page and
   await expect(page.getByRole('radiogroup', { name: 'Week starts on' }).getByRole('radio', { name: 'Monday' })).toHaveAttribute('aria-checked', 'true');
   await expect(page.locator('html')).toHaveCSS('font-size', '16px');
 });
+
+test('pages written by AI clients through MCP appear with their agent and repositories in the graph', async ({ page }) => {
+  await freshApp(page);
+  await onboard(page);
+  await page.evaluate(async () => {
+    const state = (window as unknown as { __noesis: { getState(): { repos: Repos; workspaceId: string } } }).__noesis.getState();
+    // Loaded from the Vite dev server inside the page, not resolved by TypeScript.
+    const serverModule = '/src/mcp/server.ts';
+    const { handleMcp } = (await import(/* @vite-ignore */ serverModule)) as typeof import('../../src/mcp/server');
+    const ctx = { repos: state.repos, workspaceId: state.workspaceId, client: 'Codex', approve: async () => true, notify: () => {} };
+    for (const title of ['Agent note A', 'Agent note B'])
+      await handleMcp({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'create_page', arguments: { title, markdown: 'See https://github.com/rojo-rbx/rojo' } } }, ctx);
+    await state.repos.db.flushNow();
+  });
+  await page.reload();
+  await page.getByRole('button', { name: 'Knowledge Graph' }).click();
+  await expect(page.getByRole('button', { name: 'AI agents' })).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.getByRole('button', { name: 'Repositories' })).toHaveAttribute('aria-pressed', 'true');
+  await page.getByLabel('Find a node…').fill('Codex');
+  await page.getByLabel('Find a node…').press('Enter');
+  const panel = page.locator('aside');
+  await expect(panel.getByText('🤖 Codex')).toBeVisible();
+  await expect(panel.getByText('2 connections')).toBeVisible();
+  await expect(panel.getByRole('button', { name: /wrote · Agent note A/ })).toBeVisible();
+  await panel.getByRole('button', { name: /Agent note A/ }).click();
+  await expect(panel.getByRole('button', { name: /mentions · rojo-rbx\/rojo/ })).toBeVisible();
+});

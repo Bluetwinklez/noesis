@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Remember which AI client (Claude Code, Codex, …) created or changed pages, clips and tasks through MCP, in a new v6 `agent_activity` table. The knowledge graph shows each client as an agent node linked to the pages it wrote, and GitHub repositories mentioned in pages as shared nodes, so notes about the same repository meet. Both are filterable. Agent activity is kept in backups (older backups still restore) and in workspace exports/imports (`Noesis data/agent-activity.json`).
+
 - Add four selectable whole-interface styles: Classic Noesis, Pastel Library, Kawaii Retro and Sherwood. Each style supplies its own shape, typography, surface and scenery treatment while light/dark mode, eight colour palettes and accent colours remain independently adjustable.
 
 - Keep render failures inside app/view error boundaries with reload and diagnostic actions. Add independent startup recovery with validated backup restore, preserved original database copies, raw database export and the desktop automatic-backups folder. Corrupt databases no longer silently open as empty workspaces.

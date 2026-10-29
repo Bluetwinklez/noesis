@@ -17,7 +17,7 @@ import { htmlToDoc } from '../editor/serialize';
 import { markdownToHtml } from '../editor/markdown';
 import { parseCsv } from '../ingestion/extractors';
 import { sha256Hex } from '../lib/util';
-import { DATA_DIR, EXPORT_FORMAT, type ExportManifest, type ExportedSource, type ExportedTask } from '../export/exporter';
+import { DATA_DIR, EXPORT_FORMAT, type ExportManifest, type ExportedActivity, type ExportedSource, type ExportedTask } from '../export/exporter';
 import { parseNotebookNotes, type ImportedNotebook } from './notebook-notes';
 
 export interface ImportFile {
@@ -311,10 +311,10 @@ export async function importWorkspace(
 
   // Tasks of a Noesis export: parents first, project links follow the page paths.
   let taskCount = 0;
+  const newId = new Map<string, string>();
   if (manifest) {
     const raw = dataJson<unknown>('tasks.json', []);
     const list = (Array.isArray(raw) ? raw : []).filter((t): t is ExportedTask => !!t && typeof t === 'object' && typeof (t as ExportedTask).ref === 'string').slice(0, 50_000);
-    const newId = new Map<string, string>();
     const pendingTasks = [...list];
     for (let guard = 0; pendingTasks.length && guard < 1000; guard++) {
       const ready = pendingTasks.filter((t) => !t.parent || newId.has(t.parent) || !list.some((x) => x.ref === t.parent));
@@ -338,6 +338,20 @@ export async function importWorkspace(
         taskCount++;
         pendingTasks.splice(pendingTasks.indexOf(t), 1);
       }
+    }
+  }
+  // Which AI client wrote which page or task (agent-activity.json is user-editable too).
+  if (manifest) {
+    const raw = dataJson<unknown>('agent-activity.json', []);
+    const actions = ['create_page', 'append_to_page', 'clip_web_page', 'create_task'] as const;
+    for (const a of (Array.isArray(raw) ? raw : []).slice(0, 100_000) as Partial<ExportedActivity>[]) {
+      const action = actions.find((x) => x === a?.action);
+      if (!action || typeof a.client !== 'string' || !a.client.trim()) continue;
+      const pageId = typeof a.page === 'string' ? (pageByPath.get(keyOf(a.page)) ?? null) : null;
+      const taskId = typeof a.task === 'string' ? (newId.get(a.task) ?? null) : null;
+      if (!pageId && !taskId) continue;
+      const createdAt = typeof a.created_at === 'number' && Number.isFinite(a.created_at) ? a.created_at : undefined;
+      await repos.activity.record({ workspaceId, client: a.client, action, pageId, taskId, createdAt });
     }
   }
   const byPath = new Map(files.map((f) => [keyOf(f.path), f]));
