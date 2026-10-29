@@ -25,6 +25,17 @@ export class AgentActivityRepo {
     );
   }
 
+  /** Newest first, with the title of the page or task each entry wrote. */
+  forClient(workspaceId: string, client: string, limit = 50): Promise<(AgentActivity & { title: string | null })[]> {
+    return this.db.all(
+      `SELECT a.*, COALESCE(p.title, t.title) AS title FROM agent_activity a
+       LEFT JOIN pages p ON p.id = a.page_id AND p.deleted_at IS NULL
+       LEFT JOIN tasks t ON t.id = a.task_id
+       WHERE a.workspace_id = ? AND a.client = ? ORDER BY a.created_at DESC LIMIT ?`,
+      [workspaceId, client, limit],
+    );
+  }
+
   list(workspaceId: string, limit = 500): Promise<AgentActivity[]> {
     return this.db.all<AgentActivity>('SELECT * FROM agent_activity WHERE workspace_id = ? ORDER BY created_at DESC LIMIT ?', [workspaceId, limit]);
   }
