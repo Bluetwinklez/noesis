@@ -398,6 +398,9 @@ export default function GraphPage() {
                 nodes={filtered.nodes}
                 edges={filtered.edges}
                 colors={KIND_COLOR}
+                legend={(Object.keys(KIND_COLOR) as NodeKind[])
+                  .map((kind) => ({ kind, label: t(KIND_LABEL[kind]), count: filtered.nodes.filter((n) => n.kind === kind).length }))
+                  .filter((l) => l.count > 0)}
                 selectedId={selected?.id ?? null}
                 label={t('graph.title')}
                 onSelect={(n) => setSelected(n as SimNode | null)}
