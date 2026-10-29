@@ -121,7 +121,7 @@ Status values: `done` (implemented and covered by an automated test or recorded 
 | AI providers: OpenAI-compat, Gemini, Anthropic, Ollama | partial | Tested against a mock server only, never against the live APIs |
 | AI assistant actions incl. study guide, flashcards, quiz, compare, translate | done (mock) | Preview-before-apply enforced |
 | Audio overviews | done (mock) | Multi-speaker only where the provider supports it; no interactive mode |
-| Knowledge graph | done | Force layout; agent nodes (MCP clients) and GitHub repository nodes; performance with very large graphs not benchmarked |
+| Knowledge graph | done | Force layout; agent nodes (MCP clients) with live activity list, GitHub repository nodes, optional 3D view; performance with very large graphs not benchmarked |
 | Unified search (keyword/full-text/semantic/hybrid) | done | |
 | Settings (all §21 sections) | done | |
 | Onboarding (7 steps, AI skippable) | done | Two cosmetic issues fixed in this revision |

@@ -171,6 +171,8 @@ const TOOLS: ToolDef[] = [
       const merged: DocNode = { type: 'doc', content: [...(current.content ?? []), ...(extra.content ?? [])] };
       await ctx.repos.pages.saveContent(id, merged);
       await ctx.repos.activity.record({ workspaceId: ctx.workspaceId, client: ctx.client, action: 'append_to_page', pageId: id });
+      // Refreshes open views (graph, page) so every agent's change shows up live.
+      ctx.notify(`${ctx.client} added to the page “${page.title || 'Untitled'}”.`);
       return { id, appended_characters: add.length };
     },
   },

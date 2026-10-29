@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Knowledge graph: optional 3D view (three.js, loaded only when turned on) on a dark star-field. Nodes glow and have a shape per kind (spheres, boxes for repositories, diamonds for agents) with name labels; links are coloured by relationship and curve for agent and repository links. Hovering or selecting dims everything except the node and its neighbours, the camera frames the whole graph, orbits slowly and flies to a selection, and a legend counts each kind. Selecting an AI agent shows its recent activity: what it created, appended, clipped or added, with times. Appends through MCP now refresh open views like other agent writes, so the graph and activity list follow every agent live.
+
 - Remember which AI client (Claude Code, Codex, …) created or changed pages, clips and tasks through MCP, in a new v6 `agent_activity` table. The knowledge graph shows each client as an agent node linked to the pages it wrote, and GitHub repositories mentioned in pages as shared nodes, so notes about the same repository meet. Both are filterable. Agent activity is kept in backups (older backups still restore) and in workspace exports/imports (`Noesis data/agent-activity.json`).
 
 - Add four selectable whole-interface styles: Classic Noesis, Pastel Library, Kawaii Retro and Sherwood. Each style supplies its own shape, typography, surface and scenery treatment while light/dark mode, eight colour palettes and accent colours remain independently adjustable.
