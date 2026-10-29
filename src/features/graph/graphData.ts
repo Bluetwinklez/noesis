@@ -1,7 +1,7 @@
 import type { Database } from '../../core/db/driver';
 
-export type NodeKind = 'page' | 'database' | 'source' | 'tag' | 'notebook';
-export type EdgeKind = 'link' | 'tag' | 'source' | 'semantic' | 'parent';
+export type NodeKind = 'page' | 'database' | 'source' | 'tag' | 'notebook' | 'agent' | 'repo';
+export type EdgeKind = 'link' | 'tag' | 'source' | 'semantic' | 'parent' | 'agent' | 'mention';
 
 export interface GraphNode {
   id: string;
@@ -14,6 +14,21 @@ export interface GraphEdge {
   source: string;
   target: string;
   kind: EdgeKind;
+}
+
+// github.com paths that are site sections, not owner/repo pairs.
+const GITHUB_RESERVED = new Set(['about', 'apps', 'collections', 'features', 'login', 'marketplace', 'orgs', 'pricing', 'search', 'settings', 'sponsors', 'topics', 'trending', 'users']);
+
+/** Every distinct GitHub repository (as "owner/repo", lower case) mentioned in a text. */
+export function githubRepos(text: string): string[] {
+  const found = new Set<string>();
+  for (const m of text.matchAll(/github\.com\/([A-Za-z0-9-]{1,39})\/([A-Za-z0-9._-]{1,100})/g)) {
+    const owner = m[1].toLowerCase();
+    const repo = m[2].replace(/\.git$/i, '').replace(/[._-]+$/, '').toLowerCase();
+    if (!repo || GITHUB_RESERVED.has(owner)) continue;
+    found.add(`${owner}/${repo}`);
+  }
+  return [...found];
 }
 
 /** Builds the knowledge graph from explicit relationships only (plus approved semantic links). */
@@ -66,6 +81,30 @@ export async function buildGraph(db: Database, workspaceId: string): Promise<{ n
     const b = `${s.to_kind}:${s.to_id}`;
     if (nodes.has(a) && nodes.has(b)) edges.push({ source: a, target: b, kind: 'semantic' });
   }
+
+  // AI clients that wrote pages through MCP, one node per client.
+  const acts = await db.all<{ client: string; page_id: string }>(
+    'SELECT DISTINCT client, page_id FROM agent_activity WHERE workspace_id = ? AND page_id IS NOT NULL',
+    [workspaceId],
+  );
+  for (const a of acts) {
+    if (!live.has(a.page_id)) continue;
+    const agentId = add('agent', a.client, `🤖 ${a.client}`);
+    edges.push({ source: agentId, target: `page:${a.page_id}`, kind: 'agent' });
+  }
+
+  // GitHub repositories mentioned in pages become shared nodes, so notes about the same repo meet.
+  const withLinks = await db.all<{ id: string; content_json: string }>(
+    "SELECT id, content_json FROM pages WHERE workspace_id = ? AND deleted_at IS NULL AND content_json LIKE '%github.com/%'",
+    [workspaceId],
+  );
+  for (const p of withLinks) {
+    for (const repo of githubRepos(p.content_json)) {
+      const repoId = add('repo', repo, repo);
+      edges.push({ source: `page:${p.id}`, target: repoId, kind: 'mention' });
+    }
+  }
+
   for (const e of edges) {
     nodes.get(e.source)!.degree++;
     nodes.get(e.target)!.degree++;

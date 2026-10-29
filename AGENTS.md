@@ -26,7 +26,7 @@ build `v0.1.N` through `release.yml` (the updater key is a GitHub secret).
 
 | Path | What |
 | --- | --- |
-| `src/core/` | Types, document model, repositories (`repos/`), migrations (`db/migrations.ts`, latest v5), backup |
+| `src/core/` | Types, document model, repositories (`repos/`), migrations (`db/migrations.ts`, latest v6), backup |
 | `src/app/` | App state (`state.ts`, `Prefs`), theme/services, boot, maintenance (auto backup, trash), updater |
 | `src/editor/` | TipTap editor, Markdown/HTML/DOCX/PDF serialization |
 | `src/export/`, `src/import/` | Full workspace export (.zip of Markdown/CSV/files + `Noesis data/`) and import |
