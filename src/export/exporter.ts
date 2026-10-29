@@ -7,6 +7,7 @@
  */
 import JSZip from 'jszip';
 import type { Repos } from '../core/store';
+import type { AgentAction } from '../core/repos/agent-activity';
 import type { CellValue, DbProperty, Page, Task, NotebookNote, ChatMessage } from '../core/types';
 import { PAGE_LINK_PREFIX, type DocNode } from '../core/doc';
 import { docToHtml } from '../editor/serialize';
@@ -33,6 +34,15 @@ export interface ExportedTask {
   due_at: number | null;
   remind_at: number | null;
   recurrence: Task['recurrence'];
+}
+
+/** One MCP write by an AI client; pages and tasks are referenced like in tasks.json. */
+export interface ExportedActivity {
+  client: string;
+  action: AgentAction;
+  page: string | null;
+  task: string | null;
+  created_at: number;
 }
 
 export interface ExportedSource {
@@ -191,6 +201,15 @@ export async function exportWorkspace(
       .filter((t) => t.parent_id === parent)
       .flatMap((t) => [`${'  '.repeat(depth)}- [${t.status === 'done' ? 'x' : ' '}] ${t.title}${date(t.due_at)}`, ...taskLines(t.id, depth + 1)]);
   zip.file(`${DATA_DIR}/Tasks.md`, `# Tasks\n\n${taskLines(null, 0).join('\n')}\n`);
+
+  const activity: ExportedActivity[] = (await repos.activity.list(workspaceId, 100_000)).map((a) => ({
+    client: a.client,
+    action: a.action,
+    page: a.page_id ? (pathOf.get(a.page_id) ?? null) : null,
+    task: a.task_id,
+    created_at: a.created_at,
+  }));
+  if (activity.length) zip.file(`${DATA_DIR}/agent-activity.json`, JSON.stringify(activity, null, 2));
 
   // 5. Research sources: originals, extracted text and a list for re-import.
   const exportedSources: ExportedSource[] = [];

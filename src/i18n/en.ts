@@ -420,6 +420,10 @@ export const en = {
   'graph.edge.tag': 'tagged',
   'graph.edge.source': 'uses source',
   'graph.edge.semantic': 'related (approved)',
+  'graph.edge.agent': 'wrote',
+  'graph.edge.mention': 'mentions',
+  'graph.agents': 'AI agents',
+  'graph.repos': 'Repositories',
 
   'search.placeholder': 'Search pages, notes, documents, tasks…',
   'search.mode.keyword': 'Keyword',

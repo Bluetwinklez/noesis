@@ -1,4 +1,5 @@
 import { Database, type SqlDriver } from './db/driver';
+import { AgentActivityRepo } from './repos/agent-activity';
 import { migrate } from './db/migrations';
 import { DatabaseRepo } from './repos/databases';
 import { PageRepo, WorkspaceRepo } from './repos/pages';
@@ -16,6 +17,7 @@ export interface Repos {
   attachments: AttachmentRepo;
   links: SemanticLinkRepo;
   settings: SettingsRepo;
+  activity: AgentActivityRepo;
 }
 
 export async function openStore(driver: SqlDriver): Promise<Repos> {
@@ -36,5 +38,6 @@ export function createRepos(db: Database): Repos {
     attachments: new AttachmentRepo(db),
     links: new SemanticLinkRepo(db),
     settings: new SettingsRepo(db),
+    activity: new AgentActivityRepo(db),
   };
 }
