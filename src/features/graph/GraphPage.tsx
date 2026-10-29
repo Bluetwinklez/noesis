@@ -1,12 +1,15 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { forceCenter, forceCollide, forceLink, forceManyBody, forceSimulation, type SimulationLinkDatum, type SimulationNodeDatum } from 'd3-force';
-import { Maximize2, Network, Search, Sparkles, X } from 'lucide-react';
+import { Box, Maximize2, Network, Search, Sparkles, X } from 'lucide-react';
 import { repos, useApp, wsId } from '../../app/state';
 import { useT, type MessageKey } from '../../i18n';
 import { Button, EmptyState, IconButton, Spinner, useAsync, cx } from '../../components/ui';
 import { buildGraph, type EdgeKind, type GraphNode, type NodeKind } from './graphData';
 import { cosine, localHashEmbed } from '../../search/vectors';
 import { openExternal } from '../../lib/platform';
+import { relativeTime } from '../../lib/util';
+
+const Graph3D = lazy(() => import('./Graph3D'));
 
 type SimNode = GraphNode & SimulationNodeDatum;
 type SimLink = SimulationLinkDatum<SimNode> & { kind: EdgeKind };
@@ -43,6 +46,8 @@ export default function GraphPage() {
   const t = useT();
   const version = useApp((s) => s.version);
   const navigate = useApp((s) => s.navigate);
+  const lang = useApp((s) => s.lang);
+  const [mode, setMode] = useState<'2d' | '3d'>('2d');
   const { data, loading } = useAsync(() => buildGraph(repos().db, wsId()), [version]);
   const [filters, setFilters] = useState<Record<NodeKind, boolean>>({ page: true, database: true, source: true, tag: true, notebook: true, agent: true, repo: true });
   const [query, setQuery] = useState('');
@@ -263,7 +268,7 @@ export default function GraphPage() {
       canvas.removeEventListener('dblclick', dbl);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filtered]);
+  }, [filtered, mode]);
 
   useEffect(() => {
     drawRef.current();
@@ -292,6 +297,11 @@ export default function GraphPage() {
 
   const focusSearch = () => {
     const q = query.trim().toLowerCase();
+    if (mode === '3d') {
+      const hit = filtered?.nodes.find((x) => x.label.toLowerCase().includes(q));
+      if (hit) setSelected(hit as SimNode);
+      return;
+    }
     const n = simRef.current?.nodes.find((x) => x.label.toLowerCase().includes(q));
     if (!n || !wrapRef.current) return;
     const r = wrapRef.current.getBoundingClientRect();
@@ -325,6 +335,11 @@ export default function GraphPage() {
     setSuggestions((cur) => cur!.filter((x) => x !== s));
     if (approve) useApp.getState().bump();
   };
+
+  const { data: activity } = useAsync(
+    () => (selected?.kind === 'agent' ? repos().activity.forClient(wsId(), selected.refId) : Promise.resolve(null)),
+    [selected?.id, version],
+  );
 
   const selEdges = useMemo(() => {
     if (!selected || !data) return [];
@@ -362,6 +377,9 @@ export default function GraphPage() {
             ))}
           </div>
           <span className="flex-1" />
+          <Button size="sm" variant={mode === '3d' ? 'primary' : undefined} aria-pressed={mode === '3d'} icon={<Box className="size-3.5" />} onClick={() => setMode(mode === '3d' ? '2d' : '3d')}>
+            {t('graph.view3d')}
+          </Button>
           <Button size="sm" icon={<Sparkles className="size-3.5" />} onClick={() => void suggest()}>
             {t('graph.suggest')}
           </Button>
@@ -374,6 +392,17 @@ export default function GraphPage() {
             <div className="flex h-full items-center justify-center"><Spinner /></div>
           ) : data && data.nodes.length === 0 ? (
             <EmptyState icon={<Network className="size-5" />} title={t('graph.title')} body={t('graph.empty')} />
+          ) : mode === '3d' && filtered ? (
+            <Suspense fallback={<div className="flex h-full items-center justify-center"><Spinner /></div>}>
+              <Graph3D
+                nodes={filtered.nodes}
+                edges={filtered.edges}
+                colors={KIND_COLOR}
+                selectedId={selected?.id ?? null}
+                label={t('graph.title')}
+                onSelect={(n) => setSelected(n as SimNode | null)}
+              />
+            </Suspense>
           ) : (
             <canvas ref={canvasRef} role="img" aria-label={t('graph.title')} className="block cursor-grab touch-none" />
           )}
@@ -391,9 +420,28 @@ export default function GraphPage() {
                 </IconButton>
               </div>
               <div className="mb-3 text-xs text-faint">{t('graph.connections', { n: selEdges.length })}</div>
-              <Button size="sm" variant="primary" onClick={() => open(selected)}>
-                {t('common.open')}
-              </Button>
+              {selected.kind !== 'agent' && (
+                <Button size="sm" variant="primary" onClick={() => open(selected)}>
+                  {t('common.open')}
+                </Button>
+              )}
+              {selected.kind === 'agent' && activity && (
+                <div className="mt-4">
+                  <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-faint">{t('graph.activity')}</div>
+                  {!activity.length && <p className="text-sm text-muted">{t('graph.noActivity')}</p>}
+                  <ul className="space-y-1" aria-label={t('graph.activity')}>
+                    {activity.map((a) => (
+                      <li key={a.id} className="flex items-baseline gap-2 rounded-md px-2 py-1 text-sm">
+                        <span className="min-w-0 flex-1 truncate">
+                          <span className="text-xs text-faint">{t(`graph.action.${a.action}` as MessageKey)} · </span>
+                          {a.title ?? t('graph.deleted')}
+                        </span>
+                        <span className="shrink-0 text-xs text-faint">{relativeTime(a.created_at, lang)}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
               <ul className="mt-4 space-y-1">
                 {selEdges.map((e, i) => (
                   <li key={i}>

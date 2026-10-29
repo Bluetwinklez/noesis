@@ -52,6 +52,26 @@ describe('agent memory graph', () => {
     expect(toPage).toEqual(['agent:Claude Code', 'agent:Codex']);
   });
 
+  it('lists the activity of one client newest first with titles and announces appends', async () => {
+    const { s, ws, call } = await setup();
+    const notices: string[] = [];
+    const page = await call('Codex', 'create_page', { title: 'Shared brain', markdown: 'a' });
+    const res = await handleMcp(
+      { jsonrpc: '2.0', id: 2, method: 'tools/call', params: { name: 'append_to_page', arguments: { page_id: page.id, markdown: 'b' } } },
+      { repos: s, workspaceId: ws, client: 'Codex', approve: async () => true, notify: (m) => notices.push(m) },
+    );
+    expect((res!.result as { isError?: boolean }).isError).toBeFalsy();
+    expect(notices).toEqual(['Codex added to the page “Shared brain”.']);
+    await call('Codex', 'create_task', { title: 'Follow up' });
+    await call('Claude Code', 'create_page', { title: 'Other agent', markdown: 'c' });
+    const feed = await s.activity.forClient(ws, 'Codex');
+    expect(feed.map((a) => [a.action, a.title])).toEqual(
+      expect.arrayContaining([['create_page', 'Shared brain'], ['append_to_page', 'Shared brain'], ['create_task', 'Follow up']]),
+    );
+    expect(feed).toHaveLength(3);
+    expect(feed.map((a) => a.created_at)).toEqual([...feed.map((a) => a.created_at)].sort((x, y) => y - x));
+  });
+
   it('joins pages that mention the same repository and drops trashed pages', async () => {
     const { s, ws, call } = await setup();
     const one = await call('Claude Code', 'create_page', { title: 'Reel A', markdown: 'Repo: [rojo](https://github.com/rojo-rbx/rojo)' });

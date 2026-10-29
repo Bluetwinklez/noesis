@@ -722,3 +722,33 @@ test('pages written by AI clients through MCP appear with their agent and reposi
   await panel.getByRole('button', { name: /Agent note A/ }).click();
   await expect(panel.getByRole('button', { name: /mentions · rojo-rbx\/rojo/ })).toBeVisible();
 });
+
+test('the graph follows agent writes live, lists the activity of an agent and switches to 3D', async ({ page }) => {
+  await freshApp(page);
+  await onboard(page);
+  const write = (title: string) =>
+    page.evaluate(async (t) => {
+      const state = (window as unknown as { __noesis: { getState(): { repos: Repos; workspaceId: string; bump(): void } } }).__noesis.getState();
+      const serverModule = '/src/mcp/server.ts';
+      const { handleMcp } = (await import(/* @vite-ignore */ serverModule)) as typeof import('../../src/mcp/server');
+      const ctx = { repos: state.repos, workspaceId: state.workspaceId, client: 'Claude Code', approve: async () => true, notify: () => state.bump() };
+      await handleMcp({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'create_page', arguments: { title: t, markdown: 'x' } } }, ctx);
+    }, title);
+  await write('First shared note');
+  await page.getByRole('button', { name: 'Knowledge Graph' }).click();
+  await page.getByLabel('Find a node…').fill('Claude Code');
+  await page.getByLabel('Find a node…').press('Enter');
+  const feed = page.getByRole('list', { name: 'Recent activity' });
+  await expect(feed.getByText('First shared note')).toBeVisible();
+  // A second agent write while the graph is open appears without a reload.
+  await write('Second shared note');
+  await expect(feed.getByText('Second shared note')).toBeVisible();
+  await expect(feed.getByRole('listitem')).toHaveCount(2);
+
+  await page.getByRole('button', { name: '3D view' }).click();
+  await expect(page.getByRole('button', { name: '3D view' })).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.getByTestId('graph-3d').locator('canvas')).toBeVisible({ timeout: 15_000 });
+  await expect(page.locator('aside').getByText('🤖 Claude Code')).toBeVisible();
+  await page.getByRole('button', { name: '3D view' }).click();
+  await expect(page.getByRole('img', { name: 'Knowledge Graph' })).toBeVisible();
+});
