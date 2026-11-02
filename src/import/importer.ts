@@ -62,7 +62,20 @@ const dir = (p: string) => p.split('/').slice(0, -1).join('/');
 const stripExt = (n: string) => n.replace(/\.[^.]+$/, '');
 /** "Meeting notes 0f3c…(32 hex)" → "Meeting notes" */
 export const cleanName = (n: string) => stripExt(n).replace(NOTION_ID, '').trim() || 'Untitled';
-const keyOf = (p: string) => decodeURIComponent(p).replace(/\\/g, '/').replace(/^\.?\//, '').toLowerCase();
+/**
+ * Percent-decodes only the valid `%XX` runs. A file name or link with a literal "%" ("Zam 20% oldu.md", "100%.md")
+ * is not valid URI encoding, and `decodeURIComponent` throws "URI malformed" on it, which aborted the whole import.
+ * Valid input decodes exactly as before; anything else is kept as written.
+ */
+export const safeDecode = (s: string) =>
+  s.replace(/(?:%[0-9a-f]{2})+/gi, (run) => {
+    try {
+      return decodeURIComponent(run);
+    } catch {
+      return run;
+    }
+  });
+const keyOf = (p: string) => safeDecode(p).replace(/\\/g, '/').replace(/^\.?\//, '').toLowerCase();
 
 /** Expands zip archives (one nesting level: Notion wraps large exports in an outer zip). */
 export async function expandInputs(files: ImportFile[]): Promise<ImportFile[]> {
