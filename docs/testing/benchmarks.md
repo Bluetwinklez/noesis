@@ -17,3 +17,7 @@ Machine: Linux x64 container, 4 vCPU, Node 22.22.0 · 2026-10-27
 Build size (`npm run build`): the startup JS chunk went from 1,434 kB to 429 kB (gzip 446 → 134 kB) after lazy-loading the editor and onboarding.
 
 Not measured: cold start time of the packaged Windows app, WebView rendering of very large documents, and graph rendering with thousands of nodes.
+
+## Large-data acceptance fixture
+
+The current large fixture and regression thresholds are documented in [large-data performance](large-data-performance.md). `tests/bench/large-data.bench.test.ts` covers 5,000 pages, 100,000 database rows and 1,000 sources; `tests/bench/large-results.json` records the latest Windows run. The Playwright suite separately checks browser startup, bounded sidebar rendering and a real 2,000-row table flow.

@@ -15,6 +15,7 @@
     "screenshots": "playwright test --config playwright.screenshots.config.ts",
     "tauri": "tauri",
     "bench": "vitest run --config vitest.bench.config.ts",
+    "seed:large": "node scripts/seed-large-data.mjs",
     "predev": "node scripts/copy-ocr-assets.mjs",
     "prebuild": "node scripts/copy-ocr-assets.mjs"
   },
