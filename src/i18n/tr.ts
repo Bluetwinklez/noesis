@@ -31,6 +31,7 @@ export const tr: Record<keyof typeof en, string> = {
   'nav.pages': 'Sayfalar',
   'nav.pinned': 'Sabitlenenler',
   'nav.newPage': 'Yeni sayfa',
+  'nav.showMorePages': '{n} sayfa daha göster',
   'nav.back': 'Geri',
   'nav.forward': 'İleri',
   'nav.collapse': 'Kenar çubuğunu daralt',
@@ -86,6 +87,8 @@ export const tr: Record<keyof typeof en, string> = {
   'common.name': 'Ad',
   'common.description': 'Açıklama',
   'common.offline': 'Çevrimdışı — yerel özellikler çalışmaya devam ediyor',
+  'db.tablePages': 'Tablo sayfaları',
+  'db.rowRange': '{total} satırdan {start}–{end}',
 
   'home.greeting.morning': 'Günaydın',
   'home.greeting.afternoon': 'İyi günler',
