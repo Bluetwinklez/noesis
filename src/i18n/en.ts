@@ -29,6 +29,7 @@ export const en = {
   'nav.pages': 'Pages',
   'nav.pinned': 'Pinned',
   'nav.newPage': 'New page',
+  'nav.showMorePages': 'Show {n} more pages',
   'nav.back': 'Back',
   'nav.forward': 'Forward',
   'nav.collapse': 'Collapse sidebar',
@@ -84,6 +85,8 @@ export const en = {
   'common.name': 'Name',
   'common.description': 'Description',
   'common.offline': 'Offline — local features keep working',
+  'db.tablePages': 'Table pages',
+  'db.rowRange': '{start}–{end} of {total}',
 
   'home.greeting.morning': 'Good morning',
   'home.greeting.afternoon': 'Good afternoon',

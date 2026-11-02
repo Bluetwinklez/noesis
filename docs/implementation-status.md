@@ -1,10 +1,19 @@
 # Implementation status
 
-Last updated: 2026-10-28 · Version 0.1.x (continuous builds) · Machine-readable block at the end.
+Last updated: 2026-11-02 · Version 0.1.x (continuous builds) · Machine-readable block at the end.
 
 Status values: `done` (implemented and covered by an automated test or recorded evidence) · `partial` · `not-started` · `blocked`.
 
 ## Verification runs (this revision)
+
+### Large-data performance (2026-11-02)
+
+- `npm run seed:large` creates a deterministic current-schema fixture with 5,000 pages, 50 databases × 2,000 rows and 1,000 sources. The benchmark verifies exact counts, export/import round trips and thresholds; no user data or network service is used.
+- Sidebar trees render progressive 50-item windows at roots and nested parents. Tables render 100-row pages after applying full-result filters and sorts. Direct navigation expands the window containing the active page.
+- CSV import batches 500 parsed rows and writes/indexes 100 values per statement in one transaction. Full-fixture import fell from **2,657.5 s** to **11.32 s** (about **235× faster**); full export measured **6.65 s** in the final verification run.
+- Windows measurements: browser startup **1.692 s** (earlier repeat range **1.497–1.826 s**), full-text search **22.953 ms median / 28.372 ms p95**, repository table preparation **19.537 ms**, warm browser table open **481.6 ms** (earlier focused runs **384.5–387.3 ms**). All required <2 s / <200 ms / <500 ms gates passed. See [large-data performance](testing/large-data-performance.md).
+- Full local verification passed: npm ci, typecheck, production build, **132 Vitest tests / 24 files**, **29 Playwright scenarios**, **4 mock evaluation cases**, **22 Rust tests**, strict Clippy and **2 benchmark tests**. Production build took **4.82 s**.
+- Existing indexes cover the measured access paths, so no speculative migration was added after v6. Packaged Windows WebView2 cold start remains unverified.
 
 ### Selectable visual themes (2026-10-28)
 
@@ -134,7 +143,7 @@ Status values: `done` (implemented and covered by an automated test or recorded 
 | MCP server for AI assistants | done | 10 tools, approval for edits, one-click config for Claude Desktop/Cursor/Windsurf/LM Studio |
 | Auto-update | done (config) | Tauri updater, minisign-signed, every push to `main` publishes a build. Needs the `TAURI_SIGNING_PRIVATE_KEY` secret; end-to-end update not yet observed |
 | Code signing | blocked | No certificate |
-| Performance benchmarks | partial | `npm run bench` covers search, autosave, chunking and embedding (`docs/testing/benchmarks.md`). It led to a vector-cache fix (hybrid search 236 → 37 ms). Packaged-app start-up and rendering are not measured |
+| Performance benchmarks | done | Reproducible 5,000-page / 100,000-row / 1,000-source seed, data and browser startup, search, paginated table and full export/import measurements. Packaged WebView2 cold start remains manual |
 | CI (GitHub Actions): Linux tests + E2E, Windows tests + installer + checksums; tag release | done (config) | Workflows were added in this revision. Their first run happens on push, so results are not yet known |
 | REA research | partial | REA installed and verified, and used for self-analysis of the bundle. Competitor targets were blocked by the network policy. See `docs/research/` |
 
@@ -162,7 +171,8 @@ Status values: `done` (implemented and covered by an automated test or recorded 
 ```json
 {
   "version": "0.1.0",
-  "updated": "2026-10-28",
+  "updated": "2026-11-02",
+  "large_data": { "pages": 5000, "databases": 50, "rows": 100000, "sources": 1000, "vitest": 132, "vitest_files": 24, "playwright": 29, "mock_eval": 4, "cargo": 22, "clippy": "PASS -D warnings", "benchmark_tests": 2, "startup_browser_ms": 1692.4, "search_p95_ms": 28.372, "table_repository_ms": 19.537, "table_browser_ms": 481.6, "export_ms": 6648.59, "import_ms": 11321.642, "packaged_webview_cold_start_verified": false },
   "error_recovery": { "vitest": 121, "vitest_files": 21, "playwright": 24, "mock_eval": 4, "cargo": 22, "clippy": "PASS -D warnings", "benchmark_tests": 1, "native_recovery_ui_verified": false },
   "source_recovery": { "vitest": 117, "vitest_files": 19, "playwright": 22, "mock_eval": 4, "cargo": 20, "clippy": "PASS -D warnings", "benchmark_tests": 1, "native_ocr_termination_verified": false },
   "answer_evidence": { "schema": 5, "vitest": 115, "vitest_files": 18, "playwright": 21, "mock_eval": 4, "cargo": 20, "clippy": "PASS -D warnings", "benchmark_tests": 1, "live_provider_verified": false },

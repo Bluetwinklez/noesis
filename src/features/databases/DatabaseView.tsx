@@ -32,6 +32,7 @@ import { applyView, computedValue, displayValue, groupRows, ROLLUP_FNS, rowTitle
 import type { CellValue, DbProperty, DbRow, DbView, FilterOp, PropertyType, RollupFn, ViewConfig, ViewType } from '../../core/types';
 import { reportError } from '../../app/services';
 import { openExternal } from '../../lib/platform';
+import { pageWindow } from '../../lib/pagination';
 
 const TYPE_ICON: Record<PropertyType, React.ReactNode> = {
   title: <Type className="size-3.5" />,
@@ -681,12 +682,16 @@ function RowMenu({ row, ctx }: { row: DbRow; ctx: Ctx }) {
 }
 
 function TableView({ ctx, rows, databaseId, config }: { ctx: Ctx; rows: DbRow[]; databaseId: string; config: ViewConfig }) {
+  const t = useT();
   const visible = ctx.props.filter((p) => !config.hiddenProperties?.includes(p.id));
   const [dragId, setDragId] = useState<string | null>(null);
+  const [page, setPage] = useState(0);
+  const window = pageWindow(rows, page, 100);
   const canReorder = !config.sorts?.length;
   return (
-    <div className="overflow-x-auto">
-      <table className="w-full border-collapse text-sm" role="grid">
+    <div>
+      <div className="overflow-x-auto">
+        <table className="w-full border-collapse text-sm" role="grid">
         <thead>
           <tr className="border-b border-line">
             <th className="w-6" />
@@ -701,7 +706,7 @@ function TableView({ ctx, rows, databaseId, config }: { ctx: Ctx; rows: DbRow[];
           </tr>
         </thead>
         <tbody>
-          {rows.map((r) => (
+          {window.items.map((r) => (
             <tr
               key={r.id}
               className={cx('group/row border-b border-line hover:bg-hover/50', dragId === r.id && 'opacity-40')}
@@ -728,7 +733,19 @@ function TableView({ ctx, rows, databaseId, config }: { ctx: Ctx; rows: DbRow[];
             </tr>
           ))}
         </tbody>
-      </table>
+        </table>
+      </div>
+      {window.total > 100 && (
+        <nav className="flex items-center justify-end gap-2 border-t border-line px-3 py-2" aria-label={t('db.tablePages')}>
+          <span className="mr-2 text-xs text-muted">{t('db.rowRange', { start: window.start, end: window.end, total: window.total })}</span>
+          <Button size="sm" variant="secondary" disabled={window.page === 0} onClick={() => setPage(window.page - 1)} icon={<ChevronLeft className="size-3.5" />}>
+            {t('common.back')}
+          </Button>
+          <Button size="sm" variant="secondary" disabled={window.page + 1 >= window.pageCount} onClick={() => setPage(window.page + 1)} icon={<ChevronRight className="size-3.5" />}>
+            {t('common.next')}
+          </Button>
+        </nav>
+      )}
     </div>
   );
 }

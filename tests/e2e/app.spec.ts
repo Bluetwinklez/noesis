@@ -1,6 +1,7 @@
 import { test, expect, type Page } from '@playwright/test';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { execFileSync } from 'node:child_process';
 import type { Repos } from '../../src/core/store';
 
 const FIX = join(import.meta.dirname, '..', 'fixtures');
@@ -77,6 +78,78 @@ test('complete visual themes are selectable and survive a restart', async ({ pag
   await page.goto(`/?db=${db}`);
   await expect(page.locator('html')).toHaveAttribute('data-visual-theme', 'sherwood');
   await expect(page.locator('html')).toHaveAttribute('style', /--accent-h:\s*220/);
+});
+
+test('a 2,000-row table opens in a bounded page and remains navigable', async ({ page }) => {
+  await freshApp(page);
+  await onboard(page);
+  const databaseId = await page.evaluate(async () => {
+    const app = (window as unknown as { __noesis: { getState(): { repos: Repos; workspaceId: string | null } } }).__noesis;
+    const { repos, workspaceId } = app.getState();
+    if (!workspaceId) throw new Error('Missing workspace');
+    const database = await repos.databases.createDatabase(workspaceId, 'Large table');
+    const title = (await repos.databases.properties(database.id)).find((property) => property.type === 'title');
+    if (!title) throw new Error('Missing title property');
+    await repos.databases.addRows(database.id, Array.from({ length: 2_000 }, (_, index) => ({ [title.id]: `Record ${index + 1}` })));
+    return database.id;
+  });
+
+  // Warm the lazy page/database bundles once; cold module loading is recorded separately in the benchmark notes.
+  await page.evaluate((id) => {
+    const app = (window as unknown as { __noesis: { getState(): { navigate(route: { name: 'page'; id: string }): void } } }).__noesis;
+    app.getState().navigate({ name: 'page', id });
+  }, databaseId);
+  await expect(page.getByRole('navigation', { name: 'Table pages' })).toBeVisible();
+  await page.getByRole('button', { name: 'Home', exact: true }).click();
+  await expect(page.getByRole('heading', { name: /Good (morning|afternoon|evening)/ })).toBeVisible();
+
+  await page.evaluate((id) => {
+    (window as unknown as { __largeTableStarted: number }).__largeTableStarted = performance.now();
+    const app = (window as unknown as { __noesis: { getState(): { navigate(route: { name: 'page'; id: string }): void } } }).__noesis;
+    app.getState().navigate({ name: 'page', id });
+  }, databaseId);
+  const pagination = page.getByRole('navigation', { name: 'Table pages' });
+  await expect(pagination).toBeVisible();
+  const openMs = await page.evaluate(() => performance.now() - (window as unknown as { __largeTableStarted: number }).__largeTableStarted);
+  console.log(`[performance] warm 2,000-row table open: ${openMs.toFixed(1)} ms`);
+  expect(openMs).toBeLessThan(500);
+  await expect(page.getByRole('grid').getByRole('row')).toHaveCount(101);
+  await expect(page.getByRole('gridcell', { name: 'Record 1', exact: true })).toBeVisible();
+  await pagination.getByRole('button', { name: 'Next' }).click();
+  await expect(page.getByRole('gridcell', { name: 'Record 101', exact: true })).toBeVisible();
+  await expect(page.getByRole('gridcell', { name: 'Record 1', exact: true })).toHaveCount(0);
+});
+
+test('the full large-data seed starts under two seconds with a bounded sidebar', async ({ page }) => {
+  const key = await freshApp(page);
+  await expect(page.getByRole('button', { name: 'English', exact: true })).toBeVisible();
+  const databasePath = test.info().outputPath('large-startup.db');
+  execFileSync(process.execPath, [join(import.meta.dirname, '..', '..', 'scripts', 'seed-large-data.mjs'), databasePath]);
+  const snapshot = readFileSync(databasePath).toString('base64');
+  await page.evaluate(async ({ dbKey, encoded }) => {
+    const state = (window as unknown as { __noesis: { getState(): { repos: Repos } } }).__noesis.getState();
+    state.repos.db.driver.flush = async () => {};
+    const bytes = Uint8Array.from(atob(encoded), (character) => character.charCodeAt(0));
+    const db = await new Promise<IDBDatabase>((resolve, reject) => {
+      const request = indexedDB.open('noesis-storage', 1);
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+    await new Promise<void>((resolve, reject) => {
+      const transaction = db.transaction('snapshots', 'readwrite');
+      transaction.objectStore('snapshots').put(bytes, dbKey);
+      transaction.oncomplete = () => { db.close(); resolve(); };
+      transaction.onerror = () => { db.close(); reject(transaction.error); };
+    });
+  }, { dbKey: key, encoded: snapshot });
+
+  await page.goto(`/?db=${key}`);
+  await expect(page.getByRole('navigation', { name: 'Breadcrumb' })).toBeVisible();
+  const startupMs = await page.evaluate(() => performance.now());
+  console.log(`[performance] 5,000-page browser startup: ${startupMs.toFixed(1)} ms`);
+  expect(startupMs).toBeLessThan(2_000);
+  await expect(page.getByRole('treeitem')).toHaveCount(50);
+  await expect(page.getByRole('button', { name: 'Show 50 more pages' })).toBeVisible();
 });
 
 async function importFixture(page: Page, button: string, file: string) {

@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Keep large workspaces responsive with progressive 50-page sidebar windows and 100-row table pages. Add a reproducible 5,000-page / 100,000-row / 1,000-source seed and regression benchmark. Workspace CSV imports now batch rows and their search entries, reducing the measured full seed import from about 44 minutes to 11.3 seconds in the final verification run.
+
 - Knowledge graph: optional 3D view (three.js, loaded only when turned on) on a dark star-field. Nodes glow and have a shape per kind (spheres, boxes for repositories, diamonds for agents) with name labels; links are coloured by relationship and curve for agent and repository links. Hovering or selecting dims everything except the node and its neighbours, the camera frames the whole graph, orbits slowly and flies to a selection, and a legend counts each kind. Selecting an AI agent shows its recent activity: what it created, appended, clipped or added, with times. Appends through MCP now refresh open views like other agent writes, so the graph and activity list follow every agent live.
 
 - Remember which AI client (Claude Code, Codex, …) created or changed pages, clips and tasks through MCP, in a new v6 `agent_activity` table. The knowledge graph shows each client as an agent node linked to the pages it wrote, and GitHub repositories mentioned in pages as shared nodes, so notes about the same repository meet. Both are filterable. Agent activity is kept in backups (older backups still restore) and in workspace exports/imports (`Noesis data/agent-activity.json`).

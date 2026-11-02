@@ -1,0 +1,30 @@
+{
+  "date": "2026-11-02T20:07:02.671Z",
+  "node": "v24.20.0",
+  "platform": "win32-x64",
+  "counts": {
+    "pages": 5000,
+    "databases": 50,
+    "rowsPerDatabase": 2000,
+    "sources": 1000,
+    "databaseRows": 100000
+  },
+  "seed_ms": 1840.299,
+  "startup_ms": 6.874,
+  "sidebar_data_ms": 60.166,
+  "search": {
+    "median_ms": 22.953,
+    "p95_ms": 28.372,
+    "max_ms": 28.372
+  },
+  "table_open_ms": 19.537,
+  "table_rendered_rows": 100,
+  "export_ms": 6648.59,
+  "export_bytes": 1473051,
+  "import_ms": 11321.642,
+  "imported": {
+    "pages": 4950,
+    "databases": 50,
+    "sources": 1000
+  }
+}
