@@ -45,6 +45,8 @@ export async function loadSettings() {
   const stored = await r.settings.get<Partial<Prefs>>('prefs', {});
   const prefs = { ...DEFAULT_PREFS, ...stored };
   prefs.visualTheme = visualThemeById(stored.visualTheme).id;
+  prefs.dailyNoteTitleFormat = stored.dailyNoteTitleFormat === 'short' || stored.dailyNoteTitleFormat === 'long' ? stored.dailyNoteTitleFormat : 'iso';
+  prefs.dailyNoteTemplateId = typeof stored.dailyNoteTemplateId === 'string' && stored.dailyNoteTemplateId ? stored.dailyNoteTemplateId : null;
   // Older versions had a serif on/off switch.
   if (!stored.editorFont && stored.serif) prefs.editorFont = 'serif';
   delete prefs.serif;

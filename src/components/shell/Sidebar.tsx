@@ -28,6 +28,7 @@ import { useT } from '../../i18n';
 import { cx, IconButton, MenuButton, Popover, MenuList, useAsync, Kbd, type MenuItem } from '../ui';
 import { createPage, toggleFavorite, togglePinned, trashPage } from '../../features/actions';
 import { savePrefs, setWorkspace, reportError } from '../../app/services';
+import { SidebarCalendar } from '../../features/daily-notes/SidebarCalendar';
 import type { PageMeta } from '../../core/types';
 import { clamp } from '../../lib/util';
 
@@ -53,7 +54,7 @@ interface TreeNode extends PageMeta {
   children: TreeNode[];
 }
 
-const SIDEBAR_ROOT_BATCH = 50;
+const SIDEBAR_ROOT_BATCH = 15;
 
 function buildTree(pages: PageMeta[]): TreeNode[] {
   const map = new Map<string, TreeNode>(pages.map((p) => [p.id, { ...p, children: [] }]));
@@ -307,6 +308,7 @@ export function Sidebar() {
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-2" role="tree" aria-label={t('nav.pages')}>
+        <SidebarCalendar pages={pages ?? []} />
         {pinned.length > 0 && (
           <Section title={t('nav.pinned')}>
             {pinned.map((p) => (

@@ -4,7 +4,19 @@ Last updated: 2026-11-02 · Version 0.1.x (continuous builds) · Machine-readabl
 
 Status values: `done` (implemented and covered by an automated test or recorded evidence) · `partial` · `not-started` · `blocked`.
 
+## Repository hardening (2026-11-03)
+
+Security scanning, immutable action references and an English audit were added. The calendar regression uses a fixed date and scoped navigation. Local typecheck, 138 unit tests, all 30 browser E2E scenarios, four mock AI evaluation cases, two benchmarks and production build passed. Native Rust checks could not complete because this Linux environment lacks GLib/GTK development metadata; no new Windows-native result is claimed. See [the audit](../SECURITY_AUDIT.md) for browser-run evidence and remaining limits.
+
 ## Verification runs (this revision)
+
+### Daily notes and calendar (2026-11-02)
+
+- `Ctrl+Alt+D` and the command palette's Today action open or create one page for the local calendar day under a localized Daily notes parent. Repeated use reopens the same page.
+- Settings → General controls ISO, short localized or long localized titles and can copy any saved page template into newly created daily notes. Existing daily pages are not renamed when the preference changes.
+- The sidebar month calendar follows the existing Monday/Sunday week-start preference. Accent dots mark daily notes and warning dots mark outstanding tasks due on each local day; selecting any date opens or creates its note.
+- Unit coverage verifies local-day/title logic, week alignment, idempotent creation and template content. Playwright covers the shortcut, command, duplicate prevention, month navigation and date selection. See [daily notes testing](testing/daily-notes.md).
+- Full Windows verification passed: npm ci, typecheck, **138 Vitest tests / 25 files**, **30 Playwright scenarios**, **4 mock evaluation cases**, **22 Rust tests**, strict Clippy, production build and **2 benchmark tests**. The final browser run measured **1,766.2 ms startup** and **394.2 ms warm table open**; benchmark search p95 was **36.042 ms**. A previous run failed the performance gates before reducing render windows.
 
 ### Large-data performance (2026-11-02)
 
@@ -122,6 +134,7 @@ Status values: `done` (implemented and covered by an automated test or recorded 
 | Databases: 12 property types, 6 views (incl. timeline), sort/filter/group, saved views, formulas | done | Formula engine is a safe parser, not `eval` |
 | Two-way relations and rollups | done | Paired properties kept in sync in one transaction; rollups computed, not stored (unit + E2E) |
 | Tasks: subtasks, due, priority, status, project, recurring, reminders, block → task | done | Reminders use OS notifications while the app is running |
+| Daily notes + sidebar calendar | done | Today command/shortcut, configurable titles and template; note/task day markers; date identity survives rename and transfer |
 | Ingestion: PDF, DOCX, TXT, MD, HTML, CSV, URL | done | |
 | Ingestion: images and scanned PDFs (OCR) | done | Offline Tesseract (eng + tur) shipped with the app; AI vision optional fallback. Not yet checked under the release CSP on Windows |
 | Ingestion: audio | partial | Needs a transcription-capable provider |
@@ -172,6 +185,7 @@ Status values: `done` (implemented and covered by an automated test or recorded 
 {
   "version": "0.1.0",
   "updated": "2026-11-02",
+  "daily_notes": { "status": "done", "unit_cases": 6, "playwright_scenarios": 1, "local_date_logic": true, "template_copy": true, "schema": 7, "vitest": 138, "playwright": 30, "cargo": 22, "benchmark_tests": 2 },
   "large_data": { "pages": 5000, "databases": 50, "rows": 100000, "sources": 1000, "vitest": 132, "vitest_files": 24, "playwright": 29, "mock_eval": 4, "cargo": 22, "clippy": "PASS -D warnings", "benchmark_tests": 2, "startup_browser_ms": 1692.4, "search_p95_ms": 28.372, "table_repository_ms": 19.537, "table_browser_ms": 481.6, "export_ms": 6648.59, "import_ms": 11321.642, "packaged_webview_cold_start_verified": false },
   "error_recovery": { "vitest": 121, "vitest_files": 21, "playwright": 24, "mock_eval": 4, "cargo": 22, "clippy": "PASS -D warnings", "benchmark_tests": 1, "native_recovery_ui_verified": false },
   "source_recovery": { "vitest": 117, "vitest_files": 19, "playwright": 22, "mock_eval": 4, "cargo": 20, "clippy": "PASS -D warnings", "benchmark_tests": 1, "native_ocr_termination_verified": false },

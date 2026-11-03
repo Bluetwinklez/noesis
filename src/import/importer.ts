@@ -210,6 +210,15 @@ export async function importWorkspace(
     }
   }
 
+  if (manifest) {
+    const dailyNotes = dataJson<unknown>('daily-notes.json', []);
+    if (Array.isArray(dailyNotes)) for (const note of dailyNotes) {
+      if (!note || typeof note.day !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(note.day) || typeof note.page !== 'string') continue;
+      const pageId = pageByPath.get(keyOf(note.page));
+      if (pageId) await repos.db.run('INSERT OR IGNORE INTO daily_notes(workspace_id, day, page_id) VALUES (?,?,?)', [workspaceId, note.day, pageId]);
+    }
+  }
+
   // Pass 2: content, links, images, tags, database rows.
   let imageCount = 0;
   const storeImage = async (f: ImportFile) => {
