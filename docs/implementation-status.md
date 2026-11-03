@@ -4,6 +4,10 @@ Last updated: 2026-11-02 · Version 0.1.x (continuous builds) · Machine-readabl
 
 Status values: `done` (implemented and covered by an automated test or recorded evidence) · `partial` · `not-started` · `blocked`.
 
+## Repository hardening (2026-11-03)
+
+Security scanning, immutable action references and an English audit were added. The calendar regression uses a fixed date and scoped navigation. Local typecheck, 138 unit tests, all 30 browser E2E scenarios, four mock AI evaluation cases, two benchmarks and production build passed. Native Rust checks could not complete because this Linux environment lacks GLib/GTK development metadata; no new Windows-native result is claimed. See [the audit](../SECURITY_AUDIT.md) for browser-run evidence and remaining limits.
+
 ## Verification runs (this revision)
 
 ### Daily notes and calendar (2026-11-02)
