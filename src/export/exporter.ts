@@ -134,6 +134,12 @@ export async function exportWorkspace(
   };
   assign(null, '');
 
+  const dailyNotes = await repos.db.all<{ day: string; page_id: string }>('SELECT day, page_id FROM daily_notes WHERE workspace_id = ?', [workspaceId]);
+  zip.file(`${DATA_DIR}/daily-notes.json`, JSON.stringify(dailyNotes.flatMap((note) => {
+    const path = pathOf.get(note.page_id);
+    return path ? [{ day: note.day, page: path }] : [];
+  }), null, 2));
+
   // 2. Files: every attachment once; originals of research sources go next to the sources.
   // The list omits extracted text; load each source in full, oldest first (import keeps that order).
   const sources = (await Promise.all((await repos.sources.list(workspaceId)).reverse().map((x) => repos.sources.get(x.id)))).filter(

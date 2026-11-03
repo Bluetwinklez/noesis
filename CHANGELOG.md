@@ -1,6 +1,14 @@
 # Changelog
 
+## Repository hardening — 2026-11-03
+
+- Pin CI action implementations and verify the secret-scanner release checksum.
+- Document security findings and native-validation limits in `SECURITY_AUDIT.md`.
+- Make the daily-calendar regression independent of wall-clock rollover and scope navigation to the calendar region.
+
 ## Unreleased
+
+- Add daily notes with a `Ctrl+Alt+D` Today action, configurable localized date titles, optional saved-page templates and a sidebar calendar that marks note days and outstanding task due dates. Daily date identities survive renames, backups and workspace ZIP transfers. Limit sidebar windows to 15 pages and table windows to 50 rows to maintain responsiveness.
 
 - Fix "URI malformed" when importing a Notion/Obsidian/Markdown export: a note whose file name or link contains a literal `%` (for example "Zam 20% oldu.md" or `[x](100%.md)`) made `decodeURIComponent` throw and aborted the whole import. Paths and links are now decoded with `safeDecode`, which only decodes valid `%XX` runs and keeps everything else as written. Regression test in `tests/unit/import.test.ts` failed on the old code.
 - Keep large workspaces responsive with progressive 50-page sidebar windows and 100-row table pages. Add a reproducible 5,000-page / 100,000-row / 1,000-source seed and regression benchmark. Workspace CSV imports now batch rows and their search entries, reducing the measured full seed import from about 44 minutes to 11.3 seconds in the final verification run.

@@ -30,8 +30,8 @@ The first import baseline took **2,657,495 ms (about 44 minutes)** because every
 
 ## UI bounds
 
-The sidebar initially renders 50 root pages and 50 children per expanded parent. “Show 50 more pages” reveals the next window; navigating directly to a later active page automatically opens the window containing its root. Database tables render 100 rows at a time with Back/Next controls. Filtering and sorting still operate on the complete in-memory result before paging, so paging does not change results.
+The sidebar initially renders 15 root pages and 15 children per expanded parent. “Show 15 more pages” reveals the next window; navigating directly to a later active page automatically opens the window containing its root. Database tables render 50 rows at a time with Back/Next controls. Filtering and sorting still operate on the complete in-memory result before paging, so paging does not change results. The daily-notes revision measured 1,710.6 ms browser startup and 361.1 ms warm table open in a focused Windows run.
 
-Existing indexes already cover the measured queries (`pages(workspace_id,parent_id,sort_order)`, `db_rows(database_id,sort_order)` and FTS5 search). No schema migration was added only to satisfy this task; the new v6 agent-activity migration remains the latest migration.
+Existing indexes already cover the measured queries (`pages(workspace_id,parent_id,sort_order)`, `db_rows(database_id,sort_order)` and FTS5 search). No schema migration was added only to satisfy the performance task.
 
 The repository startup number is not a packaged desktop process launch. The browser startup test includes SQLite WASM deserialization, application boot and the first usable workspace render. A packaged Windows WebView2 cold-start measurement remains manual.

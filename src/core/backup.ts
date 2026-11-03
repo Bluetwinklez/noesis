@@ -29,10 +29,11 @@ export const BACKUP_TABLES = [
   'semantic_links',
   'settings',
   'agent_activity',
+  'daily_notes',
 ] as const;
 
 /** Tables added after the first backup format, with the schema version that introduced them. */
-const TABLE_SINCE: Partial<Record<(typeof BACKUP_TABLES)[number], number>> = { agent_activity: 6 };
+const TABLE_SINCE: Partial<Record<(typeof BACKUP_TABLES)[number], number>> = { agent_activity: 6, daily_notes: 7 };
 
 export interface BackupManifest {
   format: 'noesis-backup';

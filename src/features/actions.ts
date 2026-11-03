@@ -1,6 +1,7 @@
 import { repos, useApp, wsId } from '../app/state';
 import { reportError } from '../app/services';
 import type { DocNode } from '../core/doc';
+import { ensureDailyNote } from './daily-notes/daily';
 
 export async function createPage(parentId: string | null = null, title = '', content: DocNode | null = null) {
   try {
@@ -34,6 +35,23 @@ export async function createNotebook(title = '') {
     return nb;
   } catch (e) {
     reportError(e);
+    return null;
+  }
+}
+
+export async function openDailyNote(date = new Date()) {
+  try {
+    const state = useApp.getState();
+    const page = await ensureDailyNote(repos(), wsId(), date, {
+      format: state.prefs.dailyNoteTitleFormat,
+      templateId: state.prefs.dailyNoteTemplateId,
+      lang: state.lang,
+    });
+    state.bump();
+    state.navigate({ name: 'page', id: page.id });
+    return page;
+  } catch (error) {
+    reportError(error);
     return null;
   }
 }

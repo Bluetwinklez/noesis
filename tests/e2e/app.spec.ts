@@ -113,10 +113,10 @@ test('a 2,000-row table opens in a bounded page and remains navigable', async ({
   const openMs = await page.evaluate(() => performance.now() - (window as unknown as { __largeTableStarted: number }).__largeTableStarted);
   console.log(`[performance] warm 2,000-row table open: ${openMs.toFixed(1)} ms`);
   expect(openMs).toBeLessThan(500);
-  await expect(page.getByRole('grid').getByRole('row')).toHaveCount(101);
+  await expect(page.getByRole('grid').getByRole('row')).toHaveCount(51);
   await expect(page.getByRole('gridcell', { name: 'Record 1', exact: true })).toBeVisible();
   await pagination.getByRole('button', { name: 'Next' }).click();
-  await expect(page.getByRole('gridcell', { name: 'Record 101', exact: true })).toBeVisible();
+  await expect(page.getByRole('gridcell', { name: 'Record 51', exact: true })).toBeVisible();
   await expect(page.getByRole('gridcell', { name: 'Record 1', exact: true })).toHaveCount(0);
 });
 
@@ -148,8 +148,8 @@ test('the full large-data seed starts under two seconds with a bounded sidebar',
   const startupMs = await page.evaluate(() => performance.now());
   console.log(`[performance] 5,000-page browser startup: ${startupMs.toFixed(1)} ms`);
   expect(startupMs).toBeLessThan(2_000);
-  await expect(page.getByRole('treeitem')).toHaveCount(50);
-  await expect(page.getByRole('button', { name: 'Show 50 more pages' })).toBeVisible();
+  await expect(page.getByRole('treeitem')).toHaveCount(15);
+  await expect(page.getByRole('button', { name: 'Show 15 more pages' })).toBeVisible();
 });
 
 async function importFixture(page: Page, button: string, file: string) {
@@ -519,6 +519,39 @@ test('command palette, keyboard shortcuts, trash and restore', async ({ page }) 
   await page.getByRole('treeitem', { name: /Reading list/ }).click();
   await page.getByRole('tab', { name: /Board/ }).click();
   await expect(page.getByText('Kürk Mantolu Madonna')).toBeVisible();
+});
+
+test('today shortcut creates one daily note and the sidebar calendar navigates dates', async ({ page }) => {
+  // Fix the date without freezing timers: month/year rollover must not race the UI.
+  await page.clock.setFixedTime(new Date('2026-11-03T12:00:00'));
+  await freshApp(page);
+  await onboard(page);
+  const today = await page.evaluate(() => {
+    const date = new Date();
+    const key = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+    return { key };
+  });
+  await page.keyboard.press('Control+Alt+d');
+  await expect(page.getByLabel('Page title')).toHaveValue(today.key);
+  await expect(page.getByRole('treeitem', { name: /Daily notes/ })).toBeVisible();
+  await page.keyboard.press('Control+k');
+  await page.getByLabel('Search or run a command…').fill("Open today's note");
+  await page.keyboard.press('Enter');
+  await expect(page.getByLabel('Page title')).toHaveValue(today.key);
+  await expect(page.getByRole('treeitem', { name: new RegExp(today.key) })).toHaveCount(1);
+
+  await expect(page.getByLabel('Daily notes calendar')).toBeVisible();
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+  const calendar = page.getByRole('region', { name: 'Daily notes calendar' });
+  await calendar.getByRole('button', { name: 'Next month', exact: true }).click();
+  const target = await page.evaluate(() => {
+    const date = new Date();
+    date.setMonth(date.getMonth() + 1, 1);
+    return { title: `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-01`, full: new Intl.DateTimeFormat('en-US', { dateStyle: 'full' }).format(date) };
+  });
+  await expect(calendar.getByRole('button', { name: target.full, exact: true })).toBeVisible();
+  await calendar.getByRole('button', { name: target.full, exact: true }).click();
+  await expect(page.getByLabel('Page title')).toHaveValue(target.title);
 });
 
 test('pasting plain-text markdown creates structured blocks', async ({ page }) => {
