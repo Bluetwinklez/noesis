@@ -205,3 +205,7 @@ Security scanning, immutable action references and an English audit were added. 
   "manual_pending": ["interactive_install_on_windows_10_11"]
 }
 ```
+
+### Percent-sign import fix
+
+Literal percent signs in file names and links are preserved instead of aborting import with `URI malformed`. Valid encoded links continue resolving correctly. Regression coverage is in `tests/unit/import.test.ts`.
