@@ -4,13 +4,13 @@ Date: 2026-11-03. Repository: `Bluetwinklez/noesis`.
 
 ## Scope and method
 
-React/Tauri architecture, dependency audit, unit/e2e suites and the daily-notes feature branch.
+Default-branch workflows, React/Tauri architecture and dependency/credential audits. Calendar regression changes and their additional tests are tracked separately in PR #19 against the daily-notes feature branch.
 
 Fetched the repository and scanned all locally fetched Git refs/history with Gitleaks 8.30.1 in fully redacted mode. Reviewed tracked sensitive-file patterns and personal-email candidates. Dependency audits describe the installed/resolved graph on this date; they are not a penetration test or a guarantee that no undiscovered vulnerability exists. Uploaded binaries, remote service configuration and files outside accessible Git refs are outside this scan.
 
 ## Changes
 
-Stabilized calendar regression setup with a fixed date and region-scoped accessible controls; wait for the command dialog to close before month navigation. Security changes are based on the daily-notes branch so unrelated feature work is not silently merged into main.
+Pinned default-branch CI/release action implementations, added verified secret scanning and documented security findings. The calendar correction stays in PR #19; this change does not import the daily-notes feature into main.
 
 All maintained repositories receive an English security policy/audit entry point, a pinned and checksum-verified secret-scan workflow, credential ignore patterns and immutable action references. Existing publishing jobs retain their declared permissions. Known false positives, if any, are exempted only by exact historic finding fingerprints; no entire directory or credential rule is disabled.
 
@@ -22,7 +22,7 @@ No working private credential was confirmed in this review. No credential values
 
 ## Validation
 
-138 unit tests, typecheck, four mock AI evaluation cases, two benchmarks, production build and focused calendar/evidence/performance checks passed. The initial full run passed 28/30; focused reruns passed, and the final complete run passed all 30 scenarios. Measured seeded browser startup was 1,313.1 ms and the warm 2,000-row table opened in 238.4 ms. npm audit reports zero known vulnerabilities.
+On the related daily-notes branch, 138 unit tests, typecheck, four mock AI evaluation cases, two benchmarks, production build and focused calendar/evidence/performance checks passed. Default-branch source code is unchanged here; its Windows/Linux CI validates the current main revision independently. The initial full run passed 28/30; focused reruns passed, and the final complete run passed all 30 scenarios. Measured seeded browser startup was 1,313.1 ms and the warm 2,000-row table opened in 238.4 ms. npm audit reports zero known vulnerabilities.
 
 GitHub Actions YAML was checked with Actionlint. Local log files are kept outside the repositories; do not confuse historical README test counts with new results.
 
