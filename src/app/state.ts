@@ -4,6 +4,7 @@ import type { Lang } from '../i18n';
 import type { AiConfig } from '../ai/types';
 import { DEFAULT_AI_CONFIG } from '../ai/types';
 import type { VisualThemeId } from './visual-themes';
+import type { DailyTitleFormat } from '../features/daily-notes/daily';
 
 export type Route =
   | { name: 'home' }
@@ -48,6 +49,9 @@ export interface Prefs {
   startPage: 'home' | 'last';
   /** First day of the week in calendars and timelines (0 = Sunday, 1 = Monday). */
   weekStart: 0 | 1;
+  /** Title style and optional saved-page template used for newly created daily notes. */
+  dailyNoteTitleFormat: DailyTitleFormat;
+  dailyNoteTemplateId: string | null;
   /** Desktop: keep backups in the app data folder automatically. */
   autoBackup: 'off' | 'daily' | 'weekly';
   autoBackupKeep: number;
@@ -86,6 +90,8 @@ export const DEFAULT_PREFS: Prefs = {
   showWordCount: true,
   startPage: 'home',
   weekStart: 1,
+  dailyNoteTitleFormat: 'iso',
+  dailyNoteTemplateId: null,
   autoBackup: 'off',
   autoBackupKeep: 7,
   lastAutoBackupAt: null,

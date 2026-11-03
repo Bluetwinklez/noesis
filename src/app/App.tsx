@@ -6,7 +6,7 @@ import { CommandPalette } from '../components/shell/CommandPalette';
 import { ToastHost, ConsentModal } from '../components/shell/Overlays';
 import { DialogHost, Spinner } from '../components/ui';
 import { useT } from '../i18n';
-import { createPage } from '../features/actions';
+import { createPage, openDailyNote } from '../features/actions';
 import { savePrefs } from './services';
 import { HomePage } from '../features/home/HomePage';
 import { AiPreviewHost } from '../features/ai/AiPreview';
@@ -80,6 +80,9 @@ function useGlobalShortcuts() {
       } else if (mod && e.altKey && e.key.toLowerCase() === 'n') {
         e.preventDefault();
         void createPage();
+      } else if (mod && e.altKey && e.key.toLowerCase() === 'd') {
+        e.preventDefault();
+        void openDailyNote();
       } else if (mod && e.shiftKey && e.key.toLowerCase() === 'f') {
         e.preventDefault();
         st.navigate({ name: 'search' });

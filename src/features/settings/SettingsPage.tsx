@@ -124,6 +124,9 @@ function Choice<T extends string | number>({ value, options, onChange, label }: 
 function General() {
   const t = useT();
   const prefs = useApp((s) => s.prefs);
+  const workspaceId = useApp((s) => s.workspaceId);
+  const version = useApp((s) => s.version);
+  const { data: dailyTemplates } = useAsync(() => workspaceId ? repos().pages.listTemplates(workspaceId) : Promise.resolve([]), [workspaceId, version]);
   return (
     <section>
       <Row label={t('settings.startPage')} hint={t('settings.startPageHint')}>
@@ -146,6 +149,29 @@ function General() {
             { value: 1, label: t('settings.weekStart.monday') },
             { value: 0, label: t('settings.weekStart.sunday') },
           ]}
+        />
+      </Row>
+      <Row label={t('settings.dailyTitle')} hint={t('settings.dailyTitleHint')}>
+        <Select
+          value={prefs.dailyNoteTitleFormat}
+          onChange={(value) => void savePrefs({ dailyNoteTitleFormat: value })}
+          options={[
+            { value: 'iso', label: t('settings.dailyTitle.iso') },
+            { value: 'short', label: t('settings.dailyTitle.short') },
+            { value: 'long', label: t('settings.dailyTitle.long') },
+          ]}
+          ariaLabel={t('settings.dailyTitle')}
+        />
+      </Row>
+      <Row label={t('settings.dailyTemplate')} hint={t('settings.dailyTemplateHint')}>
+        <Select
+          value={prefs.dailyNoteTemplateId ?? ''}
+          onChange={(value) => void savePrefs({ dailyNoteTemplateId: value || null })}
+          options={[
+            { value: '', label: t('settings.dailyTemplate.none') },
+            ...(dailyTemplates ?? []).map((page) => ({ value: page.id, label: page.title || t('common.untitled') })),
+          ]}
+          ariaLabel={t('settings.dailyTemplate')}
         />
       </Row>
       <Row label={t('settings.reset')} hint={t('settings.resetHint')}>
@@ -673,6 +699,7 @@ function Shortcuts() {
     ['shortcut.palette', 'Ctrl K'],
     ['capture.shortcut', 'Ctrl Shift Space'],
     ['shortcut.newPage', 'Ctrl Alt N'],
+    ['shortcut.today', 'Ctrl Alt D'],
     ['shortcut.search', 'Ctrl Shift F'],
     ['shortcut.sidebar', 'Ctrl \\'],
     ['shortcut.settings', 'Ctrl ,'],
