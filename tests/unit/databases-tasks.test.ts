@@ -72,6 +72,18 @@ describe('structured databases', () => {
     expect(hits.some((h) => h.kind === 'row' && h.refId === r2.id)).toBe(true);
   });
 
+  it('bulk imports rows with stable order and searchable titles', async () => {
+    const db = await s.databases.createDatabase(ws, 'Bulk');
+    const title = (await s.databases.properties(db.id)).find((p) => p.type === 'title')!;
+    const input = Array.from({ length: 250 }, (_, i) => ({ [title.id]: `Bulk record ${i + 1}` }));
+    const created = await s.databases.addRows(db.id, input);
+    expect(created).toHaveLength(250);
+    const rows = await s.databases.rows(db.id);
+    expect(rows.map((row) => row.values[title.id])).toEqual(input.map((values) => values[title.id]));
+    const hits = await search(s.db, 'Bulk record 249', { workspaceId: ws, mode: 'fulltext' });
+    expect(hits.some((hit) => hit.kind === 'row' && hit.refId === created[248].id)).toBe(true);
+  });
+
   it('protects the title property and the last view', async () => {
     const d = await s.databases.createDatabase(ws, 'X');
     const props = await s.databases.properties(d.id);

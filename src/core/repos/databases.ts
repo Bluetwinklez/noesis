@@ -200,6 +200,42 @@ export class DatabaseRepo {
     });
   }
 
+  /** Imports rows in bounded multi-value statements and indexes them in the same transaction. */
+  async addRows(databaseId: string, valuesList: Record<string, CellValue>[]): Promise<DbRow[]> {
+    if (!valuesList.length) return [];
+    return this.db.transaction(async (tx) => {
+      const database = await tx.get<{ workspace_id: string; kind: string }>('SELECT workspace_id, kind FROM pages WHERE id = ?', [databaseId]);
+      if (!database || database.kind !== 'database') throw new Error('Database not found');
+      const max = await tx.get<{ m: number | null }>('SELECT MAX(sort_order) m FROM db_rows WHERE database_id = ?', [databaseId]);
+      const props = (await tx.all<RawProp>('SELECT * FROM db_properties WHERE database_id = ?', [databaseId])).map(toProp);
+      const titleProp = props.find((p) => p.type === 'title');
+      const start = (max?.m ?? 0) + 1;
+      const t = now();
+      const rows = valuesList.map((values, index): DbRow => ({
+        id: uid(), database_id: databaseId, values, sort_order: start + index, created_at: t, updated_at: t,
+      }));
+
+      for (let offset = 0; offset < rows.length; offset += 100) {
+        const chunk = rows.slice(offset, offset + 100);
+        const rowPlaceholders = chunk.map(() => '(?,?,?,?,?,?)').join(',');
+        await tx.run(
+          `INSERT INTO db_rows(id, database_id, values_json, sort_order, created_at, updated_at) VALUES ${rowPlaceholders}`,
+          chunk.flatMap((row) => [row.id, row.database_id, JSON.stringify(row.values), row.sort_order, row.created_at, row.updated_at]),
+        );
+        const searchPlaceholders = chunk.map(() => '(?,?,?,?,?,?)').join(',');
+        await tx.run(
+          `INSERT INTO search_index(kind, ref_id, workspace_id, parent_id, title, body) VALUES ${searchPlaceholders}`,
+          chunk.flatMap((row) => {
+            const title = titleProp ? String(row.values[titleProp.id] ?? '') : '';
+            const body = props.filter((p) => p.type !== 'title').map((p) => `${p.name}: ${displayValue(p, row.values[p.id])}`).join('\n');
+            return ['row', row.id, database.workspace_id, databaseId, title, body.slice(0, 200_000)];
+          }),
+        );
+      }
+      return rows;
+    });
+  }
+
   async updateCell(rowId: string, propertyId: string, value: CellValue) {
     await this.db.transaction(async (tx) => {
       const r = await tx.get<RawRow>('SELECT * FROM db_rows WHERE id = ?', [rowId]);

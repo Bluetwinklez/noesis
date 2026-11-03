@@ -303,6 +303,12 @@ export async function importWorkspace(
         columnProps.push((await repos.databases.addProperty(dbId, name, type)).id);
       }
       const types = await repos.databases.properties(dbId);
+      let pendingRows: Record<string, string | number | boolean | null>[] = [];
+      const flushRows = async () => {
+        if (!pendingRows.length) return;
+        await repos.databases.addRows(dbId, pendingRows);
+        pendingRows = [];
+      };
       for (const r of data.slice(0, 50_000)) {
         if (r.every((v) => !v.trim())) continue;
         const values: Record<string, string | number | boolean | null> = {};
@@ -316,8 +322,10 @@ export async function importWorkspace(
           values[pid] = type === 'number' ? (raw ? Number(raw.replace(',', '.')) : null) : type === 'checkbox' ? /^(yes|true)$/i.test(raw) : raw;
         });
         if (statusCol > 0 && status && r[statusCol]?.trim()) values[status.id] = (await repos.databases.ensureOption(status.id, r[statusCol].trim())).id;
-        await repos.databases.addRow(dbId, values);
+        pendingRows.push(values);
+        if (pendingRows.length >= 500) await flushRows();
       }
+      await flushRows();
     }
     opts.onProgress?.(++done, notes.length + csvs.length);
   }
