@@ -67,6 +67,8 @@ export interface Prefs {
   checkUpdates: boolean;
   /** Install a downloaded update when the app is closed, without asking. */
   autoInstallUpdates: boolean;
+  /** Desktop: closing the window hides Noesis in the system tray instead of quitting (Quit from the tray menu). */
+  closeToTray: boolean;
   /** Local MCP endpoint for external AI assistants (desktop only). */
   mcpEnabled: boolean;
   /** Apply AI assistants' changes to existing pages without asking. */
@@ -102,6 +104,7 @@ export const DEFAULT_PREFS: Prefs = {
   lastBackupAt: null,
   checkUpdates: true,
   autoInstallUpdates: true,
+  closeToTray: true,
   mcpEnabled: false,
   mcpAutoApprove: false,
 };
