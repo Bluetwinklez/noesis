@@ -8,3 +8,15 @@ playwright-report
 .env
 tsconfig.tsbuildinfo
 public/ocr
+
+# Local credentials and private signing material
+.env.*
+!.env.example
+!.env.template
+*.pem
+*.p12
+*.pfx
+id_rsa
+id_ed25519
+service-account*.json
+credentials.local.json
