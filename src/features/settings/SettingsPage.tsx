@@ -140,6 +140,11 @@ function General() {
           ]}
         />
       </Row>
+      {isTauri() && (
+        <Row label={t('settings.closeToTray')} hint={t('settings.closeToTrayHint')}>
+          <Switch checked={prefs.closeToTray} onChange={(v) => void savePrefs({ closeToTray: v })} label={t('settings.closeToTray')} />
+        </Row>
+      )}
       <Row label={t('settings.weekStart')}>
         <Choice
           label={t('settings.weekStart')}

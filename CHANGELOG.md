@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Closing the window now hides Noesis in the system tray instead of quitting, so quick capture (`Ctrl+Shift+Space`), reminders and the MCP endpoint keep running. New desktop setting Settings → General → "Keep running in the tray when closed" (default on, `Prefs.closeToTray`). Pending saves are flushed before the window is hidden. A downloaded update that installs on close still wins over hiding. A left click on the tray icon and a second launch of the app (single-instance handler) now show the hidden window; the tray menu keeps "Quit" for a real exit. A one-time system notification explains that the app was not closed. Decision logic in `src/app/closeBehavior.ts` (unit tests in `tests/unit/close-behavior.test.ts`); the window hide/show itself is verified manually on Windows.
+
 ## Repository hardening — 2026-11-03
 
 - Pin CI action implementations and verify the secret-scanner release checksum.
