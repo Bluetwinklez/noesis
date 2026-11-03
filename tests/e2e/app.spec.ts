@@ -521,6 +521,45 @@ test('command palette, keyboard shortcuts, trash and restore', async ({ page }) 
   await expect(page.getByText('Kürk Mantolu Madonna')).toBeVisible();
 });
 
+test('ask across notebooks opens a cited page and warns when evidence is missing', async ({ page }) => {
+  await freshApp(page);
+  await onboard(page);
+  await configureMockAi(page);
+  await newPage(page, 'Glacier evidence');
+  await editor(page).fill('Glacier basalt records the ancient volcanic landscape.');
+  await expect.poll(() => page.evaluate(async () => {
+    const state = (window as unknown as { __noesis: { getState(): { repos: Repos } } }).__noesis.getState();
+    await state.repos.db.flushNow();
+    return true;
+  })).toBe(true);
+  await page.getByRole('button', { name: 'AI Notebooks' }).click();
+  const ask = page.getByRole('region', { name: 'Ask across your workspace' });
+  await ask.getByLabel('Question across notebooks and pages').fill('glacier basalt');
+  await ask.getByRole('button', { name: 'Ask AI', exact: true }).click();
+  await expect(ask.getByRole('button', { name: 'Glacier evidence' })).toBeVisible({ timeout: 20_000 });
+  await ask.getByRole('button', { name: 'Glacier evidence' }).click();
+  await expect(page.getByLabel('Page title')).toHaveValue('Glacier evidence');
+  await page.getByRole('button', { name: 'AI Notebooks' }).click();
+  await ask.getByLabel('Question across notebooks and pages').fill('quasarxylophone987');
+  await ask.getByRole('button', { name: 'Ask AI', exact: true }).click();
+  await expect(ask.getByRole('note')).toBeVisible();
+  await page.evaluate(async () => {
+    const state = (window as unknown as { __noesis: { getState(): { repos: Repos; workspaceId: string } } }).__noesis.getState();
+    const source = await state.repos.sources.create({ workspaceId: state.workspaceId, title: 'Ocean study', kind: 'note', origin: 'pasted' });
+    const text = 'Coral reefs shelter many species in tropical seas.';
+    await state.repos.sources.setExtracted(source.id, text, null, {});
+    await state.repos.sources.replaceChunks(source.id, [{ text, pageNumber: null, charStart: 0, charEnd: text.length, embedding: null }], null);
+    await state.repos.sources.setStatus(source.id, 'ready', 'done');
+    const notebook = await state.repos.notebooks.create(state.workspaceId, 'Ocean notebook');
+    await state.repos.notebooks.addSource(notebook.id, source.id);
+  });
+  await ask.getByLabel('Question across notebooks and pages').fill('coral reefs');
+  await ask.getByRole('button', { name: 'Ask AI', exact: true }).click();
+  await expect(ask.getByRole('button', { name: 'Ocean study' })).toBeVisible({ timeout: 20_000 });
+  await ask.getByRole('button', { name: 'Ocean study' }).click();
+  await expect(page.getByText('Coral reefs shelter many species in tropical seas.')).toBeVisible();
+});
+
 test('today shortcut creates one daily note and the sidebar calendar navigates dates', async ({ page }) => {
   // Fix the date without freezing timers: month/year rollover must not race the UI.
   await page.clock.setFixedTime(new Date('2026-11-03T12:00:00'));

@@ -4,6 +4,7 @@ import { useT } from '../../i18n';
 import { Button, EmptyState, PageHeader, useAsync } from '../../components/ui';
 import { createNotebook } from '../actions';
 import { relativeTime } from '../../lib/util';
+import { AskWorkspace } from './AskWorkspace';
 
 export default function NotebooksPage() {
   const t = useT();
@@ -22,6 +23,7 @@ export default function NotebooksPage() {
           </Button>
         }
       />
+      <AskWorkspace />
       {data?.length === 0 ? (
         <EmptyState
           icon={<BookOpen className="size-5" />}
