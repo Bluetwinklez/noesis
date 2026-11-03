@@ -216,3 +216,5 @@ Noesis; notlarınızı, veritabanlarınızı ve kaynak belgelerinizi tek bir yer
 - **Hızlı not:** Windows'un herhangi bir yerinde `Ctrl+Shift+Space`. **Web kırpıcı** eklentisi ile tarayıcıdan sayfa kaydedin.
 - **Yapay zekâ asistanları:** *Ayarlar → AI bağlantıları* bölümünden Claude Desktop, Cursor, Windsurf veya LM Studio'ya tek tıkla bağlayın; mevcut bir sayfanın değiştirilmesi her zaman onayınızı gerektirir.
 - Hata bildirmek için [issue açın](https://github.com/Bluetwinklez/noesis/issues/new); API anahtarı veya özel belge paylaşmayın.
+
+[Security policy](SECURITY.md) · [Repository security audit](SECURITY_AUDIT.md)

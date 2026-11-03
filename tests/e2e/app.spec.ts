@@ -522,6 +522,8 @@ test('command palette, keyboard shortcuts, trash and restore', async ({ page }) 
 });
 
 test('today shortcut creates one daily note and the sidebar calendar navigates dates', async ({ page }) => {
+  // Fix the date without freezing timers: month/year rollover must not race the UI.
+  await page.clock.setFixedTime(new Date('2026-11-03T12:00:00'));
   await freshApp(page);
   await onboard(page);
   const today = await page.evaluate(() => {
@@ -539,13 +541,16 @@ test('today shortcut creates one daily note and the sidebar calendar navigates d
   await expect(page.getByRole('treeitem', { name: new RegExp(today.key) })).toHaveCount(1);
 
   await expect(page.getByLabel('Daily notes calendar')).toBeVisible();
-  await page.getByLabel('Next month').click();
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+  const calendar = page.getByRole('region', { name: 'Daily notes calendar' });
+  await calendar.getByRole('button', { name: 'Next month', exact: true }).click();
   const target = await page.evaluate(() => {
     const date = new Date();
     date.setMonth(date.getMonth() + 1, 1);
     return { title: `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-01`, full: new Intl.DateTimeFormat('en-US', { dateStyle: 'full' }).format(date) };
   });
-  await page.getByLabel(target.full).click();
+  await expect(calendar.getByRole('button', { name: target.full, exact: true })).toBeVisible();
+  await calendar.getByRole('button', { name: target.full, exact: true }).click();
   await expect(page.getByLabel('Page title')).toHaveValue(target.title);
 });
 

@@ -1,5 +1,11 @@
 # Changelog
 
+## Repository hardening — 2026-11-03
+
+- Pin CI action implementations and verify the secret-scanner release checksum.
+- Document security findings and native-validation limits in `SECURITY_AUDIT.md`.
+- Make the daily-calendar regression independent of wall-clock rollover and scope navigation to the calendar region.
+
 ## Unreleased
 
 - Add daily notes with a `Ctrl+Alt+D` Today action, configurable localized date titles, optional saved-page templates and a sidebar calendar that marks note days and outstanding task due dates. Daily date identities survive renames, backups and workspace ZIP transfers. Limit sidebar windows to 15 pages and table windows to 50 rows to maintain responsiveness.
