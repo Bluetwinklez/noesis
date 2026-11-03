@@ -8,6 +8,8 @@
 
 ## Unreleased
 
+- Ask across workspace pages and sources attached to any notebook, with navigable evidence and unsupported-answer warnings. Answers are session-only; local lexical/hash retrieval and mock tests do not prove factual correctness.
+
 - Add daily notes with a `Ctrl+Alt+D` Today action, configurable localized date titles, optional saved-page templates and a sidebar calendar that marks note days and outstanding task due dates. Daily date identities survive renames, backups and workspace ZIP transfers. Limit sidebar windows to 15 pages and table windows to 50 rows to maintain responsiveness.
 
 - Fix "URI malformed" when importing a Notion/Obsidian/Markdown export: a note whose file name or link contains a literal `%` (for example "Zam 20% oldu.md" or `[x](100%.md)`) made `decodeURIComponent` throw and aborted the whole import. Paths and links are now decoded with `safeDecode`, which only decodes valid `%XX` runs and keeps everything else as written. Regression test in `tests/unit/import.test.ts` failed on the old code.

@@ -10,6 +10,13 @@ Security scanning, immutable action references and an English audit were added. 
 
 ## Verification runs (this revision)
 
+### Ask across notebooks and pages (2026-11-03)
+
+- The notebook list offers a workspace-wide question box. It retrieves non-archived pages and ready sources connected to any notebook in the active workspace, ranks matching passages with lexical and local hash-vector fusion, and packs a bounded context.
+- Answers use the existing untrusted-source prompt, sanitized evidence rendering, invalid-reference removal, unsupported-answer warning and uncited-sentence marking. Citations open the original page or source passage. Answers are session-only and are not stored in notebook history.
+- Unit coverage tests ranking, workspace isolation, mock answers and refusal without evidence. Browser coverage exercises page/source citation navigation and unsupported-answer warning. No live provider or semantic entailment verification is claimed.
+- Windows local gates passed: npm ci, typecheck, **142 Vitest tests / 26 files**, **31 Playwright scenarios**, **4 mock evaluation cases**, **22 Rust tests**, strict Clippy, build and **2 benchmark tests**. The large fixture measured **1,755.3 ms** browser startup, **246.8 ms** warm table open and **33.242 ms** search p95; these are not cross-notebook retrieval latency measurements.
+
 ### Daily notes and calendar (2026-11-02)
 
 - `Ctrl+Alt+D` and the command palette's Today action open or create one page for the local calendar day under a localized Daily notes parent. Repeated use reopens the same page.
