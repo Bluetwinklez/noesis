@@ -1,7 +1,7 @@
 {
-  "date": "2026-11-02T20:07:02.671Z",
-  "node": "v24.20.0",
-  "platform": "win32-x64",
+  "date": "2026-11-03T08:07:09.437Z",
+  "node": "v24.19.0",
+  "platform": "linux-x64",
   "counts": {
     "pages": 5000,
     "databases": 50,
@@ -9,19 +9,19 @@
     "sources": 1000,
     "databaseRows": 100000
   },
-  "seed_ms": 1840.299,
-  "startup_ms": 6.874,
-  "sidebar_data_ms": 60.166,
+  "seed_ms": 514.373,
+  "startup_ms": 1.778,
+  "sidebar_data_ms": 28.885,
   "search": {
-    "median_ms": 22.953,
-    "p95_ms": 28.372,
-    "max_ms": 28.372
+    "median_ms": 9.535,
+    "p95_ms": 16.679,
+    "max_ms": 16.679
   },
-  "table_open_ms": 19.537,
+  "table_open_ms": 14.113,
   "table_rendered_rows": 100,
-  "export_ms": 6648.59,
-  "export_bytes": 1473051,
-  "import_ms": 11321.642,
+  "export_ms": 2823.438,
+  "export_bytes": 1473188,
+  "import_ms": 6284.718,
   "imported": {
     "pages": 4950,
     "databases": 50,
