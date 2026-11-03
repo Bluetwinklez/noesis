@@ -37,3 +37,9 @@ Main READMEs and new maintenance documents are English. Historical Turkish recor
 A local-first Windows workspace for notes, databases, source-grounded research and optional AI assistance.
 
 The current GitHub integration rejected repository metadata edits with HTTP 403. This prepared description can be applied when repository administration access is available; it has not been represented as an applied settings change.
+
+## Target-specific Rust advisory follow-up
+
+An OSV lockfile query identified `glib 0.18.5` (`RUSTSEC-2024-0429`, alias `GHSA-wrw7-89jp-8q8g`: iterator unsoundness) and `proc-macro-error 1.0.4` (`RUSTSEC-2024-0370`: unmaintained). These are two advisory types, not three independent issues. The latter is an informational maintenance warning.
+
+For this Windows application, `cargo tree --locked --target x86_64-pc-windows-msvc -i glib` and the equivalent `proc-macro-error` query both return no dependency path. The affected crates are in the cross-platform lockfile's GTK/Linux chain, outside the reviewed Windows target. A future Linux product/build must resolve these findings before claiming Linux readiness. Replacing GLib 0.18 with 0.20 by a forced transitive override is not an API-compatible repair for the current GTK/Tauri stack. No advisory rule was globally disabled.
