@@ -1,10 +1,10 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
-import { BookOpen, CheckSquare, Database, FileText, Home, Library, Moon, Network, Plus, Search, Settings, Star, Trash2 } from 'lucide-react';
+import { BookOpen, CalendarDays, CheckSquare, Database, FileText, Home, Library, Moon, Network, Plus, Search, Settings, Star, Trash2 } from 'lucide-react';
 import { useApp, repos, type Route } from '../../app/state';
 import { useT } from '../../i18n';
 import { cx, Kbd } from '../ui';
-import { createDatabase, createNotebook, createPage } from '../../features/actions';
+import { createDatabase, createNotebook, createPage, openDailyNote } from '../../features/actions';
 import { savePrefs } from '../../app/services';
 import { search, type SearchHit } from '../../search/search';
 import { openHit, kindIcon } from '../../features/search/openHit';
@@ -57,6 +57,7 @@ export function CommandPalette() {
   const items: Item[] = useMemo(() => {
     const actions: Item[] = [
       { id: 'new-page', group: t('cmd.actions'), label: t('cmd.newPage'), icon: <Plus className="size-4" />, run: () => void createPage() },
+      { id: 'today', group: t('cmd.actions'), label: t('cmd.today'), sub: 'Ctrl Alt D', icon: <CalendarDays className="size-4" />, run: () => void openDailyNote() },
       { id: 'new-nb', group: t('cmd.actions'), label: t('cmd.newNotebook'), icon: <BookOpen className="size-4" />, run: () => void createNotebook() },
       { id: 'new-db', group: t('cmd.actions'), label: t('db.new'), icon: <Database className="size-4" />, run: () => void createDatabase() },
       { id: 'new-task', group: t('cmd.actions'), label: t('cmd.newTask'), icon: <CheckSquare className="size-4" />, run: go({ name: 'tasks' }) },

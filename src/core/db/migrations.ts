@@ -335,6 +335,18 @@ CREATE INDEX idx_agent_activity_ws ON agent_activity(workspace_id, created_at DE
 CREATE INDEX idx_agent_activity_page ON agent_activity(page_id);
 `,
   },
+  {
+    version: 7,
+    name: 'daily_notes',
+    sql: `
+CREATE TABLE daily_notes (
+  workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+  day TEXT NOT NULL,
+  page_id TEXT NOT NULL UNIQUE REFERENCES pages(id) ON DELETE CASCADE,
+  PRIMARY KEY (workspace_id, day)
+);
+`,
+  },
 ];
 
 export const LATEST_VERSION = migrations[migrations.length - 1].version;

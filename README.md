@@ -131,6 +131,7 @@ See [AI configuration](docs/ai-configuration.md) and [privacy & security](docs/s
 | `Ctrl+K` | Search or run a command |
 | `Ctrl+Shift+Space` | Quick note (system-wide in the desktop app) |
 | `Ctrl+Alt+N` | Create a page |
+| `Ctrl+Alt+D` | Open or create today's daily note |
 | `Ctrl+Shift+F` | Open search |
 | `Ctrl+,` | Open settings |
 | `Ctrl+\` | Toggle the sidebar |

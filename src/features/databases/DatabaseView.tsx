@@ -686,7 +686,7 @@ function TableView({ ctx, rows, databaseId, config }: { ctx: Ctx; rows: DbRow[];
   const visible = ctx.props.filter((p) => !config.hiddenProperties?.includes(p.id));
   const [dragId, setDragId] = useState<string | null>(null);
   const [page, setPage] = useState(0);
-  const window = pageWindow(rows, page, 100);
+  const window = pageWindow(rows, page, 50);
   const canReorder = !config.sorts?.length;
   return (
     <div>
@@ -735,7 +735,7 @@ function TableView({ ctx, rows, databaseId, config }: { ctx: Ctx; rows: DbRow[];
         </tbody>
         </table>
       </div>
-      {window.total > 100 && (
+      {window.total > 50 && (
         <nav className="flex items-center justify-end gap-2 border-t border-line px-3 py-2" aria-label={t('db.tablePages')}>
           <span className="mr-2 text-xs text-muted">{t('db.rowRange', { start: window.start, end: window.end, total: window.total })}</span>
           <Button size="sm" variant="secondary" disabled={window.page === 0} onClick={() => setPage(window.page - 1)} icon={<ChevronLeft className="size-3.5" />}>
