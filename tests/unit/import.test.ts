@@ -99,6 +99,27 @@ describe('Obsidian import', () => {
   });
 });
 
+describe('import with a literal percent sign (URI malformed)', () => {
+  it('imports notes whose names or links contain a percent sign instead of aborting', async () => {
+    const file = await zip({
+      // "% o" is not a valid escape: decodeURIComponent used to throw "URI malformed" and abort the whole import.
+      'Vault/Zam 20% oldu.md': 'See [coupon](Kupon%20%25.md), [broken](100%.md) and [again](Zam%2020%25%20oldu.md).',
+      'Vault/Kupon %.md': 'coupon page',
+      'Vault/Roadmap.md': '## Q4\n\nShip it.',
+    });
+    const r = await importWorkspace(s, ws, [file], { blobs, rootTitle: (src) => `Imported from ${src}` });
+    expect(r.pages).toBe(3);
+    const tree = await s.pages.listTree(ws);
+    const zam = tree.find((p) => p.title === 'Zam 20% oldu')!;
+    const kupon = tree.find((p) => p.title === 'Kupon %')!;
+    const content = await json(zam.id);
+    // Valid escapes still resolve to the right internal pages; the invalid one is left as plain text.
+    expect(content).toContain(`noesis://page/${kupon.id}`);
+    expect(content).toContain(`noesis://page/${zam.id}`);
+    expect(content).toContain('100%.md');
+  });
+});
+
 describe('markdown sanitising', () => {
   it('keeps internal links and images but still strips script URLs', () => {
     const html = markdownToHtml('[p](noesis://page/abc) ![i](attachment:xyz) [x](javascript:alert(1))');
