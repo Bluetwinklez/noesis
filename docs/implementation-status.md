@@ -159,6 +159,7 @@ Security scanning, immutable action references and an English audit were added. 
 | Keyring secret storage | done | Linux/Windows backends compiled; Windows Credential Manager not verified on a real Windows host in this session |
 | Cloud sync | not-started | No sync code; the architecture doc describes the seam |
 | Quick capture (global shortcut, tray) | done | `Ctrl+Shift+Space` system-wide; notes go to an Inbox page |
+| Close to tray (desktop) | done in code, not verified interactively | Closing the window hides it (Settings → General, default on); tray left click, tray "Open" and a second launch show it again; "Quit" exits for real. Hide/show must be checked on a Windows desktop (CI cannot) |
 | Web clipper (browser extension) | done | `extensions/web-clipper`, MV3; developer-mode install; not in stores |
 | MCP server for AI assistants | done | 10 tools, approval for edits, one-click config for Claude Desktop/Cursor/Windsurf/LM Studio |
 | Auto-update | done (config) | Tauri updater, minisign-signed, every push to `main` publishes a build. Needs the `TAURI_SIGNING_PRIVATE_KEY` secret; end-to-end update not yet observed |
