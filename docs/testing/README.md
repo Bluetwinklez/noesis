@@ -1,6 +1,6 @@
 # Testing
 
-Latest local verification (2026-10-28, Windows, Node 24.20.0, Rust 1.99.1): **123 Vitest tests / 22 files**, **25 Playwright scenarios**, **4 separate mock evaluation cases**, **22 Rust tests**, strict Clippy and the benchmark suite passed. [Answer evidence evaluation](evidence-eval.md) documents flag persistence, sentence highlighting and the optional owner-run live harness. [Interrupted source recovery](source-recovery.md) covers startup flagging and retry. [Error recovery](error-recovery.md) covers view boundaries and independent backup reconstruction. [Selectable visual themes](visual-themes.md) covers the four interface styles, fallback and persistence checks. The table below retains earlier evidence. [Studio source coverage](studio-context.md) documents the new regression tests, bounded condensation, transfer behavior and limitations.
+Latest local verification (2026-11-02, Windows, Node 24.20.0, Rust 1.99.1): **132 Vitest tests / 24 files**, **29 Playwright scenarios**, **4 separate mock evaluation cases**, **22 Rust tests**, strict Clippy and **2 benchmark tests** passed. Production build completed in **4.82 s**. [Large-data performance](large-data-performance.md) records the 5,000-page / 100,000-row / 1,000-source fixture and acceptance thresholds. [Answer evidence evaluation](evidence-eval.md) documents flag persistence, sentence highlighting and the optional owner-run live harness. [Interrupted source recovery](source-recovery.md) covers startup flagging and retry. [Error recovery](error-recovery.md) covers view boundaries and independent backup reconstruction. [Selectable visual themes](visual-themes.md) covers the four interface styles, fallback and persistence checks. The table below retains earlier evidence. [Studio source coverage](studio-context.md) documents the new regression tests, bounded condensation, transfer behavior and limitations.
 
 | Layer | Command | Recorded result (2026-10-27; environments below) | Covers |
 |---|---|---|---|
@@ -30,7 +30,7 @@ The scenarios run against the real UI in browser-preview mode (SQLite WASM persi
 15. Two-way relation keeps both sides linked and a rollup sums linked rows
 16. A page exports straight to a PDF file
 
-Benchmarks: `npm run bench`. See [benchmarks.md](benchmarks.md).
+Benchmarks: `npm run bench`. See [benchmarks.md](benchmarks.md) and [large-data performance](large-data-performance.md).
 
 Desktop smoke test (manual, recorded): the release binary under Xvfb survived a SIGKILL and restart with content intact. Screenshots are in `evidence/`.
 

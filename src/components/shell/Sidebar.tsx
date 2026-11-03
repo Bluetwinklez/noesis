@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
   BookOpen,
   CheckSquare,
@@ -53,6 +53,8 @@ interface TreeNode extends PageMeta {
   children: TreeNode[];
 }
 
+const SIDEBAR_ROOT_BATCH = 50;
+
 function buildTree(pages: PageMeta[]): TreeNode[] {
   const map = new Map<string, TreeNode>(pages.map((p) => [p.id, { ...p, children: [] }]));
   const roots: TreeNode[] = [];
@@ -71,6 +73,7 @@ function PageRow({ node, depth, expanded, toggle }: { node: TreeNode; depth: num
   const bump = useApp((s) => s.bump);
   const active = route.name === 'page' && route.id === node.id;
   const open = expanded.has(node.id);
+  const [visibleChildren, setVisibleChildren] = useState(SIDEBAR_ROOT_BATCH);
   const [dropMode, setDropMode] = useState<null | 'inside' | 'before'>(null);
   const menu = (): MenuItem[] => [
     { label: t('page.addSubpage'), icon: <Plus className="size-3.5" />, onSelect: () => void createPage(node.id) },
@@ -171,7 +174,16 @@ function PageRow({ node, depth, expanded, toggle }: { node: TreeNode; depth: num
           </IconButton>
         </span>
       </div>
-      {open && node.children.map((c) => <PageRow key={c.id} node={c} depth={depth + 1} expanded={expanded} toggle={toggle} />)}
+      {open && node.children.slice(0, visibleChildren).map((c) => <PageRow key={c.id} node={c} depth={depth + 1} expanded={expanded} toggle={toggle} />)}
+      {open && visibleChildren < node.children.length && (
+        <button
+          onClick={() => setVisibleChildren((count) => count + SIDEBAR_ROOT_BATCH)}
+          className="flex h-7 w-full items-center rounded-md text-xs text-muted hover:bg-hover hover:text-fg"
+          style={{ paddingLeft: 28 + (depth + 1) * 14 }}
+        >
+          {t('nav.showMorePages', { n: Math.min(SIDEBAR_ROOT_BATCH, node.children.length - visibleChildren) })}
+        </button>
+      )}
     </>
   );
 }
@@ -218,6 +230,7 @@ export function Sidebar() {
   const workspaceId = useApp((s) => s.workspaceId);
   const version = useApp((s) => s.version);
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
+  const [visibleRoots, setVisibleRoots] = useState(SIDEBAR_ROOT_BATCH);
   const { data: pages } = useAsync(async () => (workspaceId ? repos().pages.listTree(workspaceId) : []), [workspaceId, version]);
   const tree = useMemo(() => buildTree(pages ?? []), [pages]);
   const pinned = useMemo(() => (pages ?? []).filter((p) => p.is_pinned), [pages]);
@@ -232,18 +245,22 @@ export function Sidebar() {
 
   // Auto-expand ancestors of the active page.
   const activeId = route.name === 'page' ? route.id : null;
-  useMemo(() => {
+  useEffect(() => {
     if (!activeId || !pages) return;
     const byId = new Map(pages.map((p) => [p.id, p]));
+    let rootId = activeId;
     let cur = byId.get(activeId)?.parent_id;
     const add: string[] = [];
     while (cur) {
       add.push(cur);
+      rootId = cur;
       cur = byId.get(cur)?.parent_id ?? null;
     }
     if (add.some((id) => !expanded.has(id))) setExpanded((s) => new Set([...s, ...add]));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeId, pages]);
+    const rootIndex = tree.findIndex((node) => node.id === rootId);
+    if (rootIndex >= visibleRoots) setVisibleRoots(Math.ceil((rootIndex + 1) / SIDEBAR_ROOT_BATCH) * SIDEBAR_ROOT_BATCH);
+  }, [activeId, pages, tree, expanded, visibleRoots]);
+  useEffect(() => setVisibleRoots(SIDEBAR_ROOT_BATCH), [workspaceId]);
 
   const onResize = (e: React.PointerEvent) => {
     const startX = e.clientX;
@@ -320,9 +337,17 @@ export function Sidebar() {
             }
           }}
         >
-          {tree.map((n) => (
+          {tree.slice(0, visibleRoots).map((n) => (
             <PageRow key={n.id} node={n} depth={0} expanded={expanded} toggle={toggle} />
           ))}
+          {visibleRoots < tree.length && (
+            <button
+              onClick={() => setVisibleRoots((count) => count + SIDEBAR_ROOT_BATCH)}
+              className="flex h-8 w-full items-center justify-center rounded-md text-xs text-muted hover:bg-hover hover:text-fg"
+            >
+              {t('nav.showMorePages', { n: Math.min(SIDEBAR_ROOT_BATCH, tree.length - visibleRoots) })}
+            </button>
+          )}
           <button onClick={() => void createPage()} className="flex h-7 w-full items-center gap-2 rounded-md px-2 text-[13px] text-faint hover:bg-hover hover:text-muted">
             <Plus className="size-3.5" /> {t('nav.newPage')}
           </button>
