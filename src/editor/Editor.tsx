@@ -46,6 +46,7 @@ import {
   Globe,
   Lightbulb,
   ListTodo,
+  ListTree,
   FilePlus,
 } from 'lucide-react';
 import { Bookmark, Callout, createSuggestionExtension, FileAttachment, imageNodeView, PageMention, type SuggestItem } from './nodes';
@@ -59,6 +60,7 @@ import { looksLikeMarkdown, markdownToHtml } from './markdown';
 import type { AssistantAction } from '../ai/assistant';
 import { reportError } from '../app/services';
 import type { DocNode } from '../core/doc';
+import { TableOfContents } from './table-of-contents';
 
 const lowlight = createLowlight(common);
 
@@ -106,6 +108,7 @@ function slashItems(pageId: string): (q: string) => SuggestItem[] {
       i('h4', tr('editor.slash.h4'), <Heading4 className="size-4" />, 'h4 heading', (e, r) => e.chain().focus().deleteRange(r).setHeading({ level: 4 }).run()),
       i('h5', tr('editor.slash.h5'), <Heading4 className="size-4" />, 'h5 heading', (e, r) => e.chain().focus().deleteRange(r).setHeading({ level: 5 }).run()),
       i('h6', tr('editor.slash.h6'), <Heading4 className="size-4" />, 'h6 heading', (e, r) => e.chain().focus().deleteRange(r).setHeading({ level: 6 }).run()),
+      i('toc', tr('toc.title'), <ListTree className="size-4" />, 'table of contents outline içindekiler', (e, r) => e.chain().focus().deleteRange(r).insertContent({ type: 'tableOfContents' }).run()),
       i('ul', tr('editor.slash.bullet'), <List className="size-4" />, 'bullet list unordered madde', (e, r) => e.chain().focus().deleteRange(r).toggleBulletList().run()),
       i('ol', tr('editor.slash.numbered'), <ListOrdered className="size-4" />, 'numbered ordered list numaralı', (e, r) => e.chain().focus().deleteRange(r).toggleOrderedList().run()),
       i('todo', tr('editor.slash.todo'), <ListTodo className="size-4" />, 'todo task checklist checkbox yapılacak', (e, r) => e.chain().focus().deleteRange(r).toggleTaskList().run()),
@@ -250,6 +253,7 @@ export function NoteEditor({ pageId, initialContent, onChange, onReady, editable
       PageMention,
       Bookmark,
       FileAttachment,
+      TableOfContents,
       createSuggestionExtension('slashCommand', '/', slashItems(pageId), tr('editor.slash.empty')),
       createSuggestionExtension('pageMentionSuggest', '@', (q) => mentionItems(q, pageId), tr('editor.slash.empty')),
       createSuggestionExtension('wikiLinkSuggest', '[[', (q) => mentionItems(q, pageId), tr('editor.slash.empty')),
