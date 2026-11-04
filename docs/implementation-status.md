@@ -10,6 +10,12 @@ Security scanning, immutable action references and an English audit were added. 
 
 ## Verification runs (this revision)
 
+### Page tabs, split view and contents (2026-11-04)
+
+- Page navigation opens workspace-scoped tabs; tab state and split selection persist in settings. Existing delayed page writes and queued tab preference writes register with the pending-write flusher. Each split pane has its own view boundary and editor.
+- A live heading outline is available in a page panel or as a `/toc` block. The block survives HTML and Markdown serialization. Browser coverage exercises split saves, restart restoration, heading navigation and block insertion; unit coverage checks tab normalization and serialization.
+- Windows local verification passed: npm ci, typecheck, **148 Vitest tests / 28 files**, **32 Playwright scenarios**, **4 mock evaluation cases**, production build, **22 Rust tests**, strict Clippy and **2 benchmark tests**. Browser preview startup with 5,000 pages was **1,845.5 ms**, warm table open **224.6 ms**, and full-text search p95 **24.902 ms**.
+
 ### Ask across notebooks and pages (2026-11-03)
 
 - The notebook list offers a workspace-wide question box. It retrieves non-archived pages and ready sources connected to any notebook in the active workspace, ranks matching passages with lexical and local hash-vector fusion, and packs a bounded context.
