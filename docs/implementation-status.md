@@ -10,6 +10,10 @@ Security scanning, immutable action references and an English audit were added. 
 
 ## Verification runs (this revision)
 
+### Encryption design (2026-11-04)
+
+- [Encryption design](security/encryption-design.md) proposes native SQLCipher, password-wrapped keys, authenticated attachments/backups, staged migration and independent recovery. It is **not implemented** and awaits owner approval before coding.
+
 ### Page tabs, split view and contents (2026-11-04)
 
 - Page navigation opens workspace-scoped tabs; tab state and split selection persist in settings. Existing delayed page writes and queued tab preference writes register with the pending-write flusher. Each split pane has its own view boundary and editor.
