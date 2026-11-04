@@ -625,6 +625,21 @@ test('tabs restore, split editors save, and contents follows headings', async ({
   });
   await page.getByRole('button', { name: 'Table of contents', exact: true }).first().click();
   await expect(page.getByRole('navigation', { name: 'Table of contents' }).first()).toContainText('Navigation heading');
+  const activeEditor = page.getByLabel('Page content').nth(0);
+  await activeEditor.click();
+  await page.keyboard.press('Control+End');
+  await page.keyboard.press('Enter');
+  await page.keyboard.type('/toc');
+  await page.getByRole('option', { name: 'Table of contents' }).click();
+  await expect(activeEditor.locator('[data-type="table-of-contents"]')).toContainText('Navigation heading');
+  const currentTabs = page.getByRole('navigation', { name: 'Open pages' });
+  await currentTabs.getByRole('button', { name: 'First tab', exact: true }).locator('..').getByRole('button', { name: 'Close tab' }).click();
+  await currentTabs.getByRole('button', { name: 'Second tab', exact: true }).locator('..').getByRole('button', { name: 'Close tab' }).click();
+  await expect(page.getByRole('heading', { name: /Good (morning|afternoon|evening)/ })).toBeVisible();
+  await expect.poll(() => page.evaluate(async () => {
+    const state = (window as unknown as { __noesis: { getState(): { repos: Repos; workspaceId: string } } }).__noesis.getState();
+    return state.repos.settings.get<{ ids: string[] }>(`pageTabs:${state.workspaceId}`, { ids: ['pending'] });
+  })).toMatchObject({ ids: [] });
 });
 
 test('pasting plain-text markdown creates structured blocks', async ({ page }) => {

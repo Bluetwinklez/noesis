@@ -7,6 +7,7 @@ import { useT } from '../../i18n';
 import { cx, IconButton, Spinner } from '../../components/ui';
 import { ErrorBoundary } from '../../components/ErrorBoundary';
 import type { PageMeta } from '../../core/types';
+import { reportError } from '../../app/services';
 
 const PageView = lazy(() => import('./PageView').then((module) => ({ default: module.PageView })));
 
@@ -38,11 +39,15 @@ export function PageTabs({ id }: { id: string }) {
     writes.current = writes.current.catch(() => undefined).then(() => repos().settings.set(key, tabs));
   }, [tabs, ready, key]);
   useEffect(() => registerFlusher(async () => { await writes.current; }), []);
-  const close = useCallback((tab: string) => {
+  const close = useCallback(async (tab: string) => {
     const next = closeTab(tabs, tab);
     setTabs(next);
-    if (tabs.active === tab) navigate(next.active ? { name: 'page', id: next.active } : { name: 'home' });
-  }, [tabs, navigate]);
+    try {
+      await writes.current;
+      await repos().settings.set(key, next);
+      if (tabs.active === tab) navigate(next.active ? { name: 'page', id: next.active } : { name: 'home' });
+    } catch (error) { reportError(error); }
+  }, [tabs, navigate, key]);
   if (!ready) return <Spinner />;
   const split = tabs.split && tabs.split !== id ? tabs.split : null;
   const renderPage = (pageId: string) => <ErrorBoundary key={pageId}><Suspense fallback={<Spinner />}><PageView id={pageId} /></Suspense></ErrorBoundary>;
@@ -51,7 +56,7 @@ export function PageTabs({ id }: { id: string }) {
       {tabs.ids.map((tab) => <div key={tab} className={cx('flex items-center rounded-t-md', tab === id ? 'bg-elevated text-fg' : 'text-muted')}>
         <button className="max-w-40 truncate px-3 py-2 text-xs" onClick={() => navigate({ name: 'page', id: tab })}>{pages.find((page) => page.id === tab)?.title || t('common.untitled')}</button>
         <IconButton size="sm" label={t('tabs.split')} disabled={tab === id} onClick={() => setTabs((current) => ({ ...current, split: current.split === tab ? null : tab }))}><Columns2 className="size-3" /></IconButton>
-        <IconButton size="sm" label={t('tabs.close')} onClick={() => close(tab)}><X className="size-3" /></IconButton>
+        <IconButton size="sm" label={t('tabs.close')} onClick={() => void close(tab)}><X className="size-3" /></IconButton>
       </div>)}
     </nav>
     <div className={cx(split && 'grid grid-cols-2 divide-x divide-line')}>
