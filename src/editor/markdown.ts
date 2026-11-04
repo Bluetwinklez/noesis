@@ -61,6 +61,10 @@ function turndown(): TurndownService {
   if (td) return td;
   td = new TurndownService({ headingStyle: 'atx', codeBlockStyle: 'fenced', bulletListMarker: '-', emDelimiter: '*' });
   td.use(gfm);
+  td.addRule('tableOfContents', {
+    filter: (n) => (n as HTMLElement).getAttribute?.('data-type') === 'table-of-contents',
+    replacement: () => '\n\n<div data-type="table-of-contents">Table of contents</div>\n\n',
+  });
   td.addRule('taskItem', {
     filter: (n) => n.nodeName === 'LI' && (n as HTMLElement).getAttribute('data-type') === 'taskItem',
     replacement: (content, n) => `- [${(n as HTMLElement).getAttribute('data-checked') === 'true' ? 'x' : ' '}] ${content.trim().replace(/\n+/g, ' ')}\n`,

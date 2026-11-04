@@ -593,6 +593,40 @@ test('today shortcut creates one daily note and the sidebar calendar navigates d
   await expect(page.getByLabel('Page title')).toHaveValue(target.title);
 });
 
+test('tabs restore, split editors save, and contents follows headings', async ({ page }) => {
+  const db = await freshApp(page);
+  await onboard(page);
+  await newPage(page, 'First tab');
+  await editor(page).fill('First content');
+  await newPage(page, 'Second tab');
+  await editor(page).fill('Second content');
+  const tabs = page.getByRole('navigation', { name: 'Open pages' });
+  await expect(tabs.getByRole('button', { name: 'First tab' })).toBeVisible();
+  const firstTab = tabs.getByRole('button', { name: 'First tab', exact: true }).locator('..');
+  await firstTab.getByRole('button', { name: 'Toggle side-by-side view' }).click();
+  await expect(page.getByLabel('Page content')).toHaveCount(2);
+  await page.getByLabel('Page content').nth(0).fill('Second edited');
+  await page.getByLabel('Page content').nth(1).fill('First edited');
+  await page.evaluate(async () => {
+    const modulePath = '/src/app/pendingWrites.ts';
+    const pending = await import(/* @vite-ignore */ modulePath);
+    await pending.flushAllWrites();
+  });
+  await page.goto(`/?db=${db}`);
+  await page.getByRole('treeitem', { name: /Second tab/ }).click();
+  await expect(page.getByRole('navigation', { name: 'Open pages' }).getByRole('button', { name: 'First tab' })).toBeVisible();
+  await expect(page.getByLabel('Page content')).toHaveCount(2);
+  await expect(page.getByLabel('Page content').nth(0)).toContainText('Second edited');
+  await expect(page.getByLabel('Page content').nth(1)).toContainText('First edited');
+  await page.getByLabel('Page content').nth(0).evaluate((el) => {
+    const dt = new DataTransfer();
+    dt.setData('text/plain', '## Navigation heading\n\nBody');
+    el.dispatchEvent(new ClipboardEvent('paste', { clipboardData: dt, bubbles: true, cancelable: true }));
+  });
+  await page.getByRole('button', { name: 'Table of contents', exact: true }).first().click();
+  await expect(page.getByRole('navigation', { name: 'Table of contents' }).first()).toContainText('Navigation heading');
+});
+
 test('pasting plain-text markdown creates structured blocks', async ({ page }) => {
   await freshApp(page);
   await onboard(page);
