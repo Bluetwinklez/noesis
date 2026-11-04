@@ -8,6 +8,7 @@ import Image from '@tiptap/extension-image';
 import Highlight from '@tiptap/extension-highlight';
 import { Bookmark, Callout, FileAttachment, PageMention } from './nodes';
 import type { DocNode } from '../core/doc';
+import { TableOfContents } from './table-of-contents';
 
 /** Schema-only extension set for converting documents outside a live editor. */
 const EXTENSIONS = [
@@ -25,6 +26,7 @@ const EXTENSIONS = [
   PageMention,
   Bookmark,
   FileAttachment,
+  TableOfContents,
 ];
 
 export function docToHtml(doc: DocNode): string {
