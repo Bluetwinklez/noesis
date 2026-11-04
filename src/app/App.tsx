@@ -16,7 +16,7 @@ import { QuickCapture, openQuickCapture } from '../features/capture/QuickCapture
 import { ErrorBoundary } from '../components/ErrorBoundary';
 
 // The editor (Tiptap/ProseMirror) and first-run flow are the heaviest modules; keep them out of the startup chunk.
-const PageView = lazy(() => import('../features/pages/PageView').then((m) => ({ default: m.PageView })));
+const PageTabs = lazy(() => import('../features/pages/PageTabs').then((m) => ({ default: m.PageTabs })));
 const Onboarding = lazy(() => import('../features/onboarding/Onboarding').then((m) => ({ default: m.Onboarding })));
 const NotesPage = lazy(() => import('../features/pages/NotesPage'));
 const WorkspacePage = lazy(() => import('../features/pages/WorkspacePage'));
@@ -41,7 +41,7 @@ function RouteView() {
     case 'notes':
       return <NotesPage />;
     case 'page':
-      return <PageView key={route.id} id={route.id} />;
+      return <PageTabs id={route.id} />;
     case 'notebooks':
       return <NotebooksPage />;
     case 'notebook':
@@ -146,7 +146,7 @@ export function App() {
               </div>
             }
           >
-            <ErrorBoundary key={JSON.stringify(route)}><RouteView /></ErrorBoundary>
+            <ErrorBoundary key={route.name === 'page' ? 'page-workspace' : JSON.stringify(route)}><RouteView /></ErrorBoundary>
           </Suspense>
         </div>
       </main>

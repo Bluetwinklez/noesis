@@ -39,6 +39,7 @@ import { registerFlusher } from '../../app/pendingWrites';
 import type { Page, PageMeta } from '../../core/types';
 import { localHashEmbed, cosine } from '../../search/vectors';
 import { openAiPreview } from '../ai/AiPreview';
+import { HeadingList } from '../../editor/table-of-contents';
 
 const DatabaseView = lazy(() => import('../databases/DatabaseView'));
 
@@ -61,6 +62,8 @@ export function PageView({ id }: { id: string }) {
   const [title, setTitle] = useState('');
   const editorRef = useRef<TEditor | null>(null);
   const [wordCount, setWordCount] = useState(0);
+  const [tocOpen, setTocOpen] = useState(false);
+  const [readyEditor, setReadyEditor] = useState<TEditor | null>(null);
 
   useEffect(() => {
     let alive = true;
@@ -198,6 +201,7 @@ export function PageView({ id }: { id: string }) {
           style={{ fieldSizing: 'content' } as React.CSSProperties}
         />
         <TagRow pageId={id} />
+        {page.kind === 'page' && <div className="mt-2"><Button size="sm" onClick={() => setTocOpen((open) => !open)}>{t('toc.title')}</Button>{tocOpen && readyEditor && <aside className="my-2 rounded-lg border border-line bg-elevated p-3 lg:float-right lg:ml-4 lg:w-52"><HeadingList editor={readyEditor} /></aside>}</div>}
         {page.kind === 'database' ? (
           <Suspense fallback={<Spinner />}>
             <DatabaseView databaseId={id} />
@@ -211,6 +215,7 @@ export function PageView({ id }: { id: string }) {
               editable={!page.deleted_at}
               onReady={(e) => {
                 editorRef.current = e;
+                setReadyEditor(e);
                 if (!title && !initial) setTimeout(() => document.querySelector<HTMLTextAreaElement>('textarea[aria-label="Page title"]')?.focus(), 30);
               }}
             />
