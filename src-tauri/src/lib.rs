@@ -382,14 +382,20 @@ fn open_database(db_path: &Path) -> Result<Connection, String> {
 }
 
 /// Brings the main window forward and asks the UI to open the quick-capture box.
+/// Brings the main window back: hidden in the tray (close-to-tray), minimized or behind other windows.
 #[cfg(desktop)]
-fn open_quick_capture(app: &tauri::AppHandle) {
-    use tauri::Emitter;
+fn show_main_window(app: &tauri::AppHandle) {
     if let Some(w) = app.get_webview_window("main") {
         let _ = w.show();
         let _ = w.unminimize();
         let _ = w.set_focus();
     }
+}
+
+#[cfg(desktop)]
+fn open_quick_capture(app: &tauri::AppHandle) {
+    use tauri::Emitter;
+    show_main_window(app);
     let _ = app.emit("quick-capture", ());
 }
 
@@ -399,7 +405,7 @@ pub const QUICK_CAPTURE_SHORTCUT: &str = "CommandOrControl+Shift+Space";
 #[cfg(desktop)]
 fn desktop_extras(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
-    use tauri::tray::TrayIconBuilder;
+    use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
     use tauri::Emitter;
     use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
 
@@ -407,26 +413,30 @@ fn desktop_extras(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>
     let open = MenuItem::with_id(app, "open", "Open Noesis", true, None::<&str>)?;
     let quit = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
     let menu = Menu::with_items(app, &[&quick, &open, &PredefinedMenuItem::separator(app)?, &quit])?;
-    let mut tray = TrayIconBuilder::with_id("main").tooltip("Noesis").menu(&menu).on_menu_event(|app, event| match event.id().as_ref() {
-        "quick" => open_quick_capture(app),
-        "open" => {
-            if let Some(w) = app.get_webview_window("main") {
-                let _ = w.show();
-                let _ = w.unminimize();
-                let _ = w.set_focus();
+    let mut tray = TrayIconBuilder::with_id("main")
+        .tooltip("Noesis")
+        .menu(&menu)
+        // Left click opens the window (it may be hidden by close-to-tray); the menu stays on right click.
+        .show_menu_on_left_click(false)
+        .on_tray_icon_event(|tray, event| {
+            if let TrayIconEvent::Click { button: MouseButton::Left, button_state: MouseButtonState::Up, .. } = event {
+                show_main_window(tray.app_handle());
             }
-        }
-        "quit" => {
-            // The window finishes pending saves and exits itself; exit anyway if it does not answer.
-            let _ = app.emit("quit-requested", ());
-            let app = app.clone();
-            std::thread::spawn(move || {
-                std::thread::sleep(std::time::Duration::from_secs(5));
-                app.exit(0);
-            });
-        }
-        _ => {}
-    });
+        })
+        .on_menu_event(|app, event| match event.id().as_ref() {
+            "quick" => open_quick_capture(app),
+            "open" => show_main_window(app),
+            "quit" => {
+                // The window finishes pending saves and exits itself; exit anyway if it does not answer.
+                let _ = app.emit("quit-requested", ());
+                let app = app.clone();
+                std::thread::spawn(move || {
+                    std::thread::sleep(std::time::Duration::from_secs(5));
+                    app.exit(0);
+                });
+            }
+            _ => {}
+        });
     if let Some(icon) = app.default_window_icon() {
         tray = tray.icon(icon.clone());
     }
@@ -453,12 +463,8 @@ pub fn run() {
     let mut builder = tauri::Builder::default();
     #[cfg(not(any(target_os = "android", target_os = "ios")))]
     {
-        builder = builder.plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
-            if let Some(w) = app.get_webview_window("main") {
-                let _ = w.unminimize();
-                let _ = w.set_focus();
-            }
-        }));
+        // A second launch (Start menu, file association) must bring the running instance back, even from the tray.
+        builder = builder.plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| show_main_window(app)));
         builder = builder.plugin(tauri_plugin_updater::Builder::new().build()).plugin(tauri_plugin_process::init());
     }
     builder
