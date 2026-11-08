@@ -41,6 +41,21 @@ async function announceTray(): Promise<void> {
 }
 
 /** Desktop: flush before the window closes or the tray "Quit" exits the app. */
+/** A flush that never settles must not leave the window unclosable: give up after `ms` (writes already queued stay in the DB queue). */
+async function flushWithin(ms: number): Promise<void> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    await Promise.race([
+      flushAllWrites(),
+      new Promise<void>((resolve) => { timer = setTimeout(() => { console.warn('flush timed out'); resolve(); }, ms); }),
+    ]);
+  } catch (e) {
+    console.warn('flush failed', e);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
 export async function hookQuit(): Promise<void> {
   const [{ getCurrentWindow }, { listen }, { exit }] = await Promise.all([
     import('@tauri-apps/api/window'),
@@ -50,9 +65,18 @@ export async function hookQuit(): Promise<void> {
   // The only close handler (each handler would destroy the window on its own). Tauri waits
   // for it, then destroys the window unless it was prevented.
   await getCurrentWindow().onCloseRequested(async (event) => {
-    await flushAllWrites();
-    const { installOnClose, installUpdate } = await import('./updater');
-    const action = closeAction({ closeToTray: useApp.getState().prefs.closeToTray, installUpdate: installOnClose() });
+    await flushWithin(4000);
+    let action: ReturnType<typeof closeAction> = 'exit';
+    let installUpdate: () => Promise<void> = async () => {};
+    try {
+      const updater = await import('./updater');
+      installUpdate = updater.installUpdate;
+      action = closeAction({ closeToTray: useApp.getState().prefs.closeToTray, installUpdate: updater.installOnClose() });
+    } catch (e) {
+      // Never leave the window stuck: fall back to the saved preference.
+      console.warn('close action', e);
+      action = useApp.getState().prefs.closeToTray ? 'hide' : 'exit';
+    }
     if (action === 'install') {
       event.preventDefault();
       await installUpdate();
@@ -64,7 +88,7 @@ export async function hookQuit(): Promise<void> {
     }
   });
   await listen('quit-requested', async () => {
-    await flushAllWrites();
+    await flushWithin(4000);
     await exit(0);
   });
 }
