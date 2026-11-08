@@ -13,6 +13,7 @@
     "updater:default",
     "process:allow-restart",
     "core:window:allow-destroy",
+    "core:window:allow-hide",
     "process:allow-exit",
     "opener:allow-reveal-item-in-dir",
     {

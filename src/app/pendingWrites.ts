@@ -83,8 +83,14 @@ export async function hookQuit(): Promise<void> {
     } else if (action === 'hide') {
       // Everything is saved above; keep the process (and the tray icon) alive instead of destroying the window.
       event.preventDefault();
-      await getCurrentWindow().hide();
-      void announceTray();
+      try {
+        await getCurrentWindow().hide();
+        void announceTray();
+      } catch (e) {
+        // A denied/failed hide used to leave the X button doing nothing. Closing is always better than a dead button.
+        console.warn('hide failed, closing instead', e);
+        await getCurrentWindow().destroy();
+      }
     }
   });
   await listen('quit-requested', async () => {
