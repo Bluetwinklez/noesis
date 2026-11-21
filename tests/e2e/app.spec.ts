@@ -1224,3 +1224,120 @@ test('agent activity indicator appears on MCP writes and opens the filterable li
   await timeline.getByRole('button', { name: /Claude Summary/ }).click();
   await expect(page.getByLabel('Page title')).toHaveValue('Claude Summary');
 });
+
+test('sidebar context menu merges a page into a chosen target, redirects links, moves sub-pages and trashes the source', async ({ page }) => {
+  await freshApp(page);
+  await onboard(page);
+
+  const ids = await page.evaluate(async () => {
+    const state = (window as unknown as { __noesis: { getState(): { repos: Repos; workspaceId: string; bump(): void } } }).__noesis.getState();
+    const { repos, workspaceId } = state;
+
+    const target = await repos.pages.create({ workspaceId, title: 'Coastal Ecology' });
+    await repos.pages.saveContent(target.id, {
+      type: 'doc',
+      content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Overview of coastal ecosystems.' }] }],
+    });
+
+    const source = await repos.pages.create({ workspaceId, title: 'Tidal Notes' });
+    await repos.pages.saveContent(source.id, {
+      type: 'doc',
+      content: [
+        { type: 'heading', attrs: { level: 1 }, content: [{ type: 'text', text: 'Tidal Notes' }] },
+        { type: 'heading', attrs: { level: 2 }, content: [{ type: 'text', text: 'Estuary Patterns' }] },
+        { type: 'paragraph', content: [{ type: 'text', text: 'Neap and spring tide measurements.' }] },
+      ],
+    });
+
+    const child = await repos.pages.create({ workspaceId, parentId: source.id, title: 'Field Measurements' });
+    await repos.pages.saveContent(child.id, {
+      type: 'doc',
+      content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Salinity readings at low tide.' }] }],
+    });
+
+    const indexPage = await repos.pages.create({ workspaceId, title: 'Research Index' });
+    await repos.pages.saveContent(indexPage.id, {
+      type: 'doc',
+      content: [
+        {
+          type: 'paragraph',
+          content: [
+            { type: 'text', text: 'See ' },
+            { type: 'text', text: 'Tidal Notes', marks: [{ type: 'link', attrs: { href: `noesis://page/${source.id}` } }] },
+          ],
+        },
+      ],
+    });
+
+    await repos.db.flushNow();
+    state.bump();
+    return { targetId: target.id, sourceId: source.id, childId: child.id, indexId: indexPage.id };
+  });
+
+  // Open the source page first, then trigger "Merge into…" from its sidebar context menu.
+  const sourceItem = page.getByRole('treeitem', { name: /Tidal Notes/ });
+  await sourceItem.click();
+  await expect(page.getByLabel('Page title')).toHaveValue('Tidal Notes');
+
+  await sourceItem.hover();
+  await sourceItem.getByRole('button', { name: 'Page actions' }).click();
+  await page.getByRole('menuitem', { name: 'Merge into…', exact: true }).click();
+
+  // Target picker opens, excludes the source and its own sub-page, and filters by query.
+  const picker = page.getByRole('dialog');
+  await expect(picker).toBeVisible();
+  await expect(picker).toContainText('Merge “Tidal Notes” into…');
+  await expect(picker.getByRole('button', { name: /Tidal Notes/ })).toHaveCount(0);
+  await expect(picker.getByRole('button', { name: /Field Measurements/ })).toHaveCount(0);
+  await picker.getByLabel('Filter pages…').fill('Coastal');
+  await picker.getByRole('button', { name: /Coastal Ecology/ }).click();
+
+  // Confirmation dialog opens; confirm the merge.
+  const confirm = page.getByRole('dialog');
+  await expect(confirm).toBeVisible();
+  await expect(confirm).toContainText('Merge “Tidal Notes” into “Coastal Ecology”');
+  await confirm.getByRole('button', { name: 'Merge', exact: true }).click();
+
+  await expect(
+    page.getByRole('status').filter({ hasText: 'Merged “Tidal Notes” into “Coastal Ecology” and redirected links in 1 page.' }),
+  ).toBeVisible();
+
+  // Navigates to the target page with merged content, demoted heading, moved sub-page and redirected backlink.
+  await expect(page.getByLabel('Page title')).toHaveValue('Coastal Ecology');
+  const ed = editor(page);
+  await expect(ed).toContainText('Overview of coastal ecosystems.');
+  await expect(ed.locator('h2')).toHaveText('Tidal Notes');
+  await expect(ed.locator('h3')).toHaveText('Estuary Patterns');
+  await expect(ed).toContainText('Neap and spring tide measurements.');
+  await expect(page.getByRole('main')).toContainText('Field Measurements');
+  await expect(page.getByRole('main')).toContainText('Research Index');
+
+  // Source is removed from the sidebar tree and restorable from Trash.
+  await expect(page.getByRole('treeitem', { name: /Tidal Notes/ })).toHaveCount(0);
+
+  const after = await page.evaluate(async ({ targetId, sourceId, childId, indexId }) => {
+    const { repos } = (window as unknown as { __noesis: { getState(): { repos: Repos } } }).__noesis.getState();
+    const source = await repos.pages.get(sourceId);
+    const child = await repos.pages.get(childId);
+    const index = await repos.pages.get(indexId);
+    const backlinks = await repos.pages.backlinks(targetId);
+    return {
+      sourceDeleted: source?.deleted_at !== null,
+      childParentId: child?.parent_id ?? null,
+      indexPointsToTarget: index?.content_json?.includes(`noesis://page/${targetId}`) ?? false,
+      indexPointsToSource: index?.content_json?.includes(`noesis://page/${sourceId}`) ?? false,
+      backlinkIds: backlinks.map((b) => b.id),
+    };
+  }, ids);
+
+  expect(after).toEqual({
+    sourceDeleted: true,
+    childParentId: ids.targetId,
+    indexPointsToTarget: true,
+    indexPointsToSource: false,
+    backlinkIds: [ids.indexId],
+  });
+
+  await page.getByRole('button', { name: 'Trash', exact: true }).click();
+  await expect(page.getByRole('main').getByText('Tidal Notes')).toBeVisible();
+});

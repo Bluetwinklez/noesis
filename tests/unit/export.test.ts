@@ -197,7 +197,7 @@ describe('export everything and import it back', () => {
     const a = await memoryStore();
     const ws = (await a.workspaces.create('Agents')).id;
     const p = await a.pages.create({ workspaceId: ws, title: 'Managed' });
-    const actions = ['update_page', 'move_page', 'rename_page', 'trash_page', 'restore_page'] as const;
+    const actions = ['update_page', 'move_page', 'rename_page', 'trash_page', 'restore_page', 'merge_pages'] as const;
     for (let i = 0; i < actions.length; i++) {
       await a.activity.record({ workspaceId: ws, client: 'Claude', action: actions[i], pageId: p.id, createdAt: 1000 + i });
     }

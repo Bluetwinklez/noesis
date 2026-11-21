@@ -130,8 +130,8 @@ describe('migration v8 (agent_activity page management)', () => {
       ),
     ).rejects.toThrow();
 
-    expect(await migrate(db)).toBe(1);
-    expect((await db.get<{ v: number }>('SELECT MAX(version) v FROM schema_migrations'))?.v).toBe(LATEST_VERSION);
+    expect(await migrate(db, migrations.slice(0, 8))).toBe(1);
+    expect((await db.get<{ v: number }>('SELECT MAX(version) v FROM schema_migrations'))?.v).toBe(8);
 
     expect(await db.get("SELECT id, workspace_id, client, action, page_id, task_id, created_at FROM agent_activity WHERE id = 'a1'")).toEqual({
       id: 'a1',
@@ -153,6 +153,61 @@ describe('migration v8 (agent_activity page management)', () => {
     await expect(
       db.run(
         "INSERT INTO agent_activity(id, workspace_id, client, action, page_id, task_id, created_at) VALUES ('bad','w','Claude','purge_page','p',NULL,300)",
+      ),
+    ).rejects.toThrow();
+
+    const indexes = (
+      await db.all<{ name: string }>("SELECT name FROM sqlite_master WHERE type = 'index' AND tbl_name = 'agent_activity'")
+    ).map((r) => r.name);
+    expect(indexes).toEqual(expect.arrayContaining(['idx_agent_activity_ws', 'idx_agent_activity_page']));
+    expect((await integrityCheck(db)).ok).toBe(true);
+
+    // Foreign-key cascade still works after the table rebuild.
+    await db.run("DELETE FROM pages WHERE id = 'p'");
+    expect(await db.all('SELECT id FROM agent_activity')).toEqual([]);
+  });
+});
+
+describe('migration v9 (agent_activity merge_pages)', () => {
+  it('upgrades a v8 database, preserves existing activity rows and accepts merge_pages', async () => {
+    const db = new Database(new NodeDriver(':memory:'));
+    await migrate(db, migrations.slice(0, 8)); // a v8 database
+    expect((await db.get<{ v: number }>('SELECT MAX(version) v FROM schema_migrations'))?.v).toBe(8);
+
+    await db.run("INSERT INTO workspaces(id, name, created_at, updated_at) VALUES ('w','W',0,0)");
+    await db.run("INSERT INTO pages(id, workspace_id, title, created_at, updated_at) VALUES ('p','w','Page',0,0)");
+    await db.run(
+      "INSERT INTO agent_activity(id, workspace_id, client, action, page_id, task_id, created_at) VALUES ('a1','w','Claude','rename_page','p',NULL,100)",
+    );
+
+    // v8 CHECK rejects merge_pages.
+    await expect(
+      db.run(
+        "INSERT INTO agent_activity(id, workspace_id, client, action, page_id, task_id, created_at) VALUES ('a2','w','Claude','merge_pages','p',NULL,101)",
+      ),
+    ).rejects.toThrow();
+
+    expect(await migrate(db)).toBe(1);
+    expect((await db.get<{ v: number }>('SELECT MAX(version) v FROM schema_migrations'))?.v).toBe(LATEST_VERSION);
+
+    expect(await db.get("SELECT id, workspace_id, client, action, page_id, task_id, created_at FROM agent_activity WHERE id = 'a1'")).toEqual({
+      id: 'a1',
+      workspace_id: 'w',
+      client: 'Claude',
+      action: 'rename_page',
+      page_id: 'p',
+      task_id: null,
+      created_at: 100,
+    });
+
+    await db.run(
+      "INSERT INTO agent_activity(id, workspace_id, client, action, page_id, task_id, created_at) VALUES ('a2','w','Claude','merge_pages','p',NULL,101)",
+    );
+    expect(await db.get<{ action: string }>("SELECT action FROM agent_activity WHERE id = 'a2'")).toEqual({ action: 'merge_pages' });
+
+    await expect(
+      db.run(
+        "INSERT INTO agent_activity(id, workspace_id, client, action, page_id, task_id, created_at) VALUES ('bad','w','Claude','purge_page','p',NULL,102)",
       ),
     ).rejects.toThrow();
 

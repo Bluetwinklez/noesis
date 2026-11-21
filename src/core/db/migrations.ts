@@ -367,6 +367,26 @@ CREATE INDEX idx_agent_activity_ws ON agent_activity(workspace_id, created_at DE
 CREATE INDEX idx_agent_activity_page ON agent_activity(page_id);
 `,
   },
+  {
+    version: 9,
+    name: 'agent_activity_merge_pages',
+    sql: `
+CREATE TABLE agent_activity_new (
+  id TEXT PRIMARY KEY,
+  workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+  client TEXT NOT NULL CHECK (length(client) BETWEEN 1 AND 200),
+  action TEXT NOT NULL CHECK (action IN ('create_page','append_to_page','clip_web_page','create_task','update_page','move_page','rename_page','trash_page','restore_page','merge_pages')),
+  page_id TEXT REFERENCES pages(id) ON DELETE CASCADE,
+  task_id TEXT REFERENCES tasks(id) ON DELETE CASCADE,
+  created_at INTEGER NOT NULL
+);
+INSERT INTO agent_activity_new(id, workspace_id, client, action, page_id, task_id, created_at) SELECT id, workspace_id, client, action, page_id, task_id, created_at FROM agent_activity;
+DROP TABLE agent_activity;
+ALTER TABLE agent_activity_new RENAME TO agent_activity;
+CREATE INDEX idx_agent_activity_ws ON agent_activity(workspace_id, created_at DESC);
+CREATE INDEX idx_agent_activity_page ON agent_activity(page_id);
+`,
+  },
 ];
 
 export const LATEST_VERSION = migrations[migrations.length - 1].version;

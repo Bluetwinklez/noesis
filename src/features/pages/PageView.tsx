@@ -61,16 +61,19 @@ export function PageView({ id }: { id: string }) {
   const [page, setPage] = useState<Page | null | undefined>(undefined);
   const [title, setTitle] = useState('');
   const editorRef = useRef<TEditor | null>(null);
+  const lastSavedJsonRef = useRef<string | null | undefined>(undefined);
   const [wordCount, setWordCount] = useState(0);
   const [tocOpen, setTocOpen] = useState(false);
   const [readyEditor, setReadyEditor] = useState<TEditor | null>(null);
 
   useEffect(() => {
     let alive = true;
+    lastSavedJsonRef.current = undefined;
     void repos()
       .pages.get(id)
       .then((p) => {
         if (!alive) return;
+        lastSavedJsonRef.current = p?.content_json ?? null;
         setPage(p ?? null);
         setTitle(p?.title ?? '');
         setWordCount(p?.content_text.split(/\s+/).filter(Boolean).length ?? 0);
@@ -81,12 +84,29 @@ export function PageView({ id }: { id: string }) {
     };
   }, [id]);
 
-  // Meta refresh (favorite, icon …) without reloading editor content.
+  // Meta refresh (favorite, icon …), plus external body updates (e.g. merge or MCP writes)
+  // without disrupting local edits.
   useEffect(() => {
     if (page === undefined) return;
+    let alive = true;
     void repos()
       .pages.get(id)
-      .then((p) => p && setPage((cur) => (cur ? { ...cur, ...p, content_json: cur.content_json } : p)));
+      .then((p) => {
+        if (!alive || !p) return;
+        const externalContentChange = lastSavedJsonRef.current !== undefined && p.content_json !== lastSavedJsonRef.current;
+        if (externalContentChange) {
+          lastSavedJsonRef.current = p.content_json;
+          const nextDoc = p.content_json ? (JSON.parse(p.content_json) as DocNode) : { type: 'doc', content: [{ type: 'paragraph' }] };
+          editorRef.current?.commands.setContent(nextDoc, { emitUpdate: false });
+          setWordCount(p.content_text.split(/\s+/).filter(Boolean).length);
+          setPage(p);
+        } else {
+          setPage((cur) => (cur ? { ...cur, ...p, content_json: cur.content_json } : p));
+        }
+      });
+    return () => {
+      alive = false;
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [version]);
 
@@ -97,6 +117,7 @@ export function PageView({ id }: { id: string }) {
         for (let attempt = 0; attempt < 3; attempt++) {
           try {
             await repos().pages.saveContent(id, doc);
+            lastSavedJsonRef.current = JSON.stringify(doc);
             useSaveStatus.setState({ status: 'saved' });
             return;
           } catch (e) {
