@@ -239,7 +239,8 @@ export class PageRepo {
         );
       }
       await this.syncLinks(tx, id, linkedPageIds);
-      await indexUpsert(tx, 'page', id, cur.workspace_id, cur.parent_id, title ?? cur.title, text);
+      if (cur.deleted_at || cur.archived_at) await indexRemove(tx, 'page', id);
+      else await indexUpsert(tx, 'page', id, cur.workspace_id, cur.parent_id, title ?? cur.title, text);
     });
   }
 
@@ -265,7 +266,7 @@ export class PageRepo {
   private async reindex(tx: Executor, id: string) {
     const p = await tx.get<Page>('SELECT * FROM pages WHERE id = ?', [id]);
     if (!p) return;
-    if (p.deleted_at) await indexRemove(tx, 'page', id);
+    if (p.deleted_at || p.archived_at) await indexRemove(tx, 'page', id);
     else await indexUpsert(tx, 'page', id, p.workspace_id, p.parent_id, p.title, p.content_text);
   }
 
@@ -346,7 +347,11 @@ export class PageRepo {
   }
 
   async setArchived(id: string, archived: boolean) {
-    await this.db.run('UPDATE pages SET archived_at = ?, updated_at = ? WHERE id = ?', [archived ? now() : null, now(), id]);
+    await this.db.transaction(async (tx) => {
+      await tx.run('UPDATE pages SET archived_at = ?, updated_at = ? WHERE id = ?', [archived ? now() : null, now(), id]);
+      await this.reindex(tx, id);
+      if (archived) await tx.run("DELETE FROM search_index WHERE kind = 'row' AND parent_id = ?", [id]);
+    });
   }
 
   async duplicate(id: string): Promise<Page> {

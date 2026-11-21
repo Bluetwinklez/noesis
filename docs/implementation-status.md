@@ -10,6 +10,12 @@ Security scanning, immutable action references and an English audit were added. 
 
 ## Verification runs (this revision)
 
+### Search index rebuild and self-healing (unreleased)
+
+- Workspace-scoped `rebuildSearchIndex(db, workspaceId)` in `src/core/search-rebuild.ts` clears and rebuilds `search_index` and `chunks_fts` in batched transactions for live (non-trashed, non-archived) pages, database rows (using `displayValue`), tasks, notebooks, notebook notes, ready sources and source chunks, returning per-kind counts. Backup restore shares the same indexing helper. Archiving a page removes it from `search_index`.
+- Background maintenance runs a once-per-launch count check (`searchIndexMismatch` / `healSearchIndexIfNeeded`) after boot and repairs the active workspace's search index with a toast when live and indexed page counts diverge.
+- Settings → Storage exposes a "Rebuild search index" button with busy state and a localized English/Turkish summary toast. Unit tests in `tests/unit/search-rebuild.test.ts` and a Playwright scenario in `tests/e2e/app.spec.ts` cover rebuild, exclusions, batching, startup mismatch detection and the Settings UI flow. Automated verification run pending by maintainer.
+
 ### Encryption design (2026-11-04)
 
 - [Encryption design](security/encryption-design.md) proposes native SQLCipher, password-wrapped keys, authenticated attachments/backups, staged migration and independent recovery. It is **not implemented** and awaits owner approval before coding.
@@ -161,7 +167,7 @@ Security scanning, immutable action references and an English audit were added. 
 | AI assistant actions incl. study guide, flashcards, quiz, compare, translate | done (mock) | Preview-before-apply enforced |
 | Audio overviews | done (mock) | Multi-speaker only where the provider supports it; no interactive mode |
 | Knowledge graph | done | Force layout; agent nodes (MCP clients) with live activity list, GitHub repository nodes, optional 3D view; performance with very large graphs not benchmarked |
-| Unified search (keyword/full-text/semantic/hybrid) | done | |
+| Unified search (keyword/full-text/semantic/hybrid) | done | Includes batched workspace index rebuild (Settings → Storage) and once-per-launch startup self-healing |
 | Settings (all §21 sections) | done | |
 | Onboarding (7 steps, AI skippable) | done | Two cosmetic issues fixed in this revision |
 | i18n English + Turkish | done | |

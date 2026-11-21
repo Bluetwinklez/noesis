@@ -31,7 +31,8 @@ import { runExportAll, runImport } from '../import/runImport';
 import { PalettePicker } from '../../components/PalettePicker';
 import { checkForUpdates, installUpdate, setUpdatePrefs, useUpdates } from '../../app/updater';
 import { appInfo, isTauri, notify, pickFiles, revealDataDir, saveFile, secrets, blobStore } from '../../lib/platform';
-import { createBackup, rebuildSearchIndex, restoreBackup } from '../../core/backup';
+import { createBackup, restoreBackup } from '../../core/backup';
+import { rebuildSearchIndex, rebuildSearchIndexInTx } from '../../core/search-rebuild';
 import { VISUAL_THEMES } from '../../app/visual-themes';
 import { integrityCheck, LATEST_VERSION } from '../../core/db/migrations';
 import type { ProviderId } from '../../ai/types';
@@ -578,6 +579,7 @@ export async function downloadBackup(): Promise<string | null> {
 function Storage() {
   const t = useT();
   const prefs = useApp((s) => s.prefs);
+  const workspaceId = useApp((s) => s.workspaceId);
   const storageKind = useApp((s) => s.storageKind);
   const { data: info } = useAsync(() => appInfo(), []);
   const [busy, setBusy] = useState<string | null>(null);
@@ -691,6 +693,31 @@ function Storage() {
           })}
         >
           {t('settings.restore')}
+        </Button>
+      </Row>
+      <Row label={t('settings.rebuildIndex')} hint={t('settings.rebuildIndexHint')}>
+        <Button
+          size="sm"
+          icon={<RefreshCw className="size-3.5" />}
+          loading={busy === 'rebuildIndex'}
+          disabled={!workspaceId || (busy !== null && busy !== 'rebuildIndex')}
+          onClick={wrap('rebuildIndex', async () => {
+            if (!workspaceId) return;
+            const counts = await rebuildSearchIndex(repos().db, workspaceId);
+            useApp.getState().bump();
+            useApp.getState().toast(
+              t('settings.rebuiltSummary', {
+                pages: counts.pages,
+                rows: counts.rows,
+                tasks: counts.tasks,
+                notebooks: counts.notebooks,
+                chunks: counts.chunks,
+              }),
+              'success',
+            );
+          })}
+        >
+          {t('settings.rebuildIndex')}
         </Button>
       </Row>
       <p className="mt-4 text-xs text-muted">{t('settings.syncFuture')}</p>
@@ -844,8 +871,23 @@ function Diagnostics() {
         <Button
           onClick={async () => {
             const start = performance.now();
-            await repos().db.transaction((tx) => rebuildSearchIndex(tx));
-            log(`${t('settings.rebuilt')} (${Math.round(performance.now() - start)} ms)`);
+            const ws = useApp.getState().workspaceId;
+            if (ws) {
+              const counts = await rebuildSearchIndex(repos().db, ws);
+              useApp.getState().bump();
+              log(
+                `${t('settings.rebuiltSummary', {
+                  pages: counts.pages,
+                  rows: counts.rows,
+                  tasks: counts.tasks,
+                  notebooks: counts.notebooks,
+                  chunks: counts.chunks,
+                })} (${Math.round(performance.now() - start)} ms)`,
+              );
+            } else {
+              await repos().db.transaction((tx) => rebuildSearchIndexInTx(tx));
+              log(`${t('settings.rebuilt')} (${Math.round(performance.now() - start)} ms)`);
+            }
           }}
         >
           {t('settings.rebuildIndex')}

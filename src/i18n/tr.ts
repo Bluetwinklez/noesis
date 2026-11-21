@@ -616,7 +616,10 @@ export const tr: Record<keyof typeof en, string> = {
   'settings.integrity': 'Veritabanı bütünlüğünü kontrol et',
   'settings.integrityOk': 'Veritabanı bütünlüğü: Sorun yok',
   'settings.rebuildIndex': 'Arama dizinini yeniden oluştur',
+  'settings.rebuildIndexHint': 'Arama sonuçları eksik veya güncel değilse sayfaları, veritabanı satırlarını, görevleri, defterleri ve kaynakları yeniden dizinle.',
   'settings.rebuilt': 'Arama dizini yeniden oluşturuldu.',
+  'settings.rebuiltSummary': 'Arama dizini yeniden oluşturuldu: {pages} sayfa, {rows} satır, {tasks} görev, {notebooks} defter, {chunks} parça.',
+  'settings.indexHealed': 'Arama dizini onarıldı ({pages} sayfa).',
   'settings.privacyIntro':
     'Noesis yerel önceliklidir. Notlar, veritabanları, görevler ve belgeler yalnızca bu bilgisayarda saklanır. Bulut AI sağlayıcısı kullanıp izin vermedikçe hiçbir şey yüklenmez.',
   'settings.privacyConsentList': 'İçerik göndermesine izin verilen sağlayıcılar',

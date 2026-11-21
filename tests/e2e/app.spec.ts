@@ -946,3 +946,37 @@ test('the graph follows agent writes live, lists the activity of an agent and sw
   await page.getByRole('button', { name: '3D view' }).click();
   await expect(page.getByRole('img', { name: 'Knowledge Graph' })).toBeVisible();
 });
+
+test('rebuild search index in Settings -> Storage restores search and shows a summary toast', async ({ page }) => {
+  await freshApp(page);
+  await onboard(page);
+  await newPage(page, 'Index recovery note');
+  await editor(page).click();
+  await page.keyboard.type('Obsidian basalt needle for rebuild verification.');
+  await expect(page.getByText('Saved', { exact: true })).toBeVisible();
+
+  // Flush delayed editor/title saves, then clear search_index directly to simulate a stale index.
+  await page.evaluate(async () => {
+    const modulePath = '/src/app/pendingWrites.ts';
+    const pending = await import(/* @vite-ignore */ modulePath);
+    await pending.flushAllWrites();
+    const state = (window as unknown as { __noesis: { getState(): { repos: Repos; workspaceId: string } } }).__noesis.getState();
+    await state.repos.db.run('DELETE FROM search_index WHERE workspace_id = ?', [state.workspaceId]);
+    await state.repos.db.flushNow();
+  });
+
+  await page.getByRole('button', { name: 'Search', exact: true }).click();
+  await page.getByLabel('Search pages, notes, documents, tasks…').fill('basalt');
+  await expect(page.getByText('No results for "basalt"')).toBeVisible();
+
+  await page.getByRole('button', { name: 'Settings', exact: true }).click();
+  await page.getByRole('button', { name: 'Storage & backups', exact: true }).click();
+  await page.getByRole('button', { name: 'Rebuild search index', exact: true }).click();
+  await expect(
+    page.getByRole('status').filter({ hasText: 'Search index rebuilt: 1 page, 0 rows, 0 tasks, 0 notebooks, 0 chunks.' }),
+  ).toBeVisible();
+
+  await page.getByRole('button', { name: 'Search', exact: true }).click();
+  await page.getByLabel('Search pages, notes, documents, tasks…').fill('basalt');
+  await expect(page.getByRole('listbox')).toContainText('Index recovery note');
+});

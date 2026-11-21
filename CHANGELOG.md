@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Add workspace-scoped search index rebuild and startup self-healing (`src/core/search-rebuild.ts`). Rebuilding clears and re-indexes live (non-trashed, non-archived) pages, database rows, tasks, notebooks, notebook notes, ready sources and `chunks_fts` in batched transactions, returning counts per kind. Archiving a page now removes it from `search_index`. At startup, background maintenance compares live vs. indexed page counts once per launch and rebuilds with a short toast when they differ. Settings → Storage adds a "Rebuild search index" button with busy state and English/Turkish summary toast.
+
 - Add MCP page-management tools (`update_page`, `move_page`, `rename_page`, `trash_page`, `restore_page`, `find_duplicate_pages`) and paginate/filter `list_pages` (`limit`, `offset`, `query`, returning `{ pages, total, offset, limit, has_more }`). Mutating existing pages requires in-app user approval, pages are never permanently deleted through MCP, and migration v8 extends `agent_activity` to record all five new actions (with English/Turkish graph activity labels and backup/export round-tripping).
 
 - Document a review-only design for optional database, attachment and backup encryption; implementation awaits owner approval.
