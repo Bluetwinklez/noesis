@@ -1,7 +1,15 @@
 import { Bot } from 'lucide-react';
 import { useMcpApprovals } from '../../mcp/host';
-import { useT } from '../../i18n';
+import { useT, type MessageKey } from '../../i18n';
 import { Button, Modal } from '../../components/ui';
+
+const BODY_KEYS: Record<string, MessageKey> = {
+  replace: 'mcp.approve.body.replace',
+  move: 'mcp.approve.body.move',
+  rename: 'mcp.approve.body.rename',
+  trash: 'mcp.approve.body.trash',
+};
+const bodyKey = (action: string): MessageKey => BODY_KEYS[action] ?? 'mcp.approve.body';
 
 /** Shown when a connected AI assistant asks to change existing content. Nothing changes unless the user allows it. */
 export function McpApprovalDialog() {
@@ -30,7 +38,7 @@ export function McpApprovalDialog() {
         </>
       }
     >
-      <p className="text-sm text-muted">{t('mcp.approve.body', { client: req.client, page: req.target })}</p>
+      <p className="text-sm text-muted">{t(bodyKey(req.action), { client: req.client, page: req.target })}</p>
       <pre aria-label={t('mcp.approve.preview')} className="mt-3 max-h-72 overflow-auto whitespace-pre-wrap rounded-md border border-line bg-bg p-3 font-sans text-sm">
         {req.preview}
       </pre>

@@ -1,7 +1,16 @@
 import type { Database } from '../db/driver';
 import { now, uid } from '../../lib/util';
 
-export type AgentAction = 'create_page' | 'append_to_page' | 'clip_web_page' | 'create_task';
+export type AgentAction =
+  | 'create_page'
+  | 'append_to_page'
+  | 'clip_web_page'
+  | 'create_task'
+  | 'update_page'
+  | 'move_page'
+  | 'rename_page'
+  | 'trash_page'
+  | 'restore_page';
 
 export interface AgentActivity {
   id: string;

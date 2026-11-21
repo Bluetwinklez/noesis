@@ -192,4 +192,25 @@ describe('export everything and import it back', () => {
       ['Interview notes', 'note', 'Bees decide by quorum.', null],
     ]);
   });
+
+  it('round-trips page-management agent activity through backups and workspace exports', async () => {
+    const a = await memoryStore();
+    const ws = (await a.workspaces.create('Agents')).id;
+    const p = await a.pages.create({ workspaceId: ws, title: 'Managed' });
+    const actions = ['update_page', 'move_page', 'rename_page', 'trash_page', 'restore_page'] as const;
+    for (let i = 0; i < actions.length; i++) {
+      await a.activity.record({ workspaceId: ws, client: 'Claude', action: actions[i], pageId: p.id, createdAt: 1000 + i });
+    }
+
+    const backup = await createBackup(a.db, memoryBlobs());
+    const restored = await memoryStore();
+    await restoreBackup(restored.db, backup, memoryBlobs());
+    expect((await restored.activity.list(ws)).map((x) => x.action)).toEqual(expect.arrayContaining([...actions]));
+
+    const exported = await exportWorkspace(a, ws, memoryBlobs());
+    const b = await memoryStore();
+    const ws2 = (await b.workspaces.create('Imported')).id;
+    await importWorkspace(b, ws2, [{ path: 'agents.zip', bytes: exported.bytes }], { blobs: memoryBlobs(), rootTitle: () => 'Imported' });
+    expect((await b.activity.list(ws2)).map((x) => x.action)).toEqual(expect.arrayContaining([...actions]));
+  });
 });

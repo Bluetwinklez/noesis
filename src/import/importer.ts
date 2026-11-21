@@ -373,7 +373,17 @@ export async function importWorkspace(
   // Which AI client wrote which page or task (agent-activity.json is user-editable too).
   if (manifest) {
     const raw = dataJson<unknown>('agent-activity.json', []);
-    const actions = ['create_page', 'append_to_page', 'clip_web_page', 'create_task'] as const;
+    const actions = [
+      'create_page',
+      'append_to_page',
+      'clip_web_page',
+      'create_task',
+      'update_page',
+      'move_page',
+      'rename_page',
+      'trash_page',
+      'restore_page',
+    ] as const;
     for (const a of (Array.isArray(raw) ? raw : []).slice(0, 100_000) as Partial<ExportedActivity>[]) {
       const action = actions.find((x) => x === a?.action);
       if (!action || typeof a.client !== 'string' || !a.client.trim()) continue;

@@ -72,11 +72,20 @@ const limitOf = (v: unknown, def: number, max: number) => {
   const n = typeof v === 'number' && Number.isFinite(v) ? Math.floor(v) : def;
   return Math.min(max, Math.max(1, n));
 };
+const offsetOf = (v: unknown) => {
+  const n = typeof v === 'number' && Number.isFinite(v) ? Math.floor(v) : 0;
+  return Math.max(0, n);
+};
 const clean = (s: string) => s.replace(/[\u0002\u0003]/g, '');
 
-async function pageMarkdown(ctx: McpContext, id: string) {
+async function livePage(ctx: McpContext, id: string) {
   const page = await ctx.repos.pages.get(id);
   if (!page || page.workspace_id !== ctx.workspaceId || page.deleted_at) throw new ToolError(`No page with id ${id}.`);
+  return page;
+}
+
+async function pageMarkdown(ctx: McpContext, id: string) {
+  const page = await livePage(ctx, id);
   const doc = page.content_json ? (JSON.parse(page.content_json) as DocNode) : null;
   const md = doc ? htmlToMarkdown(docToHtml(doc)) : '';
   return { page, md };
@@ -102,15 +111,36 @@ const TOOLS: ToolDef[] = [
   {
     name: 'list_pages',
     title: 'List pages',
-    description: 'Lists pages in the current workspace as a tree (id, title, parent id). Optionally only the children of one page.',
-    inputSchema: { type: 'object', properties: { parent_id: { type: 'string', description: 'Only list direct children of this page' } } },
+    description:
+      'Lists pages in the current workspace as a tree (id, title, parent_id, kind) with pagination. Use limit (1-500, default 200) and offset (default 0) to page through large workspaces; check total and has_more. Optionally filter by direct children of parent_id or a case-insensitive title substring via query.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        parent_id: { type: 'string', description: 'Only list direct children of this page' },
+        query: { type: 'string', description: 'Case-insensitive substring filter on page title' },
+        limit: { type: 'number', description: 'Maximum pages to return (1-500, default 200)' },
+        offset: { type: 'number', description: 'Number of matching pages to skip (default 0)' },
+      },
+    },
     annotations: { readOnlyHint: true },
     async run(a, ctx) {
       const parent = optStr(a.parent_id, 'parent_id', 100);
+      if (a.query !== undefined && a.query !== null && typeof a.query !== 'string') throw new ToolError('"query" must be a string.');
+      if (typeof a.query === 'string' && a.query.length > 500) throw new ToolError('"query" is longer than 500 characters.');
+      const query = typeof a.query === 'string' ? a.query.trim().toLowerCase() : '';
+      const limit = limitOf(a.limit, 200, 500);
+      const offset = offsetOf(a.offset);
       const tree = await ctx.repos.pages.listTree(ctx.workspaceId);
-      return tree
-        .filter((p) => (parent ? p.parent_id === parent : true))
+      const filtered = tree.filter((p) => {
+        if (parent && p.parent_id !== parent) return false;
+        if (query && !(p.title || 'Untitled').toLowerCase().includes(query)) return false;
+        return true;
+      });
+      const total = filtered.length;
+      const pages = filtered
+        .slice(offset, offset + limit)
         .map((p) => ({ id: p.id, title: p.title || 'Untitled', parent_id: p.parent_id, kind: p.kind }));
+      return { pages, total, offset, limit, has_more: offset + pages.length < total };
     },
   },
   {
@@ -143,10 +173,7 @@ const TOOLS: ToolDef[] = [
       const title = str(a.title, 'title', 300);
       const md = optStr(a.markdown, 'markdown', 200_000) ?? '';
       const parentId = optStr(a.parent_id, 'parent_id', 100) ?? null;
-      if (parentId) {
-        const parent = await ctx.repos.pages.get(parentId);
-        if (!parent || parent.workspace_id !== ctx.workspaceId || parent.deleted_at) throw new ToolError(`No page with id ${parentId}.`);
-      }
+      if (parentId) await livePage(ctx, parentId);
       const page = await ctx.repos.pages.create({ workspaceId: ctx.workspaceId, parentId, title });
       if (md.trim()) await ctx.repos.pages.saveContent(page.id, htmlToDoc(markdownToHtml(md)));
       await ctx.repos.activity.record({ workspaceId: ctx.workspaceId, client: ctx.client, action: 'create_page', pageId: page.id });
@@ -174,6 +201,210 @@ const TOOLS: ToolDef[] = [
       // Refreshes open views (graph, page) so every agent's change shows up live.
       ctx.notify(`${ctx.client} added to the page “${page.title || 'Untitled'}”.`);
       return { id, appended_characters: add.length };
+    },
+  },
+  {
+    name: 'update_page',
+    title: 'Replace a page body',
+    description:
+      'Replaces the entire body of an existing page with Markdown (and optionally updates its title). The user must approve the change in Noesis first; returns an error if they decline.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        page_id: { type: 'string', description: 'Id of the page to update' },
+        markdown: { type: 'string', description: 'New page body in Markdown (up to 200000 characters)' },
+        title: { type: 'string', description: 'Optional new title (1-300 characters)' },
+      },
+      required: ['page_id', 'markdown'],
+    },
+    annotations: { readOnlyHint: false, destructiveHint: true },
+    async run(a, ctx) {
+      const id = str(a.page_id, 'page_id', 100);
+      if (typeof a.markdown !== 'string') throw new ToolError('"markdown" must be a string.');
+      if (a.markdown.length > 200_000) throw new ToolError('"markdown" is longer than 200000 characters.');
+      const md = a.markdown;
+      const title = optStr(a.title, 'title', 300)?.trim();
+      const page = await livePage(ctx, id);
+      const currentTitle = page.title || 'Untitled';
+      const ok = await ctx.approve({ client: ctx.client, action: 'replace', target: currentTitle, preview: md.slice(0, 2000) });
+      if (!ok) throw new ToolError('The user declined this change.');
+      await ctx.repos.pages.saveContent(id, htmlToDoc(markdownToHtml(md)), title);
+      const finalTitle = title ?? currentTitle;
+      await ctx.repos.activity.record({ workspaceId: ctx.workspaceId, client: ctx.client, action: 'update_page', pageId: id });
+      ctx.notify(`${ctx.client} updated the page “${finalTitle}”.`);
+      return { id, title: finalTitle, characters: md.length };
+    },
+  },
+  {
+    name: 'move_page',
+    title: 'Move a page',
+    description:
+      'Moves an existing page under a new parent page, or to the workspace top level when parent_id is null. Rejects cycles. The user must approve the move in Noesis first.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        page_id: { type: 'string', description: 'Id of the page to move' },
+        parent_id: { type: ['string', 'null'], description: 'New parent page id, or null to move to the top level' },
+      },
+      required: ['page_id'],
+    },
+    annotations: { readOnlyHint: false, destructiveHint: false },
+    async run(a, ctx) {
+      const id = str(a.page_id, 'page_id', 100);
+      const parentId = a.parent_id === null || a.parent_id === undefined ? null : str(a.parent_id, 'parent_id', 100);
+      const page = await livePage(ctx, id);
+      const parent = parentId ? await livePage(ctx, parentId) : null;
+      if (parentId === id) throw new ToolError('A page cannot contain itself.');
+      if (parentId && (await ctx.repos.pages.ancestors(parentId)).some((p) => p.id === id)) {
+        throw new ToolError('A page cannot be moved inside its own sub-page.');
+      }
+      const pageTitle = page.title || 'Untitled';
+      const parentTitle = parent ? parent.title || 'Untitled' : null;
+      const preview = parentTitle !== null ? `Move under "${parentTitle}"` : 'Move to the top level';
+      const ok = await ctx.approve({ client: ctx.client, action: 'move', target: pageTitle, preview });
+      if (!ok) throw new ToolError('The user declined this change.');
+      try {
+        await ctx.repos.pages.move(id, parentId);
+      } catch (e) {
+        throw new ToolError(e instanceof Error ? e.message : String(e));
+      }
+      await ctx.repos.activity.record({ workspaceId: ctx.workspaceId, client: ctx.client, action: 'move_page', pageId: id });
+      ctx.notify(
+        parentTitle !== null
+          ? `${ctx.client} moved the page “${pageTitle}” under “${parentTitle}”.`
+          : `${ctx.client} moved the page “${pageTitle}” to the top level.`,
+      );
+      return { id, title: pageTitle, parent_id: parentId };
+    },
+  },
+  {
+    name: 'rename_page',
+    title: 'Rename a page',
+    description: 'Renames an existing page without changing its body. The user must approve the rename in Noesis first.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        page_id: { type: 'string', description: 'Id of the page to rename' },
+        title: { type: 'string', description: 'New page title (1-300 characters)' },
+      },
+      required: ['page_id', 'title'],
+    },
+    annotations: { readOnlyHint: false, destructiveHint: false },
+    async run(a, ctx) {
+      const id = str(a.page_id, 'page_id', 100);
+      const title = str(a.title, 'title', 300).trim();
+      const page = await livePage(ctx, id);
+      const oldTitle = page.title || 'Untitled';
+      const ok = await ctx.approve({ client: ctx.client, action: 'rename', target: oldTitle, preview: `${oldTitle} -> ${title}` });
+      if (!ok) throw new ToolError('The user declined this change.');
+      await ctx.repos.pages.updateMeta(id, { title });
+      await ctx.repos.activity.record({ workspaceId: ctx.workspaceId, client: ctx.client, action: 'rename_page', pageId: id });
+      ctx.notify(`${ctx.client} renamed the page “${oldTitle}” to “${title}”.`);
+      return { id, old_title: oldTitle, title };
+    },
+  },
+  {
+    name: 'trash_page',
+    title: 'Move a page to trash',
+    description:
+      'Soft-deletes a page and its sub-pages into the trash (never permanently deletes). The user must approve the action in Noesis first.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        page_id: { type: 'string', description: 'Id of the page to move to the trash' },
+      },
+      required: ['page_id'],
+    },
+    annotations: { readOnlyHint: false, destructiveHint: true },
+    async run(a, ctx) {
+      const id = str(a.page_id, 'page_id', 100);
+      const page = await livePage(ctx, id);
+      const subRow = await ctx.repos.db.get<{ n: number }>(
+        `WITH RECURSIVE sub(id) AS (
+           SELECT id FROM pages WHERE parent_id = ? AND workspace_id = ? AND deleted_at IS NULL
+           UNION ALL
+           SELECT p.id FROM pages p JOIN sub ON p.parent_id = sub.id WHERE p.workspace_id = ? AND p.deleted_at IS NULL
+         )
+         SELECT COUNT(*) AS n FROM sub`,
+        [id, ctx.workspaceId, ctx.workspaceId],
+      );
+      const subCount = subRow?.n ?? 0;
+      const pageTitle = page.title || 'Untitled';
+      const preview =
+        subCount === 0
+          ? `Move "${pageTitle}" to the trash (0 sub-pages).`
+          : `Move "${pageTitle}" and ${subCount} ${subCount === 1 ? 'sub-page' : 'sub-pages'} to the trash.`;
+      const ok = await ctx.approve({ client: ctx.client, action: 'trash', target: pageTitle, preview });
+      if (!ok) throw new ToolError('The user declined this change.');
+      await ctx.repos.pages.trash(id);
+      await ctx.repos.activity.record({ workspaceId: ctx.workspaceId, client: ctx.client, action: 'trash_page', pageId: id });
+      ctx.notify(`${ctx.client} moved the page “${pageTitle}” to the trash.`);
+      return { id, title: pageTitle, subpages_trashed: subCount };
+    },
+  },
+  {
+    name: 'restore_page',
+    title: 'Restore a trashed page',
+    description: 'Restores a trashed page (and its sub-pages) in the current workspace. Additive action: no approval dialog, notifies the user.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        page_id: { type: 'string', description: 'Id of the trashed page to restore' },
+      },
+      required: ['page_id'],
+    },
+    annotations: { readOnlyHint: false, destructiveHint: false },
+    async run(a, ctx) {
+      const id = str(a.page_id, 'page_id', 100);
+      const page = await ctx.repos.pages.get(id);
+      if (!page || page.workspace_id !== ctx.workspaceId) throw new ToolError(`No page with id ${id}.`);
+      if (!page.deleted_at) throw new ToolError(`Page ${id} is not in the trash.`);
+      await ctx.repos.pages.restore(id);
+      const restored = await ctx.repos.pages.get(id);
+      const title = page.title || 'Untitled';
+      await ctx.repos.activity.record({ workspaceId: ctx.workspaceId, client: ctx.client, action: 'restore_page', pageId: id });
+      ctx.notify(`${ctx.client} restored the page “${title}” from the trash.`);
+      return { id, title, parent_id: restored?.parent_id ?? null };
+    },
+  },
+  {
+    name: 'find_duplicate_pages',
+    title: 'Find duplicate pages',
+    description:
+      'Finds groups of live pages in the current workspace with identical normalised plain text (ignoring pages under 20 characters). Marks groups where all titles also match (same_title: true) as well as identical text with different titles (same_title: false), capped at 50 groups.',
+    inputSchema: { type: 'object', properties: {} },
+    annotations: { readOnlyHint: true },
+    async run(_a, ctx) {
+      const norm = (s: string) => s.trim().replace(/\s+/g, ' ').toLowerCase();
+      const live = await ctx.repos.pages.listAllLive(ctx.workspaceId);
+      const buckets = new Map<string, { ids: string[]; titles: string[]; normTitles: Set<string>; characters: number }>();
+      for (const p of live) {
+        if (p.kind !== 'page') continue;
+        const text = norm(p.content_text);
+        if (text.length < 20) continue;
+        const title = p.title || 'Untitled';
+        let bucket = buckets.get(text);
+        if (!bucket) {
+          bucket = { ids: [], titles: [], normTitles: new Set(), characters: text.length };
+          buckets.set(text, bucket);
+        }
+        bucket.ids.push(p.id);
+        bucket.titles.push(title);
+        bucket.normTitles.add(norm(title));
+      }
+      const allGroups = [...buckets.values()]
+        .filter((b) => b.ids.length >= 2)
+        .map((b) => ({
+          ids: b.ids,
+          titles: b.titles,
+          characters: b.characters,
+          same_title: b.normTitles.size === 1,
+        }))
+        .sort((a, b) => Number(b.same_title) - Number(a.same_title) || b.ids.length - a.ids.length || b.characters - a.characters);
+      return {
+        groups: allGroups.slice(0, 50),
+        total_groups: allGroups.length,
+      };
     },
   },
   {
@@ -318,7 +549,7 @@ export async function handleMcp(msg: unknown, ctx: McpContext): Promise<JsonRpcR
         capabilities: { tools: { listChanged: false } },
         serverInfo: { name: 'noesis', title: 'Noesis', version: import.meta.env.VITE_APP_VERSION ?? '0.1.0' },
         instructions:
-          'Noesis is the user’s local knowledge workspace. Use search_notes and read_page to find information, search_sources for cited evidence from imported documents, and create_page/create_task to add content. Changing existing pages requires the user’s approval in the app.',
+          'Noesis is the user’s local knowledge workspace. Use search_notes, list_pages (paginated), read_page and find_duplicate_pages to inspect notes, search_sources for cited evidence from imported documents, and create_page, create_task or restore_page to add or restore content. Changing, moving, renaming or trashing existing pages (append_to_page, update_page, move_page, rename_page, trash_page) requires the user’s approval in the app; pages are never permanently deleted through MCP.',
       });
     }
     case 'ping':

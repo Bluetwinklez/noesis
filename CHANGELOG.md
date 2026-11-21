@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Add MCP page-management tools (`update_page`, `move_page`, `rename_page`, `trash_page`, `restore_page`, `find_duplicate_pages`) and paginate/filter `list_pages` (`limit`, `offset`, `query`, returning `{ pages, total, offset, limit, has_more }`). Mutating existing pages requires in-app user approval, pages are never permanently deleted through MCP, and migration v8 extends `agent_activity` to record all five new actions (with English/Turkish graph activity labels and backup/export round-tripping).
+
 - Document a review-only design for optional database, attachment and backup encryption; implementation awaits owner approval.
 
 - Add workspace-scoped page tabs, a side-by-side page view and live heading outlines as a panel or insertable table-of-contents block. Open editors and tab preferences participate in the pending-write flush.
