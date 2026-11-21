@@ -57,6 +57,14 @@ async function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T
   return invoke<T>(cmd, args);
 }
 
+/** Announces an MCP write in the UI: shows a toast, tracks active agents, and refreshes open views. */
+export function notifyAgentWrite(client: string, message: string): void {
+  const state = useApp.getState();
+  state.toast(message, 'info');
+  state.recordAgentActivity(client);
+  state.bump();
+}
+
 let unlisten: (() => void) | null = null;
 
 async function listen() {
@@ -65,7 +73,7 @@ async function listen() {
   unlisten = await listen<{ rid: number; client: string; message: string }>('mcp-request', async ({ payload }) => {
     let body = '';
     try {
-      const { repos, workspaceId, toast } = useApp.getState();
+      const { repos, workspaceId } = useApp.getState();
       if (!repos || !workspaceId) throw new Error('Noesis is still starting.');
       // Loaded on first use: the MCP server pulls in the editor schema and search.
       const { handleMcp } = await import('./server');
@@ -74,10 +82,7 @@ async function listen() {
         workspaceId,
         client: payload.client,
         approve: requestApproval,
-        notify: (m) => {
-          toast(m, 'info');
-          useApp.getState().bump();
-        },
+        notify: (m) => notifyAgentWrite(payload.client, m),
       });
       body = res ? JSON.stringify(res) : '';
     } catch (e) {

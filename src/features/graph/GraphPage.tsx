@@ -1,10 +1,11 @@
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { forceCenter, forceCollide, forceLink, forceManyBody, forceSimulation, type SimulationLinkDatum, type SimulationNodeDatum } from 'd3-force';
-import { Box, Maximize2, Network, Search, Sparkles, X } from 'lucide-react';
-import { repos, useApp, wsId } from '../../app/state';
+import { Activity, Box, Maximize2, Network, Search, Sparkles, X } from 'lucide-react';
+import { repos, useApp, wsId, type Route } from '../../app/state';
 import { useT, type MessageKey } from '../../i18n';
 import { Button, EmptyState, IconButton, Spinner, useAsync, cx } from '../../components/ui';
 import { buildGraph, type EdgeKind, type GraphNode, type NodeKind } from './graphData';
+import { AgentActivityPanel } from './AgentActivityPanel';
 import { cosine, localHashEmbed } from '../../search/vectors';
 import { openExternal } from '../../lib/platform';
 import { relativeTime } from '../../lib/util';
@@ -45,10 +46,24 @@ const EDGE_LABEL: Record<EdgeKind, MessageKey> = {
 export default function GraphPage() {
   const t = useT();
   const version = useApp((s) => s.version);
+  const route = useApp((s) => s.route);
   const navigate = useApp((s) => s.navigate);
   const lang = useApp((s) => s.lang);
   const [mode, setMode] = useState<'2d' | '3d'>('2d');
+  const [activityOpen, setActivityOpen] = useState(() => route.name === 'graph' && route.tab === 'activity');
   const { data, loading } = useAsync(() => buildGraph(repos().db, wsId()), [version]);
+
+  useEffect(() => {
+    if (route.name === 'graph' && route.tab === 'activity') setActivityOpen(true);
+  }, [route]);
+
+  const setActivityPanel = (open: boolean) => {
+    setActivityOpen(open);
+    if (route.name === 'graph') {
+      const nextRoute: Route = open ? { name: 'graph', tab: 'activity' } : { name: 'graph' };
+      navigate(nextRoute, { replace: true });
+    }
+  };
   const [filters, setFilters] = useState<Record<NodeKind, boolean>>({ page: true, database: true, source: true, tag: true, notebook: true, agent: true, repo: true });
   const [query, setQuery] = useState('');
   const [selected, setSelected] = useState<SimNode | null>(null);
@@ -377,6 +392,15 @@ export default function GraphPage() {
             ))}
           </div>
           <span className="flex-1" />
+          <Button
+            size="sm"
+            variant={activityOpen ? 'primary' : undefined}
+            aria-pressed={activityOpen}
+            icon={<Activity className="size-3.5" />}
+            onClick={() => setActivityPanel(!activityOpen)}
+          >
+            {t('graph.activityTab')}
+          </Button>
           <Button size="sm" variant={mode === '3d' ? 'primary' : undefined} aria-pressed={mode === '3d'} icon={<Box className="size-3.5" />} onClick={() => setMode(mode === '3d' ? '2d' : '3d')}>
             {t('graph.view3d')}
           </Button>
@@ -411,8 +435,13 @@ export default function GraphPage() {
           )}
         </div>
       </div>
-      {(selected || suggestions) && (
-        <aside className="w-80 shrink-0 overflow-y-auto border-l border-line bg-elevated p-4">
+      {(selected || suggestions || activityOpen) && (
+        <aside className={cx('shrink-0 overflow-y-auto border-l border-line bg-elevated p-4', activityOpen ? 'w-96' : 'w-80')}>
+          {activityOpen && (
+            <div className={cx((selected || suggestions) && 'mb-6 border-b border-line pb-4')}>
+              <AgentActivityPanel onClose={() => setActivityPanel(false)} />
+            </div>
+          )}
           {selected && (
             <div className="mb-6">
               <div className="mb-1 flex items-start gap-2">

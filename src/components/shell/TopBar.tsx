@@ -1,6 +1,7 @@
-import { ArrowLeft, ArrowRight, ChevronRight, ChevronsRight, CloudOff, Moon, Sun, Check, Loader2, AlertTriangle } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Bot, ChevronRight, ChevronsRight, CloudOff, Moon, Sun, Check, Loader2, AlertTriangle } from 'lucide-react';
 import { create } from 'zustand';
 import { useApp, repos } from '../../app/state';
+import { formatActiveAgentNames } from '../../app/agentActivity';
 import { useT, type MessageKey } from '../../i18n';
 import { IconButton, useAsync } from '../ui';
 import { savePrefs } from '../../app/services';
@@ -79,6 +80,27 @@ function SaveIndicator() {
   );
 }
 
+function AgentActivityIndicator() {
+  const t = useT();
+  const activeAgents = useApp((s) => s.activeAgents);
+  const navigate = useApp((s) => s.navigate);
+  if (activeAgents.length === 0) return null;
+  const visibleNames = formatActiveAgentNames(activeAgents, 2);
+  const allNames = activeAgents.map((a) => a.client).join(', ');
+  return (
+    <button
+      type="button"
+      onClick={() => navigate({ name: 'graph', tab: 'activity' })}
+      title={t('agent.workingTooltip', { n: activeAgents.length, clients: allNames })}
+      className="ml-2 flex max-w-[260px] items-center gap-1.5 rounded-md border border-line bg-accent-soft px-2 py-1 text-xs font-medium text-accent transition-colors hover:bg-accent/20"
+    >
+      <span className="size-2 shrink-0 animate-pulse rounded-full bg-accent" aria-hidden="true" />
+      <Bot className="size-3.5 shrink-0" aria-hidden="true" />
+      <span className="truncate">{t('agent.working', { clients: visibleNames })}</span>
+    </button>
+  );
+}
+
 export function TopBar() {
   const t = useT();
   const { back, forward, goBack, goForward, online, prefs } = useApp();
@@ -100,6 +122,7 @@ export function TopBar() {
         <Breadcrumbs />
       </div>
       <SaveIndicator />
+      <AgentActivityIndicator />
       {!online && (
         <span className="ml-2 flex items-center gap-1.5 rounded-md bg-warning/12 px-2 py-1 text-xs text-warning" title={t('common.offline')}>
           <CloudOff className="size-3.5" /> Offline
