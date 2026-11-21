@@ -64,7 +64,11 @@ Moving in? **Settings → Storage & backups → Import…** reads a Notion expor
 
 Turn on **Settings → AI connections** and click **Connect** next to Claude Desktop, Cursor, Windsurf or LM Studio; Noesis writes their configuration for you (with a backup) and starts automatically when they need it. For Claude Code, copy the one-line command shown there.
 
-Assistants can search notes and sources (with compact index results or bounded snippets), list and read pages in layers (heading outlines, individual sections, or paged chunks), find duplicate pages, create pages and tasks, restore trashed pages, and reorganise existing pages (move, rename, edit, append or move to trash). Text wrapped in `<private>...</private>` is omitted from MCP responses while staying visible in the app. Changing, moving, renaming or trashing an existing page always needs your approval in a dialog, and pages are never permanently deleted through MCP. The endpoint listens only on `127.0.0.1`, requires a key and refuses web pages.
+Assistants can search notes and sources (with compact index results or bounded snippets), list and read pages in layers (heading outlines, individual sections, or paged chunks), inspect backlinks, check link health (broken internal links and orphan pages), browse the trash, find duplicate pages, create pages and tasks, restore trashed pages, and reorganise existing pages (move, rename, edit, append or move to trash). Text wrapped in `<private>...</private>` is omitted from MCP responses while staying visible in the app. Changing, moving, renaming or trashing an existing page always needs your approval in a dialog, and pages are never permanently deleted through MCP. The endpoint listens only on `127.0.0.1`, requires a key and refuses web pages.
+
+- **Read-only tools:** `search_notes`, `list_pages`, `read_page`, `get_backlinks`, `check_links`, `list_trash`, `find_duplicate_pages`, `list_tasks`, `list_sources`, `search_sources`
+- **Additive tools (in-app notice, no approval dialog):** `create_page`, `clip_web_page`, `create_task`, `restore_page`
+- **Page-modifying tools (approval dialog required):** `append_to_page`, `update_page`, `move_page`, `rename_page`, `trash_page`
 
 ### Always up to date
 

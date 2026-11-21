@@ -10,6 +10,13 @@ Security scanning, immutable action references and an English audit were added. 
 
 ## Verification runs (this revision)
 
+### Link health and MCP read tools (unreleased)
+
+- Added workspace-scoped SQL method `PageRepo.linkHealth(workspaceId)` (`src/core/repos/pages.ts`) reporting broken internal links (`page_links` rows from live pages whose target is missing, in another workspace, or in the trash) and orphan pages (live pages whose parent is missing, in another workspace, or trashed).
+- Added three read-only (`readOnlyHint: true`) MCP tools in `src/mcp/server.ts` with workspace isolation and `<private>...</private>` title stripping: `check_links` (broken links and orphans capped at 200 entries with total counts), `list_trash` (trashed pages with `id`, `title`, `deleted_at`, paginated via `limit`/`offset`), and `get_backlinks` (live pages linking to `page_id` with titles). Updated `initialize` instructions and README MCP tool list.
+- Added `LinkHealthPanel` (`src/features/settings/LinkHealthPanel.tsx`) under Settings → Storage with a "Check" button listing broken links and orphans (clicking an entry opens the source page) and English/Turkish strings.
+- Unit tests in `tests/unit/link-health.test.ts` and `tests/unit/mcp.test.ts`; Playwright E2E flow in `tests/e2e/app.spec.ts`. Automated verification run pending by maintainer.
+
 ### Duplicate handling: import skip and duplicate finder UI (unreleased)
 
 - Extracted duplicate-page grouping from MCP `find_duplicate_pages` into `src/core/duplicates.ts` (`normalizeDuplicateText`, `findDuplicateGroups`, `findWorkspaceDuplicates`, `rewriteDocPageLinks`, `findAffectedBacklinks`, `trashDuplicateCopies`); MCP `find_duplicate_pages` now calls the shared helper while keeping `<private>` stripping intact.
@@ -166,6 +173,7 @@ Security scanning, immutable action references and an English audit were added. 
 | Markdown import/export, HTML export, Word (.docx) export | done | DOCX via the `docx` package, native headings/lists/tables/images |
 | Notion export / Obsidian vault import | done | Nested pages, internal links, CSV → databases, images, duplicate-page skip on re-import with link remapping (unit + E2E) |
 | Duplicate pages finder & cleanup | done | Shared grouping module (`src/core/duplicates.ts`) used by MCP `find_duplicate_pages` and Settings → Storage scanner; keeps oldest copy, redirects internal links and recursively trashes extra copies (unit + E2E) |
+| Link health checker | done | Workspace-scoped SQL check (`PageRepo.linkHealth`) for broken internal links and orphan pages, exposed in Settings → Storage (`LinkHealthPanel`, click to open source page) and MCP `check_links` (unit + E2E) |
 | PDF export | done | Direct `.pdf` writer (pdfmake, embedded Roboto, selectable text). Emoji/CJK need the Print path |
 | Page templates, icons, covers | done | |
 | Workspaces, nested pages, tags, favorites, archive/trash/restore | done | |
@@ -192,7 +200,7 @@ Security scanning, immutable action references and an English audit were added. 
 | Quick capture (global shortcut, tray) | done | `Ctrl+Shift+Space` system-wide; notes go to an Inbox page |
 | Close to tray (desktop) | done in code, not verified interactively | Closing the window hides it (Settings → General, default on); tray left click, tray "Open" and a second launch show it again; "Quit" exits for real. Hide/show must be checked on a Windows desktop (CI cannot) |
 | Web clipper (browser extension) | done | `extensions/web-clipper`, MV3; developer-mode install; not in stores |
-| MCP server for AI assistants | done | 16 tools (paginated/filtered `list_pages`, layered `read_page` with `outline_only`/`heading`/`max_chars`/`offset`, `search_notes` `detail`/`snippet_chars`, `<private>...</private>` filtering across MCP outputs, `update_page`, `move_page`, `rename_page`, `trash_page`, `restore_page`, `find_duplicate_pages`, plus create/append/clip/tasks/sources), approval for mutating existing pages, no permanent deletion, schema v8 `agent_activity`, one-click config for Claude Desktop/Cursor/Windsurf/LM Studio |
+| MCP server for AI assistants | done | 19 tools (paginated/filtered `list_pages`, layered `read_page` with `outline_only`/`heading`/`max_chars`/`offset`, `search_notes` `detail`/`snippet_chars`, `<private>...</private>` filtering across MCP outputs, `check_links`, `list_trash`, `get_backlinks`, `update_page`, `move_page`, `rename_page`, `trash_page`, `restore_page`, `find_duplicate_pages`, plus create/append/clip/tasks/sources), approval for mutating existing pages, no permanent deletion, schema v8 `agent_activity`, one-click config for Claude Desktop/Cursor/Windsurf/LM Studio |
 | Auto-update | done (config) | Tauri updater, minisign-signed, every push to `main` publishes a build. Needs the `TAURI_SIGNING_PRIVATE_KEY` secret; end-to-end update not yet observed |
 | Code signing | blocked | No certificate |
 | Performance benchmarks | done | Reproducible 5,000-page / 100,000-row / 1,000-source seed, data and browser startup, search, paginated table and full export/import measurements. Packaged WebView2 cold start remains manual |

@@ -1082,3 +1082,72 @@ test('Settings -> Storage scans duplicate pages, redirects links and moves extra
   await page.getByRole('button', { name: 'Trash', exact: true }).click();
   await expect(page.getByRole('main').getByText('Field Protocol')).toBeVisible();
 });
+
+test('Settings -> Storage checks link health, lists broken links and orphans, and opens the source page', async ({ page }) => {
+  await freshApp(page);
+  await onboard(page);
+
+  const ids = await page.evaluate(async () => {
+    const state = (window as unknown as { __noesis: { getState(): { repos: Repos; workspaceId: string; bump(): void } } }).__noesis.getState();
+    const { repos, workspaceId } = state;
+    const target = await repos.pages.create({ workspaceId, title: 'Trashed Reference' });
+    const source = await repos.pages.create({ workspaceId, title: 'Research Overview' });
+    await repos.pages.saveContent(source.id, {
+      type: 'doc',
+      content: [
+        {
+          type: 'paragraph',
+          content: [
+            { type: 'text', text: 'See ' },
+            { type: 'text', text: 'Trashed Reference', marks: [{ type: 'link', attrs: { href: `noesis://page/${target.id}` } }] },
+          ],
+        },
+      ],
+    });
+    await repos.pages.trash(target.id);
+
+    const parent = await repos.pages.create({ workspaceId, title: 'Trashed Folder' });
+    const orphan = await repos.pages.create({ workspaceId, parentId: parent.id, title: 'Stranded Note' });
+    await repos.db.run('UPDATE pages SET deleted_at = ? WHERE id = ?', [Date.now(), parent.id]);
+
+    await repos.db.flushNow();
+    state.bump();
+    return { sourceId: source.id, targetId: target.id, parentId: parent.id, orphanId: orphan.id };
+  });
+
+  await page.getByRole('button', { name: 'Settings', exact: true }).click();
+  await page.getByRole('button', { name: 'Storage & backups', exact: true }).click();
+  await page.getByRole('button', { name: 'Check', exact: true }).click();
+
+  await expect(page.getByText('Found 1 broken link and 1 orphan page.', { exact: true })).toBeVisible();
+
+  const brokenList = page.getByRole('list', { name: 'Broken links' });
+  await expect(brokenList).toBeVisible();
+  await expect(brokenList).toContainText('Research Overview');
+  await expect(brokenList).toContainText('Trashed Reference');
+  await expect(brokenList).toContainText('In trash');
+
+  const orphanList = page.getByRole('list', { name: 'Orphan pages' });
+  await expect(orphanList).toBeVisible();
+  await expect(orphanList).toContainText('Stranded Note');
+  await expect(orphanList).toContainText('Trashed Folder');
+  await expect(orphanList).toContainText('In trash');
+
+  // Clicking a broken-link entry opens its source page.
+  await brokenList.getByRole('button', { name: 'Research Overview', exact: true }).click();
+  await expect(page.getByLabel('Page title')).toHaveValue('Research Overview');
+
+  // Restoring the trashed target and parent resolves all link-health issues.
+  await page.evaluate(async ({ targetId, parentId }) => {
+    const state = (window as unknown as { __noesis: { getState(): { repos: Repos; bump(): void } } }).__noesis.getState();
+    await state.repos.pages.restore(targetId);
+    await state.repos.db.run('UPDATE pages SET deleted_at = NULL WHERE id = ?', [parentId]);
+    await state.repos.db.flushNow();
+    state.bump();
+  }, ids);
+
+  await page.getByRole('button', { name: 'Settings', exact: true }).click();
+  await page.getByRole('button', { name: 'Storage & backups', exact: true }).click();
+  await page.getByRole('button', { name: 'Check', exact: true }).click();
+  await expect(page.getByText('No broken links or orphan pages found.', { exact: true })).toBeVisible();
+});
