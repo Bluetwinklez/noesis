@@ -10,6 +10,13 @@ Security scanning, immutable action references and an English audit were added. 
 
 ## Verification runs (this revision)
 
+### MCP layered reading and private blocks (unreleased)
+
+- Pure private-block stripper `src/mcp/private.ts` (`stripPrivate`, `stripPrivateText`, `hasPrivateMarkers`) removes inline, multi-block, and unterminated `<private>...</private>` spans from TipTap documents and plain text without mutating inputs or changing in-app editing/search.
+- `src/mcp/server.ts` applies private stripping in `read_page`, `search_notes` (rebuilding snippets from clean text and dropping hits when no query words remain), `find_duplicate_pages`, and `append_to_page`/`update_page` previews (`docPreview`).
+- `read_page` supports `outline_only`, `heading` (first case-insensitive match up to the next heading of the same or higher level), and `max_chars` (capped at 100,000) / `offset` paging returning `truncated`, `next_offset` and `total_characters`. `search_notes` adds `detail` (`"index"` | `"full"`) and `snippet_chars` (40–1000). `initialize` instructions recommend the layered reading flow.
+- Unit tests in `tests/unit/mcp-private.test.ts` and `tests/unit/mcp.test.ts`. Automated verification run pending by maintainer.
+
 ### Search index rebuild and self-healing (unreleased)
 
 - Workspace-scoped `rebuildSearchIndex(db, workspaceId)` in `src/core/search-rebuild.ts` clears and rebuilds `search_index` and `chunks_fts` in batched transactions for live (non-trashed, non-archived) pages, database rows (using `displayValue`), tasks, notebooks, notebook notes, ready sources and source chunks, returning per-kind counts. Backup restore shares the same indexing helper. Archiving a page removes it from `search_index`.
@@ -177,7 +184,7 @@ Security scanning, immutable action references and an English audit were added. 
 | Quick capture (global shortcut, tray) | done | `Ctrl+Shift+Space` system-wide; notes go to an Inbox page |
 | Close to tray (desktop) | done in code, not verified interactively | Closing the window hides it (Settings → General, default on); tray left click, tray "Open" and a second launch show it again; "Quit" exits for real. Hide/show must be checked on a Windows desktop (CI cannot) |
 | Web clipper (browser extension) | done | `extensions/web-clipper`, MV3; developer-mode install; not in stores |
-| MCP server for AI assistants | done | 16 tools (paginated/filtered `list_pages`, `update_page`, `move_page`, `rename_page`, `trash_page`, `restore_page`, `find_duplicate_pages`, plus search/read/create/append/clip/tasks/sources), approval for mutating existing pages, no permanent deletion, schema v8 `agent_activity`, one-click config for Claude Desktop/Cursor/Windsurf/LM Studio |
+| MCP server for AI assistants | done | 16 tools (paginated/filtered `list_pages`, layered `read_page` with `outline_only`/`heading`/`max_chars`/`offset`, `search_notes` `detail`/`snippet_chars`, `<private>...</private>` filtering across MCP outputs, `update_page`, `move_page`, `rename_page`, `trash_page`, `restore_page`, `find_duplicate_pages`, plus create/append/clip/tasks/sources), approval for mutating existing pages, no permanent deletion, schema v8 `agent_activity`, one-click config for Claude Desktop/Cursor/Windsurf/LM Studio |
 | Auto-update | done (config) | Tauri updater, minisign-signed, every push to `main` publishes a build. Needs the `TAURI_SIGNING_PRIVATE_KEY` secret; end-to-end update not yet observed |
 | Code signing | blocked | No certificate |
 | Performance benchmarks | done | Reproducible 5,000-page / 100,000-row / 1,000-source seed, data and browser startup, search, paginated table and full export/import measurements. Packaged WebView2 cold start remains manual |

@@ -30,6 +30,7 @@ Nothing leaves the machine unless the user configures an AI provider, consents t
 | SSRF-safe URL import | Rust resolves the host, refuses private/loopback/link-local/CGNAT/multicast addresses, pins the checked IP for the connection and re-checks every redirect (max 5), 25 MB cap, no proxy | `src-tauri/src/net.rs` + tests |
 | Guarded SQL bridge | `db_exec` runs behind an SQLite authorizer: no ATTACH/DETACH, no `load_extension`, no `writable_schema`/`journal_mode`/directory pragmas, no `VACUUM INTO`; internal maintenance uses an explicit unguarded scope | `src-tauri/src/db.rs` test `file_system_escapes_are_refused` |
 | MCP endpoint for AI assistants | Off by default; `127.0.0.1` only; 64-hex bearer key in a per-user file; requests with a web-page `Origin` are refused (DNS rebinding), browser-extension origins still need the key; editing, moving, renaming or trashing existing pages requires an in-app approval (no permanent deletion); workspace-scoped, trashed pages excluded from live operations | `src-tauri/src/mcp.rs`, `src/mcp/server.ts` + tests |
+| MCP private blocks | Plain-text `<private>...</private>` markers (inline, multi-block, or unterminated `<private>` to end of page) are stripped before any MCP response: `read_page` (Markdown, outline, and heading sections), `search_notes` (snippets and hits where no query words remain after stripping), `find_duplicate_pages` comparisons, and `append_to_page`/`update_page` approval previews. In-app editing, in-app search, backups, and exports remain unchanged | `src/mcp/private.ts`, `src/mcp/server.ts`, `tests/unit/mcp-private.test.ts` |
 | Signed updates | Updates are verified against the minisign public key in `tauri.conf.json` before install; the private key is only a GitHub secret | `src-tauri/tauri.conf.json`, `.github/workflows/release.yml` |
 | Prompt-injection resistance | Sources are wrapped as untrusted DATA; the system prompt forbids following instructions found inside them; AI output never executes tools or actions; edits go through a preview that the user must accept | `src/ai/rag.ts` `buildGroundedPrompt`, `src/features/ai/AiPreview.tsx` |
 | Consent before cloud upload | Per-provider consent dialog (once / always); revocable; background jobs never prompt | `src/app/services.ts` |
@@ -47,6 +48,7 @@ Nothing leaves the machine unless the user configures an AI provider, consents t
 7. ~~The URL import SSRF check matched only literal host names.~~ **Fixed:** fetching moved to Rust with DNS resolution, address pinning and per-redirect checks (see table).
 8. **The database is not encrypted at rest.** Anyone with access to the Windows user account can read `noesis.db`. Use BitLocker/device encryption.
 9. **The MCP key and the web clipper.** The same key authorises AI clients and the browser extension. Treat it like a password; turning AI connections off stops the endpoint.
+10. **`<private>` markers only guard MCP output.** Text inside `<private>...</private>` is omitted from MCP tools, but remains stored in plaintext in the local SQLite database and visible to in-app editing, in-app search, backups, and exports.
 
 ## Reporting
 

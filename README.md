@@ -64,7 +64,7 @@ Moving in? **Settings → Storage & backups → Import…** reads a Notion expor
 
 Turn on **Settings → AI connections** and click **Connect** next to Claude Desktop, Cursor, Windsurf or LM Studio; Noesis writes their configuration for you (with a backup) and starts automatically when they need it. For Claude Code, copy the one-line command shown there.
 
-Assistants can search notes and sources, list and read pages, find duplicate pages, create pages and tasks, restore trashed pages, and reorganise existing pages (move, rename, edit, append or move to trash). Changing, moving, renaming or trashing an existing page always needs your approval in a dialog, and pages are never permanently deleted through MCP. The endpoint listens only on `127.0.0.1`, requires a key and refuses web pages.
+Assistants can search notes and sources (with compact index results or bounded snippets), list and read pages in layers (heading outlines, individual sections, or paged chunks), find duplicate pages, create pages and tasks, restore trashed pages, and reorganise existing pages (move, rename, edit, append or move to trash). Text wrapped in `<private>...</private>` is omitted from MCP responses while staying visible in the app. Changing, moving, renaming or trashing an existing page always needs your approval in a dialog, and pages are never permanently deleted through MCP. The endpoint listens only on `127.0.0.1`, requires a key and refuses web pages.
 
 ### Always up to date
 
