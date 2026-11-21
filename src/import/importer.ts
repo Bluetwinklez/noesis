@@ -12,7 +12,9 @@
  */
 import JSZip from 'jszip';
 import type { Repos } from '../core/store';
-import { PAGE_LINK_PREFIX } from '../core/doc';
+import type { Page } from '../core/types';
+import { extractDoc, PAGE_LINK_PREFIX } from '../core/doc';
+import { normalizeDuplicateText } from '../core/duplicates';
 import { htmlToDoc } from '../editor/serialize';
 import { markdownToHtml } from '../editor/markdown';
 import { parseCsv } from '../ingestion/extractors';
@@ -47,6 +49,8 @@ export interface ImportResult {
   sources: PendingSource[];
   notebooks: ImportedNotebook[];
   skipped: string[];
+  /** Imported Markdown pages skipped because a live page with the same normalised title and plain text already existed under the same parent. */
+  skippedDuplicates: number;
 }
 
 const NOTION_ID = /\s+[0-9a-f]{32}$/i;
@@ -131,12 +135,44 @@ function guessType(values: string[]): 'number' | 'checkbox' | 'url' | 'date' | '
   return 'text';
 }
 
+function prepareNoteMarkdown(f: ImportFile, hasManifest: boolean): { md: string; tags: string[] } {
+  const title = cleanName(base(f.path));
+  const { body, tags } = splitFrontMatter(decoder.decode(f.bytes));
+  let md = body.replace(/^\uFEFF/, '');
+  // Noesis exports start with the title as H1; Notion repeats the title as the first heading.
+  if (hasManifest) md = md.replace(/^\s*#\s+.*\n/, '');
+  else md = md.replace(new RegExp(`^\\s*#\\s+${title.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*\\n`, 'i'), '');
+  return { md, tags };
+}
+
+/**
+ * Computes normalised plain text of an incoming Markdown note as it will appear after
+ * import (handling Obsidian embeds and wikilinks without creating pages or storing images).
+ */
+function previewNotePlainText(md: string, imagesByName: Map<string, ImportFile>): string {
+  let preview = md.replace(/!\[\[([^\]|]+)(?:\|[^\]]*)?\]\]/g, (m, target: string) =>
+    imagesByName.has(base(target.trim()).toLowerCase()) ? '' : m,
+  );
+  preview = preview.replace(/\[\[([^\]|#]+)(?:#[^\]|]*)?(?:\|([^\]]+))?\]\]/g, (_m, target: string, alias?: string) =>
+    (alias ?? target).trim(),
+  );
+  if (!preview.trim()) return '';
+  return normalizeDuplicateText(extractDoc(htmlToDoc(markdownToHtml(preview))).text);
+}
+
 export async function importWorkspace(
   repos: Repos,
   workspaceId: string,
   input: ImportFile[],
-  opts: { blobs: BlobPut; rootTitle: (source: ImportSource) => string; onProgress?: (done: number, total: number) => void },
+  opts: {
+    blobs: BlobPut;
+    rootTitle: (source: ImportSource) => string;
+    onProgress?: (done: number, total: number) => void;
+    /** Skip pages whose normalised title and plain text match an existing live page under the same parent. Default: true. */
+    skipDuplicates?: boolean;
+  },
 ): Promise<ImportResult> {
+  const skipDuplicates = opts.skipDuplicates ?? true;
   const files = await expandInputs(input);
   const isData = (f: ImportFile) => f.path.toLowerCase().startsWith(DATA_DIR.toLowerCase() + '/');
   const manifestFile = files.find((f) => keyOf(f.path) === keyOf(`${DATA_DIR}/manifest.json`));
@@ -163,10 +199,27 @@ export async function importWorkspace(
   const skipped = files.filter((f) => !/\.(md|csv)$/i.test(f.path) && !IMAGE_EXT.test(f.path) && !(manifest && isData(f))).map((f) => f.path);
   if (!notes.length && !csvs.length && !manifest) throw new Error('No Markdown (.md) or CSV files were found. Export from Notion as “Markdown & CSV”, or choose an Obsidian vault folder zip.');
 
-  const root = await repos.pages.create({ workspaceId, title: opts.rootTitle(source), icon: '📥' });
+  const existingByParent = new Map<string | null, Page[]>();
+  if (skipDuplicates) {
+    for (const p of await repos.pages.listAllLive(workspaceId)) {
+      if (p.kind !== 'page') continue;
+      const list = existingByParent.get(p.parent_id);
+      if (list) list.push(p);
+      else existingByParent.set(p.parent_id, [p]);
+    }
+  }
+
+  const rootTitle = opts.rootTitle(source);
+  const existingRoot = skipDuplicates
+    ? (existingByParent.get(null) ?? []).find(
+        (p) => normalizeDuplicateText(p.title) === normalizeDuplicateText(rootTitle),
+      )
+    : undefined;
+  const root = existingRoot ?? (await repos.pages.create({ workspaceId, title: rootTitle, icon: '📥' }));
   const pageByPath = new Map<string, string>(); // key of .md / .csv path → page id
   const pageByFolder = new Map<string, string>(); // folder key → page id that owns it
   const pageByTitle = new Map<string, string>(); // lower-case title → page id (wikilinks)
+  const skippedPaths = new Set<string>();
 
   // Folder pages for directories that have no page of their own (Obsidian folders).
   const ensureFolder = async (folder: string): Promise<string> => {
@@ -181,7 +234,17 @@ export async function importWorkspace(
       pageByFolder.set(k, owner);
       return owner;
     }
-    const page = await repos.pages.create({ workspaceId, parentId: parent, title: cleanName(base(folder)), icon: '📁' });
+    const folderTitle = cleanName(base(folder));
+    if (skipDuplicates) {
+      const match = (existingByParent.get(parent) ?? []).find(
+        (p) => normalizeDuplicateText(p.title) === normalizeDuplicateText(folderTitle),
+      );
+      if (match) {
+        pageByFolder.set(k, match.id);
+        return match.id;
+      }
+    }
+    const page = await repos.pages.create({ workspaceId, parentId: parent, title: folderTitle, icon: '📁' });
     pageByFolder.set(k, page.id);
     return page.id;
   };
@@ -189,6 +252,8 @@ export async function importWorkspace(
   // Pass 1: create every page/database (shallow paths first so parents exist).
   const ordered = [...notes, ...csvs].sort((a, b) => a.path.split('/').length - b.path.split('/').length || a.path.localeCompare(b.path));
   let databases = 0;
+  let createdPages = 0;
+  let skippedDuplicates = 0;
   for (const f of ordered) {
     const parentId = await ensureFolder(dir(f.path));
     const found = meta.get(keyOf(f.path));
@@ -204,9 +269,30 @@ export async function importWorkspace(
       pageByPath.set(keyOf(f.path), db.id);
       databases++;
     } else {
-      const page = await repos.pages.create({ workspaceId, parentId, title, icon: known?.icon ?? null });
-      pageByPath.set(keyOf(f.path), page.id);
-      if (!pageByTitle.has(title.toLowerCase())) pageByTitle.set(title.toLowerCase(), page.id);
+      let duplicateOf: Page | undefined;
+      if (skipDuplicates) {
+        const normTitle = normalizeDuplicateText(title);
+        const candidates = (existingByParent.get(parentId) ?? []).filter(
+          (p) => normalizeDuplicateText(p.title) === normTitle,
+        );
+        if (candidates.length > 0) {
+          const { md } = prepareNoteMarkdown(f, !!manifest);
+          const incomingText = previewNotePlainText(md, imagesByName);
+          duplicateOf = candidates.find((p) => normalizeDuplicateText(p.content_text) === incomingText);
+        }
+      }
+      if (duplicateOf) {
+        const pathKey = keyOf(f.path);
+        pageByPath.set(pathKey, duplicateOf.id);
+        if (!pageByTitle.has(title.toLowerCase())) pageByTitle.set(title.toLowerCase(), duplicateOf.id);
+        skippedPaths.add(pathKey);
+        skippedDuplicates++;
+      } else {
+        const page = await repos.pages.create({ workspaceId, parentId, title, icon: known?.icon ?? null });
+        pageByPath.set(keyOf(f.path), page.id);
+        if (!pageByTitle.has(title.toLowerCase())) pageByTitle.set(title.toLowerCase(), page.id);
+        createdPages++;
+      }
     }
   }
 
@@ -243,13 +329,15 @@ export async function importWorkspace(
 
   let done = 0;
   for (const f of notes) {
-    const id = pageByPath.get(keyOf(f.path))!;
-    const title = cleanName(base(f.path));
-    const { body, tags } = splitFrontMatter(decoder.decode(f.bytes));
-    let md = body.replace(/^﻿/, '');
-    // Noesis exports start with the title as H1; Notion repeats the title as the first heading.
-    if (manifest) md = md.replace(/^\s*#\s+.*\n/, '');
-    else md = md.replace(new RegExp(`^\\s*#\\s+${title.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*\\n`, 'i'), '');
+    const pathKey = keyOf(f.path);
+    if (skippedPaths.has(pathKey)) {
+      opts.onProgress?.(++done, notes.length + csvs.length);
+      continue;
+    }
+    const id = pageByPath.get(pathKey)!;
+    const prepared = prepareNoteMarkdown(f, !!manifest);
+    let md = prepared.md;
+    const tags = prepared.tags;
 
     // Obsidian embeds ![[image.png]] and wikilinks [[Page]] / [[Page|alias]] / [[Page#heading]].
     const pending: Promise<void>[] = [];
@@ -413,7 +501,18 @@ export async function importWorkspace(
     : [];
 
   const notebooks = manifest ? parseNotebookNotes(dataJson<unknown>('notebooks.json', [])) : [];
-  return { rootId: root.id, source, pages: notes.length, databases, images: imageCount, tasks: taskCount, sources, notebooks, skipped };
+  return {
+    rootId: root.id,
+    source,
+    pages: createdPages,
+    databases,
+    images: imageCount,
+    tasks: taskCount,
+    sources,
+    notebooks,
+    skipped,
+    skippedDuplicates,
+  };
 }
 
 function parseManifest(bytes: Uint8Array): ExportManifest | null {

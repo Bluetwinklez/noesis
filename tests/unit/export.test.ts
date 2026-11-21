@@ -213,4 +213,40 @@ describe('export everything and import it back', () => {
     await importWorkspace(b, ws2, [{ path: 'agents.zip', bytes: exported.bytes }], { blobs: memoryBlobs(), rootTitle: () => 'Imported' });
     expect((await b.activity.list(ws2)).map((x) => x.action)).toEqual(expect.arrayContaining([...actions]));
   });
+
+  it('does not double the page count when importing the same export twice with skipDuplicates=true, but does with false', async () => {
+    const a = await memoryStore();
+    const ws = (await a.workspaces.create('Handbook')).id;
+    const guide = await a.pages.create({ workspaceId: ws, title: 'Handbook' });
+    const setup = await a.pages.create({ workspaceId: ws, parentId: guide.id, title: 'Setup Guide' });
+    const faq = await a.pages.create({ workspaceId: ws, parentId: guide.id, title: 'FAQ' });
+    await a.pages.saveContent(guide.id, htmlToDoc(markdownToHtml(`Start with [Setup](${PAGE_LINK_PREFIX}${setup.id}).`)));
+    await a.pages.saveContent(setup.id, htmlToDoc(markdownToHtml(`Install dependencies, then check [FAQ](${PAGE_LINK_PREFIX}${faq.id}).`)));
+    await a.pages.saveContent(faq.id, htmlToDoc(markdownToHtml('Frequently asked questions about local storage.')));
+
+    const { bytes } = await exportWorkspace(a, ws, memoryBlobs());
+
+    const b = await memoryStore();
+    const ws2 = (await b.workspaces.create('Target')).id;
+    const opts = { blobs: memoryBlobs(), rootTitle: () => 'Imported from Noesis' };
+
+    // First import (default skipDuplicates = true).
+    const first = await importWorkspace(b, ws2, [{ path: 'handbook.zip', bytes }], opts);
+    expect(first).toMatchObject({ pages: 3, skippedDuplicates: 0 });
+    const countAfterFirst = (await b.pages.listTree(ws2)).filter((p) => p.kind === 'page').length;
+    expect(countAfterFirst).toBe(4); // root + 3 exported pages
+
+    // Second import with default (skipDuplicates = true): skips all 3 pages and reuses the root.
+    const second = await importWorkspace(b, ws2, [{ path: 'handbook.zip', bytes }], opts);
+    expect(second).toMatchObject({ rootId: first.rootId, pages: 0, skippedDuplicates: 3 });
+    const countAfterSecond = (await b.pages.listTree(ws2)).filter((p) => p.kind === 'page').length;
+    expect(countAfterSecond).toBe(countAfterFirst);
+
+    // Third import with skipDuplicates = false: creates a second full copy, doubling the page count.
+    const third = await importWorkspace(b, ws2, [{ path: 'handbook.zip', bytes }], { ...opts, skipDuplicates: false });
+    expect(third).toMatchObject({ pages: 3, skippedDuplicates: 0 });
+    expect(third.rootId).not.toBe(first.rootId);
+    const countAfterThird = (await b.pages.listTree(ws2)).filter((p) => p.kind === 'page').length;
+    expect(countAfterThird).toBe(countAfterFirst * 2);
+  });
 });

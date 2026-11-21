@@ -980,3 +980,105 @@ test('rebuild search index in Settings -> Storage restores search and shows a su
   await page.getByLabel('Search pages, notes, documents, tasks…').fill('basalt');
   await expect(page.getByRole('listbox')).toContainText('Index recovery note');
 });
+
+test('Settings -> Storage scans duplicate pages, redirects links and moves extra copies to trash', async ({ page }) => {
+  await freshApp(page);
+  await onboard(page);
+
+  const ids = await page.evaluate(async () => {
+    const state = (window as unknown as { __noesis: { getState(): { repos: Repos; workspaceId: string; bump(): void } } }).__noesis.getState();
+    const { repos, workspaceId } = state;
+    const folder = await repos.pages.create({ workspaceId, title: 'Archive' });
+    const oldest = await repos.pages.create({ workspaceId, parentId: folder.id, title: 'Field Protocol' });
+    const extra = await repos.pages.create({ workspaceId, title: 'Field Protocol' });
+    const extraChild = await repos.pages.create({ workspaceId, parentId: extra.id, title: 'Extra Sub-note' });
+
+    await repos.db.run('UPDATE pages SET created_at = ? WHERE id = ?', [1_700_000_000_000, oldest.id]);
+    await repos.db.run('UPDATE pages SET created_at = ? WHERE id = ?', [1_700_000_100_000, extra.id]);
+
+    await repos.pages.saveContent(oldest.id, {
+      type: 'doc',
+      content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Standardised field sampling procedure for coastal marshes.' }] }],
+    });
+    await repos.pages.saveContent(extra.id, {
+      type: 'doc',
+      content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Standardised field sampling   procedure for coastal marshes.' }] }],
+    });
+    await repos.pages.saveContent(extraChild.id, {
+      type: 'doc',
+      content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Nested note under extra copy.' }] }],
+    });
+
+    const hub = await repos.pages.create({ workspaceId, title: 'Research Index' });
+    await repos.pages.saveContent(hub.id, {
+      type: 'doc',
+      content: [
+        {
+          type: 'paragraph',
+          content: [
+            { type: 'text', text: 'See ' },
+            { type: 'text', text: 'Field Protocol', marks: [{ type: 'link', attrs: { href: `noesis://page/${extra.id}` } }] },
+          ],
+        },
+      ],
+    });
+    await repos.db.flushNow();
+    state.bump();
+    return { oldestId: oldest.id, extraId: extra.id, extraChildId: extraChild.id, hubId: hub.id };
+  });
+
+  await page.getByRole('button', { name: 'Settings', exact: true }).click();
+  await page.getByRole('button', { name: 'Storage & backups', exact: true }).click();
+  await expect(page.getByLabel('Skip duplicate pages already in this workspace')).toBeChecked();
+
+  await page.getByRole('button', { name: 'Scan', exact: true }).click();
+  const list = page.getByRole('list', { name: 'Duplicate pages' });
+  await expect(list).toBeVisible();
+  await expect(list).toContainText('Field Protocol');
+  await expect(list).toContainText('2 copies');
+  await expect(list).toContainText('Archive');
+  await expect(list).toContainText('Workspace root');
+  await expect(list).toContainText('Keep (oldest)');
+
+  await list.getByRole('button', { name: 'Move extra copies to trash', exact: true }).click();
+  const dialog = page.getByRole('dialog');
+  await expect(dialog).toBeVisible();
+  await expect(dialog).toContainText('Field Protocol');
+  await expect(dialog).toContainText('Research Index');
+  await dialog.getByRole('button', { name: 'Move extra copies to trash', exact: true }).click();
+
+  await expect(
+    page.getByRole('status').filter({ hasText: 'Moved 1 extra copy to the trash and redirected links in 1 page.' }),
+  ).toBeVisible();
+  await expect(page.getByText('No duplicate pages found.', { exact: true })).toBeVisible();
+
+  const stateAfter = await page.evaluate(async ({ oldestId, extraId, extraChildId, hubId }) => {
+    const { repos } = (window as unknown as { __noesis: { getState(): { repos: Repos } } }).__noesis.getState();
+    const oldest = await repos.pages.get(oldestId);
+    const extra = await repos.pages.get(extraId);
+    const extraChild = await repos.pages.get(extraChildId);
+    const hub = await repos.pages.get(hubId);
+    const backlinks = await repos.pages.backlinks(oldestId);
+    return {
+      oldestDeleted: oldest?.deleted_at ?? null,
+      extraDeleted: extra?.deleted_at !== null,
+      extraChildDeleted: extraChild?.deleted_at !== null,
+      hubLinksOldest: hub?.content_json?.includes(`noesis://page/${oldestId}`) ?? false,
+      hubLinksExtra: hub?.content_json?.includes(`noesis://page/${extraId}`) ?? false,
+      backlinkIds: backlinks.map((b) => b.id),
+    };
+  }, ids);
+
+  expect(stateAfter).toEqual({
+    oldestDeleted: null,
+    extraDeleted: true,
+    extraChildDeleted: true,
+    hubLinksOldest: true,
+    hubLinksExtra: false,
+    backlinkIds: [ids.hubId],
+  });
+
+  // Trashed copy is restorable from Trash.
+  await page.getByRole('button', { name: 'Trash', exact: true }).click();
+  await expect(page.getByRole('main').getByText('Field Protocol')).toBeVisible();
+});

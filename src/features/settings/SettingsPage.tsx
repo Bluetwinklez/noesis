@@ -27,6 +27,7 @@ import { LANGUAGES, useT, type MessageKey } from '../../i18n';
 import { Badge, Button, confirmDialog, cx, Input, Kbd, promptDialog, Select, Switch, useAsync } from '../../components/ui';
 import { activeProvider, apiKeyName, configForProvider, errorMessage, reportError, saveAiConfig, saveLang, savePrefs, setWorkspace } from '../../app/services';
 import { McpSettings } from '../mcp/McpSettings';
+import { DuplicatePagesPanel } from './DuplicatePagesPanel';
 import { runExportAll, runImport } from '../import/runImport';
 import { PalettePicker } from '../../components/PalettePicker';
 import { checkForUpdates, installUpdate, setUpdatePrefs, useUpdates } from '../../app/updater';
@@ -583,6 +584,7 @@ function Storage() {
   const storageKind = useApp((s) => s.storageKind);
   const { data: info } = useAsync(() => appInfo(), []);
   const [busy, setBusy] = useState<string | null>(null);
+  const [skipDuplicates, setSkipDuplicates] = useState(true);
   const wrap = (name: string, fn: () => Promise<void>) => async () => {
     setBusy(name);
     try {
@@ -670,11 +672,28 @@ function Storage() {
           {t('export.button')}
         </Button>
       </Row>
-      <Row label={t('import.title')} hint={t('import.hint')}>
-        <Button size="sm" icon={<Upload className="size-3.5" />} loading={busy === 'import'} onClick={wrap('import', runImport)}>
-          {t('import.button')}
-        </Button>
-      </Row>
+      <div className="border-b border-line py-4">
+        <div className="flex items-center justify-between gap-6">
+          <div>
+            <div className="text-sm font-medium">{t('import.title')}</div>
+            <div className="mt-0.5 text-xs text-muted">{t('import.hint')}</div>
+            <label className="mt-2 inline-flex cursor-pointer items-center gap-2 text-xs text-fg">
+              <input
+                type="checkbox"
+                checked={skipDuplicates}
+                onChange={(e) => setSkipDuplicates(e.target.checked)}
+                className="size-3.5 rounded accent-accent"
+              />
+              <span>{t('import.skipDuplicates')}</span>
+            </label>
+          </div>
+          <div className="shrink-0">
+            <Button size="sm" icon={<Upload className="size-3.5" />} loading={busy === 'import'} onClick={wrap('import', () => runImport({ skipDuplicates }))}>
+              {t('import.button')}
+            </Button>
+          </div>
+        </div>
+      </div>
       <Row label={t('settings.restore')} hint={t('settings.restoreConfirm')}>
         <Button
           size="sm"
@@ -720,6 +739,7 @@ function Storage() {
           {t('settings.rebuildIndex')}
         </Button>
       </Row>
+      <DuplicatePagesPanel />
       <p className="mt-4 text-xs text-muted">{t('settings.syncFuture')}</p>
     </section>
   );

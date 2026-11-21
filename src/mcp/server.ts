@@ -16,6 +16,7 @@ import { retrieve } from '../ai/rag';
 import { docToHtml, htmlToDoc } from '../editor/serialize';
 import { htmlToMarkdown, markdownToHtml, sanitizeHtml } from '../editor/markdown';
 import { extractDoc, type DocNode } from '../core/doc';
+import { findWorkspaceDuplicates } from '../core/duplicates';
 import { hasPrivateMarkers, stripPrivate, stripPrivateText } from './private';
 
 export const MCP_PROTOCOL_VERSION = '2025-06-18';
@@ -611,34 +612,17 @@ const TOOLS: ToolDef[] = [
     inputSchema: { type: 'object', properties: {} },
     annotations: { readOnlyHint: true },
     async run(_a, ctx) {
-      const norm = (s: string) => s.trim().replace(/\s+/g, ' ').toLowerCase();
-      const live = await ctx.repos.pages.listAllLive(ctx.workspaceId);
-      const buckets = new Map<string, { ids: string[]; titles: string[]; normTitles: Set<string>; characters: number }>();
-      for (const p of live) {
-        if (p.kind !== 'page') continue;
-        const text = norm(cleanPageText(p));
-        if (text.length < 20) continue;
-        const title = stripPrivateText(p.title || 'Untitled') || 'Untitled';
-        let bucket = buckets.get(text);
-        if (!bucket) {
-          bucket = { ids: [], titles: [], normTitles: new Set(), characters: text.length };
-          buckets.set(text, bucket);
-        }
-        bucket.ids.push(p.id);
-        bucket.titles.push(title);
-        bucket.normTitles.add(norm(title));
-      }
-      const allGroups = [...buckets.values()]
-        .filter((b) => b.ids.length >= 2)
-        .map((b) => ({
-          ids: b.ids,
-          titles: b.titles,
-          characters: b.characters,
-          same_title: b.normTitles.size === 1,
-        }))
-        .sort((a, b) => Number(b.same_title) - Number(a.same_title) || b.ids.length - a.ids.length || b.characters - a.characters);
+      const allGroups = await findWorkspaceDuplicates(ctx.repos, ctx.workspaceId, {
+        getText: cleanPageText,
+        getTitle: (p) => stripPrivateText(p.title || 'Untitled') || 'Untitled',
+      });
       return {
-        groups: allGroups.slice(0, 50),
+        groups: allGroups.slice(0, 50).map((g) => ({
+          ids: g.pages.map((p) => p.id),
+          titles: g.pages.map((p) => p.title),
+          characters: g.characters,
+          same_title: g.sameTitle,
+        })),
         total_groups: allGroups.length,
       };
     },
