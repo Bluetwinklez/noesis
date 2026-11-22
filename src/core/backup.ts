@@ -1,9 +1,8 @@
 import JSZip from 'jszip';
 import type { Database, Executor, Row, SqlValue } from './db/driver';
 import { LATEST_VERSION, LEGACY_EVIDENCE_SQL } from './db/migrations';
-import { indexUpsert } from './repos/search-index';
+import { rebuildSearchIndexInTx, type SearchIndexCounts } from './search-rebuild';
 import { parseJson, sha256Hex } from '../lib/util';
-import type { CellValue, PropertyType } from './types';
 
 /** Tables in foreign-key order. FTS tables are rebuilt, not copied. */
 export const BACKUP_TABLES = [
@@ -193,40 +192,7 @@ async function tableColumns(ex: Executor, table: string): Promise<string[]> {
   return rows.map((r) => r.name);
 }
 
-/** Recomputes all FTS indexes from the source tables. */
-export async function rebuildSearchIndex(ex: Executor) {
-  await ex.run('DELETE FROM search_index');
-  await ex.run("INSERT INTO chunks_fts(chunks_fts) VALUES ('rebuild')");
-  const pages = await ex.all<{ id: string; workspace_id: string; parent_id: string | null; title: string; content_text: string }>(
-    'SELECT id, workspace_id, parent_id, title, content_text FROM pages WHERE deleted_at IS NULL',
-  );
-  for (const p of pages) await indexUpsert(ex, 'page', p.id, p.workspace_id, p.parent_id, p.title, p.content_text);
-  const tasks = await ex.all<{ id: string; workspace_id: string; parent_id: string | null; title: string; notes: string }>(
-    'SELECT id, workspace_id, parent_id, title, notes FROM tasks',
-  );
-  for (const t of tasks) await indexUpsert(ex, 'task', t.id, t.workspace_id, t.parent_id, t.title, t.notes);
-  const nbs = await ex.all<{ id: string; workspace_id: string; title: string; description: string }>('SELECT * FROM notebooks');
-  for (const n of nbs) await indexUpsert(ex, 'notebook', n.id, n.workspace_id, null, n.title, n.description);
-  const notes = await ex.all<{ id: string; notebook_id: string; title: string; content_md: string; workspace_id: string }>(
-    'SELECT nn.*, nb.workspace_id FROM notebook_notes nn JOIN notebooks nb ON nb.id = nn.notebook_id',
-  );
-  for (const n of notes) await indexUpsert(ex, 'note', n.id, n.workspace_id, n.notebook_id, n.title, n.content_md);
-  const sources = await ex.all<{ id: string; workspace_id: string; title: string; text_content: string }>(
-    "SELECT id, workspace_id, title, text_content FROM sources WHERE status = 'ready'",
-  );
-  for (const s of sources) await indexUpsert(ex, 'source', s.id, s.workspace_id, null, s.title, s.text_content.slice(0, 20000));
-  const rows = await ex.all<{ id: string; database_id: string; values_json: string; workspace_id: string }>(
-    'SELECT r.*, p.workspace_id FROM db_rows r JOIN pages p ON p.id = r.database_id WHERE p.deleted_at IS NULL',
-  );
-  const props = await ex.all<{ id: string; database_id: string; name: string; type: PropertyType }>('SELECT * FROM db_properties');
-  for (const r of rows) {
-    const values = parseJson<Record<string, CellValue>>(r.values_json, {});
-    const own = props.filter((p) => p.database_id === r.database_id);
-    const title = String(values[own.find((p) => p.type === 'title')?.id ?? ''] ?? '');
-    const body = own
-      .filter((p) => p.type !== 'title' && typeof values[p.id] === 'string')
-      .map((p) => `${p.name}: ${values[p.id]}`)
-      .join('\n');
-    await indexUpsert(ex, 'row', r.id, r.workspace_id, r.database_id, title, body);
-  }
+/** Recomputes all FTS indexes from the source tables inside an existing transaction. */
+export async function rebuildSearchIndex(ex: Executor): Promise<SearchIndexCounts> {
+  return rebuildSearchIndexInTx(ex);
 }

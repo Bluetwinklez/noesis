@@ -613,7 +613,10 @@ export const en = {
   'settings.integrity': 'Check database integrity',
   'settings.integrityOk': 'Database integrity: OK',
   'settings.rebuildIndex': 'Rebuild search index',
+  'settings.rebuildIndexHint': 'Re-index pages, database rows, tasks, notebooks and sources if search results are missing or stale.',
   'settings.rebuilt': 'Search index rebuilt.',
+  'settings.rebuiltSummary': 'Search index rebuilt: {pages} {pages|page|pages}, {rows} {rows|row|rows}, {tasks} {tasks|task|tasks}, {notebooks} {notebooks|notebook|notebooks}, {chunks} {chunks|chunk|chunks}.',
+  'settings.indexHealed': 'Search index repaired ({pages} {pages|page|pages}).',
   'settings.privacyIntro':
     'Noesis is local-first. Notes, databases, tasks and documents are stored only on this computer. Nothing is uploaded unless you use a cloud AI provider and allow it.',
   'settings.privacyConsentList': 'Providers allowed to receive content',

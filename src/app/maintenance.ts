@@ -1,9 +1,18 @@
 /**
  * Background housekeeping driven by Settings: automatic backups (desktop), emptying
- * old trash, and remembering the last opened page for "Open on start: last page".
+ * old trash, search-index self-healing, and remembering the last opened page for
+ * "Open on start: last page".
  */
+import type { Database } from '../core/db/driver';
 import type { Repos } from '../core/store';
 import { createBackup } from '../core/backup';
+import {
+  rebuildSearchIndex,
+  searchIndexMismatch,
+  type RebuildSearchIndexOptions,
+  type SearchIndexCounts,
+} from '../core/search-rebuild';
+import { t } from '../i18n';
 import { blobStore, isTauri, packBinary } from '../lib/platform';
 import { useApp, type Prefs } from './state';
 import { savePrefs } from './services';
@@ -44,10 +53,46 @@ export async function runAutoBackup(): Promise<{ dir: string; count: number }> {
   return res;
 }
 
+/**
+ * Compares live and indexed page counts for a workspace and rebuilds the search
+ * index when they differ. Returns rebuilt counts, or null when already in sync.
+ */
+export async function healSearchIndexIfNeeded(
+  db: Database,
+  workspaceId: string,
+  options?: RebuildSearchIndexOptions,
+): Promise<SearchIndexCounts | null> {
+  const { mismatch } = await searchIndexMismatch(db, workspaceId);
+  if (!mismatch) return null;
+  return rebuildSearchIndex(db, workspaceId, options);
+}
+
+let searchIndexChecked = false;
+/** Checks and heals the active workspace's search index at most once per launch. */
+export async function checkSearchIndexOnStartup(): Promise<SearchIndexCounts | null> {
+  if (searchIndexChecked) return null;
+  const { repos, workspaceId, toast, bump } = useApp.getState();
+  if (!repos || !workspaceId) return null;
+  searchIndexChecked = true;
+  try {
+    const counts = await healSearchIndexIfNeeded(repos.db, workspaceId);
+    if (counts) {
+      bump();
+      toast(t('settings.indexHealed', { pages: counts.pages }), 'info');
+    }
+    return counts;
+  } catch (e) {
+    console.warn('search index self-heal', e);
+    return null;
+  }
+}
+
 let started = false;
 export function startMaintenance() {
   if (started) return;
   started = true;
+  // Self-heal a stale search index once per launch in the background after boot.
+  setTimeout(() => void checkSearchIndexOnStartup(), 0);
   const tick = async () => {
     const { repos, prefs } = useApp.getState();
     if (!repos) return;
