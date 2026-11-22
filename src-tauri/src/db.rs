@@ -20,12 +20,12 @@ pub struct ExecResult {
 }
 
 pub fn open(path: &Path) -> rusqlite::Result<Connection> {
-    let conn = Connection::open(path)?;
-    configure(&conn)?;
+    let mut conn = Connection::open(path)?;
+    configure(&mut conn)?;
     Ok(conn)
 }
 
-pub fn configure(conn: &Connection) -> rusqlite::Result<()> {
+pub fn configure(conn: &mut Connection) -> rusqlite::Result<()> {
     conn.execute_batch(
         "PRAGMA journal_mode=WAL;
          PRAGMA synchronous=NORMAL;
@@ -39,7 +39,7 @@ pub fn configure(conn: &Connection) -> rusqlite::Result<()> {
 /// SQL arriving over IPC may touch the user's database, but never the file system:
 /// ATTACH/DETACH (create or read arbitrary files), extension loading and schema
 /// corruption pragmas are refused for every statement on this connection.
-pub fn install_guard(conn: &Connection) {
+pub fn install_guard(conn: &mut Connection) {
     use rusqlite::hooks::{AuthAction, AuthContext, Authorization};
     conn.authorizer(Some(|ctx: AuthContext<'_>| match ctx.action {
         AuthAction::Attach { .. } | AuthAction::Detach { .. } => Authorization::Deny,
@@ -58,7 +58,7 @@ pub fn install_guard(conn: &Connection) {
 /// Runs `f` with the guard lifted, for trusted Rust-side maintenance (e.g. VACUUM INTO snapshots).
 /// No command needs it today; the tests use it to show the guard can be lifted deliberately.
 #[cfg(test)]
-pub fn unguarded<T>(conn: &Connection, f: impl FnOnce(&Connection) -> T) -> T {
+pub fn unguarded<T>(conn: &mut Connection, f: impl FnOnce(&Connection) -> T) -> T {
     conn.authorizer(None::<fn(rusqlite::hooks::AuthContext<'_>) -> rusqlite::hooks::Authorization>);
     let out = f(conn);
     install_guard(conn);
@@ -125,7 +125,7 @@ pub fn exec(conn: &Connection, sql: &str, params: &[Json]) -> Result<ExecResult,
     // rusqlite's prepare() errors on multiple statements ("Multiple statements provided").
     let col_count = stmt.column_count();
     if col_count > 0 {
-        let names: Vec<String> = stmt.column_names().iter().map(|s| s.to_string()).collect();
+        let names: Vec<String> = stmt.column_names().map(str::to_owned).collect();
         let mut rows = stmt.query(params_from_iter(values.iter())).map_err(|e| e.to_string())?;
         let mut out = Vec::new();
         while let Some(row) = rows.next().map_err(|e| e.to_string())? {
@@ -148,8 +148,8 @@ mod tests {
     use serde_json::json;
 
     fn mem() -> Connection {
-        let c = Connection::open_in_memory().unwrap();
-        configure(&c).unwrap();
+        let mut c = Connection::open_in_memory().unwrap();
+        configure(&mut c).unwrap();
         c
     }
 
@@ -191,7 +191,7 @@ mod tests {
 
     #[test]
     fn file_system_escapes_are_refused() {
-        let c = mem();
+        let mut c = mem();
         let dir = std::env::temp_dir().join(format!("noesis-guard-{}", std::process::id()));
         let target = dir.join("evil.db");
         let t = target.to_string_lossy().to_string();
@@ -210,7 +210,7 @@ mod tests {
         // Trusted Rust code can still snapshot.
         std::fs::create_dir_all(&dir).unwrap();
         let snap = dir.join("snap.db");
-        unguarded(&c, |c| c.execute("VACUUM INTO ?1", [snap.to_string_lossy().to_string()])).unwrap();
+        unguarded(&mut c, |c| c.execute("VACUUM INTO ?1", [snap.to_string_lossy().to_string()])).unwrap();
         assert!(snap.exists());
         assert!(exec(&c, &format!("ATTACH DATABASE '{t}' AS evil"), &[]).is_err(), "guard is reinstalled");
         let _ = std::fs::remove_dir_all(&dir);
