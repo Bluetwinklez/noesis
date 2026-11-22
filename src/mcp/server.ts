@@ -37,11 +37,18 @@ export interface JsonRpcResponse {
   error?: { code: number; message: string; data?: unknown };
 }
 
+export type ApprovalDetail =
+  | { kind: 'move'; parent: string | null }
+  | { kind: 'rename'; from: string; to: string }
+  | { kind: 'trash'; subpages: number }
+  | { kind: 'replace'; titleFrom?: string; titleTo?: string; body?: string };
+
 export interface ApprovalRequest {
   client: string;
   action: string;
   target: string;
   preview: string;
+  detail?: ApprovalDetail;
 }
 
 export type McpPermissionGroup = keyof McpPermissions;
@@ -70,6 +77,10 @@ export interface McpContext {
   notify: (message: string) => void;
   /** Returns the current MCP capability permissions (default: all allowed). */
   permissions?: () => McpPermissions;
+  /** Flushes pending editor/title saves for a page right before an external replacement. */
+  beforePageReplace?: (pageId: string) => Promise<void> | void;
+  /** Notifies open editors showing a page to reload after an external replacement. */
+  afterPageReplace?: (pageId: string) => void;
 }
 
 interface ToolDef {
@@ -787,13 +798,17 @@ const TOOLS: ToolDef[] = [
       const page = await livePage(ctx, id);
       const ok = await ctx.approve({ client: ctx.client, action: 'append', target: page.title || 'Untitled', preview: stripPrivateText(add) });
       if (!ok) throw new ToolError('The user declined this change.');
-      const current = page.content_json ? (JSON.parse(page.content_json) as DocNode) : { type: 'doc', content: [] };
+      await livePage(ctx, id);
+      await ctx.beforePageReplace?.(id);
+      const fresh = await livePage(ctx, id);
+      const current = fresh.content_json ? (JSON.parse(fresh.content_json) as DocNode) : { type: 'doc', content: [] };
       const extra = htmlToDoc(markdownToHtml(add));
       const merged: DocNode = { type: 'doc', content: [...(current.content ?? []), ...(extra.content ?? [])] };
       await ctx.repos.pages.saveContent(id, merged);
+      ctx.afterPageReplace?.(id);
       await ctx.repos.activity.record({ workspaceId: ctx.workspaceId, client: ctx.client, action: 'append_to_page', pageId: id });
       // Refreshes open views (graph, page) so every agent's change shows up live.
-      ctx.notify(`${ctx.client} added to the page “${page.title || 'Untitled'}”.`);
+      ctx.notify(`${ctx.client} added to the page “${fresh.title || 'Untitled'}”.`);
       return { id, appended_characters: add.length };
     },
   },
@@ -821,10 +836,22 @@ const TOOLS: ToolDef[] = [
       const title = optStr(a.title, 'title', 300)?.trim();
       const page = await livePage(ctx, id);
       const currentTitle = page.title || 'Untitled';
-      const ok = await ctx.approve({ client: ctx.client, action: 'replace', target: currentTitle, preview: stripPrivateText(md).slice(0, 2000) });
+      const bodyPreview = stripPrivateText(md).slice(0, 2000);
+      const titleChanged = title !== undefined && title !== currentTitle;
+      const preview = titleChanged
+        ? (bodyPreview ? `Title: ${currentTitle} -> ${title}\n\n${bodyPreview}` : `Title: ${currentTitle} -> ${title}`).slice(0, 2000)
+        : bodyPreview;
+      const detail: ApprovalDetail = titleChanged
+        ? { kind: 'replace', titleFrom: currentTitle, titleTo: title, body: bodyPreview }
+        : { kind: 'replace', body: bodyPreview };
+      const ok = await ctx.approve({ client: ctx.client, action: 'replace', target: currentTitle, preview, detail });
       if (!ok) throw new ToolError('The user declined this change.');
+      await livePage(ctx, id);
+      await ctx.beforePageReplace?.(id);
+      const fresh = await livePage(ctx, id);
       await ctx.repos.pages.saveContent(id, htmlToDoc(markdownToHtml(md)), title);
-      const finalTitle = title ?? currentTitle;
+      ctx.afterPageReplace?.(id);
+      const finalTitle = title ?? (fresh.title || 'Untitled');
       await ctx.repos.activity.record({ workspaceId: ctx.workspaceId, client: ctx.client, action: 'update_page', pageId: id });
       ctx.notify(`${ctx.client} updated the page “${finalTitle}”.`);
       return { id, title: finalTitle, characters: md.length };
@@ -848,29 +875,43 @@ const TOOLS: ToolDef[] = [
     async run(a, ctx) {
       const id = str(a.page_id, 'page_id', 100);
       const parentId = a.parent_id === null || a.parent_id === undefined ? null : str(a.parent_id, 'parent_id', 100);
-      const page = await livePage(ctx, id);
-      const parent = parentId ? await livePage(ctx, parentId) : null;
-      if (parentId === id) throw new ToolError('A page cannot contain itself.');
-      if (parentId && (await ctx.repos.pages.ancestors(parentId)).some((p) => p.id === id)) {
-        throw new ToolError('A page cannot be moved inside its own sub-page.');
-      }
+      const validateMove = async () => {
+        const currentPage = await livePage(ctx, id);
+        const currentParent = parentId ? await livePage(ctx, parentId) : null;
+        if (currentParent?.archived_at) throw new ToolError('Cannot move a page under an archived page.');
+        if (parentId === id) throw new ToolError('A page cannot contain itself.');
+        if (parentId && (await ctx.repos.pages.ancestors(parentId)).some((p) => p.id === id)) {
+          throw new ToolError('A page cannot be moved inside its own sub-page.');
+        }
+        return { page: currentPage, parent: currentParent };
+      };
+      const { page, parent } = await validateMove();
       const pageTitle = page.title || 'Untitled';
       const parentTitle = parent ? parent.title || 'Untitled' : null;
       const preview = parentTitle !== null ? `Move under "${parentTitle}"` : 'Move to the top level';
-      const ok = await ctx.approve({ client: ctx.client, action: 'move', target: pageTitle, preview });
+      const ok = await ctx.approve({
+        client: ctx.client,
+        action: 'move',
+        target: pageTitle,
+        preview,
+        detail: { kind: 'move', parent: parentTitle },
+      });
       if (!ok) throw new ToolError('The user declined this change.');
+      const fresh = await validateMove();
       try {
         await ctx.repos.pages.move(id, parentId);
       } catch (e) {
         throw new ToolError(e instanceof Error ? e.message : String(e));
       }
+      const finalPageTitle = fresh.page.title || 'Untitled';
+      const finalParentTitle = fresh.parent ? fresh.parent.title || 'Untitled' : null;
       await ctx.repos.activity.record({ workspaceId: ctx.workspaceId, client: ctx.client, action: 'move_page', pageId: id });
       ctx.notify(
-        parentTitle !== null
-          ? `${ctx.client} moved the page “${pageTitle}” under “${parentTitle}”.`
-          : `${ctx.client} moved the page “${pageTitle}” to the top level.`,
+        finalParentTitle !== null
+          ? `${ctx.client} moved the page “${finalPageTitle}” under “${finalParentTitle}”.`
+          : `${ctx.client} moved the page “${finalPageTitle}” to the top level.`,
       );
-      return { id, title: pageTitle, parent_id: parentId };
+      return { id, title: finalPageTitle, parent_id: parentId };
     },
   },
   {
@@ -892,12 +933,20 @@ const TOOLS: ToolDef[] = [
       const title = str(a.title, 'title', 300).trim();
       const page = await livePage(ctx, id);
       const oldTitle = page.title || 'Untitled';
-      const ok = await ctx.approve({ client: ctx.client, action: 'rename', target: oldTitle, preview: `${oldTitle} -> ${title}` });
+      const ok = await ctx.approve({
+        client: ctx.client,
+        action: 'rename',
+        target: oldTitle,
+        preview: `${oldTitle} -> ${title}`,
+        detail: { kind: 'rename', from: oldTitle, to: title },
+      });
       if (!ok) throw new ToolError('The user declined this change.');
+      const fresh = await livePage(ctx, id);
+      const currentOldTitle = fresh.title || 'Untitled';
       await ctx.repos.pages.updateMeta(id, { title });
       await ctx.repos.activity.record({ workspaceId: ctx.workspaceId, client: ctx.client, action: 'rename_page', pageId: id });
-      ctx.notify(`${ctx.client} renamed the page “${oldTitle}” to “${title}”.`);
-      return { id, old_title: oldTitle, title };
+      ctx.notify(`${ctx.client} renamed the page “${currentOldTitle}” to “${title}”.`);
+      return { id, old_title: currentOldTitle, title };
     },
   },
   {
@@ -917,27 +966,39 @@ const TOOLS: ToolDef[] = [
     async run(a, ctx) {
       const id = str(a.page_id, 'page_id', 100);
       const page = await livePage(ctx, id);
-      const subRow = await ctx.repos.db.get<{ n: number }>(
-        `WITH RECURSIVE sub(id) AS (
-           SELECT id FROM pages WHERE parent_id = ? AND workspace_id = ? AND deleted_at IS NULL
-           UNION ALL
-           SELECT p.id FROM pages p JOIN sub ON p.parent_id = sub.id WHERE p.workspace_id = ? AND p.deleted_at IS NULL
-         )
-         SELECT COUNT(*) AS n FROM sub`,
-        [id, ctx.workspaceId, ctx.workspaceId],
-      );
-      const subCount = subRow?.n ?? 0;
+      const countSubpages = async () => {
+        const subRow = await ctx.repos.db.get<{ n: number }>(
+          `WITH RECURSIVE sub(id) AS (
+             SELECT id FROM pages WHERE parent_id = ? AND workspace_id = ? AND deleted_at IS NULL
+             UNION ALL
+             SELECT p.id FROM pages p JOIN sub ON p.parent_id = sub.id WHERE p.workspace_id = ? AND p.deleted_at IS NULL
+           )
+           SELECT COUNT(*) AS n FROM sub`,
+          [id, ctx.workspaceId, ctx.workspaceId],
+        );
+        return subRow?.n ?? 0;
+      };
+      const subCount = await countSubpages();
       const pageTitle = page.title || 'Untitled';
       const preview =
         subCount === 0
           ? `Move "${pageTitle}" to the trash (0 sub-pages).`
           : `Move "${pageTitle}" and ${subCount} ${subCount === 1 ? 'sub-page' : 'sub-pages'} to the trash.`;
-      const ok = await ctx.approve({ client: ctx.client, action: 'trash', target: pageTitle, preview });
+      const ok = await ctx.approve({
+        client: ctx.client,
+        action: 'trash',
+        target: pageTitle,
+        preview,
+        detail: { kind: 'trash', subpages: subCount },
+      });
       if (!ok) throw new ToolError('The user declined this change.');
+      const fresh = await livePage(ctx, id);
+      const finalSubCount = await countSubpages();
+      const finalTitle = fresh.title || 'Untitled';
       await ctx.repos.pages.trash(id);
       await ctx.repos.activity.record({ workspaceId: ctx.workspaceId, client: ctx.client, action: 'trash_page', pageId: id });
-      ctx.notify(`${ctx.client} moved the page “${pageTitle}” to the trash.`);
-      return { id, title: pageTitle, subpages_trashed: subCount };
+      ctx.notify(`${ctx.client} moved the page “${finalTitle}” to the trash.`);
+      return { id, title: finalTitle, subpages_trashed: finalSubCount };
     },
   },
   {
@@ -1001,7 +1062,9 @@ const TOOLS: ToolDef[] = [
 
       let merged;
       try {
+        await ctx.beforePageReplace?.(targetId);
         merged = await ctx.repos.pages.mergePages(ctx.workspaceId, targetId, uniqueSourceIds);
+        ctx.afterPageReplace?.(targetId);
       } catch (e) {
         throw new ToolError(e instanceof Error ? e.message : String(e));
       }

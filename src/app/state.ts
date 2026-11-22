@@ -165,6 +165,8 @@ interface AppState {
   paletteOpen: boolean;
   /** Bumped whenever data that lists depend on changes. */
   version: number;
+  /** Per-page replacement nonce; bumped when an external write replaces a page body so open editors reload. */
+  pageReloads: Record<string, number>;
   toasts: Toast[];
   consent: ConsentRequest | null;
   online: boolean;
@@ -177,6 +179,7 @@ interface AppState {
   goBack(): void;
   goForward(): void;
   bump(): void;
+  markPageReplaced(pageId: string): void;
   toast(message: string, kind?: Toast['kind'], action?: Toast['action']): void;
   dismissToast(id: number): void;
   setPaletteOpen(open: boolean): void;
@@ -204,6 +207,7 @@ export const useApp = create<AppState>((set, get) => {
     forward: [],
     paletteOpen: false,
     version: 0,
+    pageReloads: {},
     toasts: [],
     consent: null,
     online: typeof navigator === 'undefined' ? true : navigator.onLine,
@@ -228,6 +232,9 @@ export const useApp = create<AppState>((set, get) => {
     },
     bump() {
       set({ version: get().version + 1 });
+    },
+    markPageReplaced(pageId) {
+      set((s) => ({ pageReloads: { ...s.pageReloads, [pageId]: (s.pageReloads[pageId] ?? 0) + 1 } }));
     },
     toast(message, kind = 'info', action) {
       const id = ++toastId;
