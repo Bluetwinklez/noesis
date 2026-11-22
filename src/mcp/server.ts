@@ -10,11 +10,13 @@
  *  - changing existing content always needs the user's explicit approval.
  */
 import type { Repos } from '../core/store';
+import type { Page } from '../core/types';
 import { search } from '../search/search';
 import { retrieve } from '../ai/rag';
 import { docToHtml, htmlToDoc } from '../editor/serialize';
 import { htmlToMarkdown, markdownToHtml, sanitizeHtml } from '../editor/markdown';
 import { extractDoc, type DocNode } from '../core/doc';
+import { hasPrivateMarkers, stripPrivate, stripPrivateText } from './private';
 
 export const MCP_PROTOCOL_VERSION = '2025-06-18';
 const SUPPORTED_VERSIONS = ['2025-06-18', '2025-03-26', '2024-11-05'];
@@ -89,17 +91,115 @@ const offsetOf = (v: unknown) => {
 };
 const clean = (s: string) => s.replace(/[\u0002\u0003]/g, '');
 
+const MAX_READ_CHARS = 100_000;
+const MIN_SNIPPET_CHARS = 40;
+const MAX_SNIPPET_CHARS = 1000;
+const DEFAULT_PRIVATE_SNIPPET_CHARS = 220;
+const QUERY_TOKEN_RE = /[^\p{L}\p{N}_]+/u;
+
 async function livePage(ctx: McpContext, id: string) {
   const page = await ctx.repos.pages.get(id);
   if (!page || page.workspace_id !== ctx.workspaceId || page.deleted_at) throw new ToolError(`No page with id ${id}.`);
   return page;
 }
 
-async function pageMarkdown(ctx: McpContext, id: string) {
-  const page = await livePage(ctx, id);
-  const doc = page.content_json ? (JSON.parse(page.content_json) as DocNode) : null;
-  const md = doc ? htmlToMarkdown(docToHtml(doc)) : '';
-  return { page, md };
+function cleanDocOf(page: Page): DocNode | null {
+  if (!page.content_json) return null;
+  return stripPrivate(JSON.parse(page.content_json) as DocNode);
+}
+
+function docToMarkdown(doc: DocNode | null): string {
+  if (!doc || !doc.content?.length) return '';
+  return htmlToMarkdown(docToHtml(doc));
+}
+
+function cleanPageText(page: Page): string {
+  if (!hasPrivateMarkers(page.content_text) && (!page.content_json || !hasPrivateMarkers(page.content_json))) {
+    return page.content_text;
+  }
+  const cleanDoc = cleanDocOf(page);
+  return cleanDoc ? extractDoc(cleanDoc).text : stripPrivateText(page.content_text);
+}
+
+function queryWords(query: string): string[] {
+  return query
+    .normalize('NFKC')
+    .toLowerCase()
+    .split(QUERY_TOKEN_RE)
+    .filter((t) => t.length > 0);
+}
+
+function makeSnippet(text: string, words: string[], maxChars: number): string {
+  const flat = text.normalize('NFKC').replace(/\s+/g, ' ').trim();
+  if (!flat) return '';
+  if (flat.length <= maxChars) return flat;
+  const lower = flat.toLowerCase();
+  let hitPos = -1;
+  for (const term of words) {
+    const idx = lower.indexOf(term);
+    if (idx !== -1 && (hitPos === -1 || idx < hitPos)) hitPos = idx;
+  }
+  if (hitPos === -1) {
+    return flat.slice(0, Math.max(1, maxChars - 1)).trimEnd() + '…';
+  }
+  const lead = Math.floor(maxChars / 3);
+  let start = Math.max(0, hitPos - lead);
+  const end = Math.min(flat.length, start + maxChars);
+  if (end === flat.length) start = Math.max(0, end - maxChars);
+  const prefix = start > 0 ? '…' : '';
+  const suffix = end < flat.length ? '…' : '';
+  const budget = Math.max(1, maxChars - prefix.length - suffix.length);
+  const sliceStart = end === flat.length ? Math.max(0, end - budget) : start;
+  const slice = flat.slice(sliceStart, sliceStart + budget).trim();
+  return `${prefix}${slice}${suffix}`;
+}
+
+interface OutlineSection {
+  level: number;
+  text: string;
+  markdown: string;
+  characters: number;
+}
+
+function headingLevel(node: DocNode): number {
+  const raw = Number(node.attrs?.level ?? 1);
+  return Number.isFinite(raw) && raw >= 1 && raw <= 6 ? Math.floor(raw) : 1;
+}
+
+function extractSections(doc: DocNode | null): OutlineSection[] {
+  const blocks = doc?.content ?? [];
+  const headings: { index: number; level: number; text: string }[] = [];
+  for (let i = 0; i < blocks.length; i++) {
+    const b = blocks[i];
+    if (b.type !== 'heading') continue;
+    const text = extractDoc(b).text.trim();
+    if (!text) continue;
+    headings.push({ index: i, level: headingLevel(b), text });
+  }
+  return headings.map((h, idx) => {
+    let end = blocks.length;
+    for (let j = idx + 1; j < headings.length; j++) {
+      if (headings[j].level <= h.level) {
+        end = headings[j].index;
+        break;
+      }
+    }
+    const markdown = docToMarkdown({ type: 'doc', content: blocks.slice(h.index, end) });
+    return { level: h.level, text: h.text, markdown, characters: markdown.length };
+  });
+}
+
+function sliceMarkdown(md: string, maxChars: number, offset: number) {
+  const totalCharacters = md.length;
+  const start = Math.min(offset, totalCharacters);
+  const end = Math.min(start + maxChars, totalCharacters);
+  const truncated = end < totalCharacters;
+  return {
+    markdown: md.slice(start, end),
+    total_characters: totalCharacters,
+    truncated,
+    next_offset: truncated ? end : null,
+  };
 }
 
 const TOOLS: ToolDef[] = [
@@ -107,16 +207,86 @@ const TOOLS: ToolDef[] = [
     name: 'search_notes',
     title: 'Search notes',
     description:
-      'Full-text search across the current Noesis workspace: pages, database rows, tasks, notebooks and imported document passages. Returns ids you can pass to read_page.',
+      'Full-text search across the current Noesis workspace: pages, database rows, tasks, notebooks and imported document passages. Returns ids you can pass to read_page. Use detail: "index" for compact results (id, kind, title only) or snippet_chars (40-1000) to bound snippet length. Text wrapped in <private>...</private> (or after an unterminated <private>) is omitted from snippets and excluded from matching.',
     inputSchema: {
       type: 'object',
-      properties: { query: { type: 'string', description: 'Words to search for' }, limit: { type: 'number', description: 'Maximum results (1-50, default 10)' } },
+      properties: {
+        query: { type: 'string', description: 'Words to search for' },
+        limit: { type: 'number', description: 'Maximum results (1-50, default 10)' },
+        detail: { type: 'string', enum: ['index', 'full'], description: 'Result detail: "index" returns id, kind and title only; "full" (default) also includes snippets' },
+        snippet_chars: { type: 'number', description: 'Maximum snippet length in characters (40-1000, default matches the search index snippet)' },
+      },
       required: ['query'],
     },
     annotations: { readOnlyHint: true },
     async run(a, ctx) {
-      const hits = await search(ctx.repos.db, str(a.query, 'query', 500), { workspaceId: ctx.workspaceId, mode: 'hybrid', limit: limitOf(a.limit, 10, 50) });
-      return hits.map((h) => ({ kind: h.kind, id: h.kind === 'chunk' ? h.parentId : h.refId, title: h.title, snippet: clean(h.snippet), ...(h.pageNumber ? { page: h.pageNumber } : {}) }));
+      const query = str(a.query, 'query', 500);
+      const limit = limitOf(a.limit, 10, 50);
+      const detail = a.detail === undefined || a.detail === null ? 'full' : a.detail;
+      if (detail !== 'index' && detail !== 'full') throw new ToolError('"detail" must be "index" or "full".');
+      let snippetChars: number | undefined;
+      if (a.snippet_chars !== undefined && a.snippet_chars !== null) {
+        if (typeof a.snippet_chars !== 'number' || !Number.isFinite(a.snippet_chars)) {
+          throw new ToolError(`"snippet_chars" must be a number between ${MIN_SNIPPET_CHARS} and ${MAX_SNIPPET_CHARS}.`);
+        }
+        snippetChars = Math.min(MAX_SNIPPET_CHARS, Math.max(MIN_SNIPPET_CHARS, Math.floor(a.snippet_chars)));
+      }
+
+      // Over-fetch so dropping private-only hits does not starve public results.
+      const fetchLimit = Math.min(100, Math.max(limit * 3, 20));
+      const rawHits = await search(ctx.repos.db, query, { workspaceId: ctx.workspaceId, mode: 'hybrid', limit: fetchLimit });
+      const words = queryWords(query);
+      const results: Record<string, unknown>[] = [];
+
+      for (const h of rawHits) {
+        if (results.length >= limit) break;
+        const id = h.kind === 'chunk' ? h.parentId : h.refId;
+        let title = stripPrivateText(h.title);
+        let snippet = clean(h.snippet);
+
+        if (h.kind === 'page') {
+          const page = await ctx.repos.pages.get(h.refId);
+          if (!page || page.workspace_id !== ctx.workspaceId || page.deleted_at || page.archived_at) continue;
+          const hasPriv =
+            hasPrivateMarkers(page.title) ||
+            hasPrivateMarkers(page.content_text) ||
+            (page.content_json ? hasPrivateMarkers(page.content_json) : false);
+          const cleanBody = cleanPageText(page);
+          if (hasPriv) {
+            title = stripPrivateText(page.title);
+            const cleanHaystack = `${title}\n${cleanBody}`.normalize('NFKC').toLowerCase();
+            if (words.length > 0 && !words.some((w) => cleanHaystack.includes(w))) {
+              continue;
+            }
+          }
+          if (detail === 'full') {
+            if (snippetChars !== undefined) {
+              snippet = makeSnippet(cleanBody, words, snippetChars);
+            } else if (hasPriv) {
+              snippet = makeSnippet(cleanBody, words, DEFAULT_PRIVATE_SNIPPET_CHARS);
+            }
+          }
+        } else {
+          const hadPriv = hasPrivateMarkers(h.title) || hasPrivateMarkers(snippet);
+          if (hadPriv) {
+            snippet = stripPrivateText(snippet);
+            const cleanHaystack = `${title}\n${snippet}`.normalize('NFKC').toLowerCase();
+            if (words.length > 0 && !words.some((w) => cleanHaystack.includes(w))) {
+              continue;
+            }
+          }
+          if (detail === 'full' && snippetChars !== undefined) {
+            snippet = makeSnippet(snippet, words, snippetChars);
+          }
+        }
+
+        if (detail === 'index') {
+          results.push({ id, kind: h.kind, title });
+        } else {
+          results.push({ kind: h.kind, id, title, snippet, ...(h.pageNumber ? { page: h.pageNumber } : {}) });
+        }
+      }
+      return results;
     },
   },
   {
@@ -142,28 +312,93 @@ const TOOLS: ToolDef[] = [
       const limit = limitOf(a.limit, 200, 500);
       const offset = offsetOf(a.offset);
       const tree = await ctx.repos.pages.listTree(ctx.workspaceId);
-      const filtered = tree.filter((p) => {
+      const visible = tree.map((p) => ({
+        id: p.id,
+        title: stripPrivateText(p.title || 'Untitled') || 'Untitled',
+        parent_id: p.parent_id,
+        kind: p.kind,
+      }));
+      const filtered = visible.filter((p) => {
         if (parent && p.parent_id !== parent) return false;
-        if (query && !(p.title || 'Untitled').toLowerCase().includes(query)) return false;
+        if (query && !p.title.toLowerCase().includes(query)) return false;
         return true;
       });
       const total = filtered.length;
-      const pages = filtered
-        .slice(offset, offset + limit)
-        .map((p) => ({ id: p.id, title: p.title || 'Untitled', parent_id: p.parent_id, kind: p.kind }));
+      const pages = filtered.slice(offset, offset + limit);
       return { pages, total, offset, limit, has_more: offset + pages.length < total };
     },
   },
   {
     name: 'read_page',
     title: 'Read a page',
-    description: 'Returns one page as Markdown, with its title, breadcrumb path and last-edited time.',
-    inputSchema: { type: 'object', properties: { page_id: { type: 'string' } }, required: ['page_id'] },
+    description:
+      'Returns one page as Markdown, with its title, breadcrumb path and last-edited time. Supports layered reading: set outline_only: true to return only the heading outline (levels and section character counts) and total_characters; pass heading to read only the section under the first case-insensitive matching heading up to the next heading of the same or higher level; or pass max_chars (up to 100000) and offset to page through long pages (returns truncated, next_offset and total_characters). Text wrapped in <private>...</private> (or after an unterminated <private>) is omitted.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        page_id: { type: 'string', description: 'Id of the page to read' },
+        outline_only: { type: 'boolean', description: 'Return only the heading outline (level, text, characters) and total_characters instead of Markdown' },
+        heading: { type: 'string', description: 'Return only the section under the first heading whose text matches (case-insensitive), up to the next heading of the same or higher level' },
+        max_chars: { type: 'number', description: 'Maximum Markdown characters to return (default unlimited, capped at 100000)' },
+        offset: { type: 'number', description: 'Character offset to start reading from (default 0)' },
+      },
+      required: ['page_id'],
+    },
     annotations: { readOnlyHint: true },
     async run(a, ctx) {
-      const { page, md } = await pageMarkdown(ctx, str(a.page_id, 'page_id', 100));
-      const path = (await ctx.repos.pages.ancestors(page.id)).map((p) => p.title || 'Untitled');
-      return { id: page.id, title: page.title, path, updated_at: new Date(page.updated_at).toISOString(), markdown: md };
+      const id = str(a.page_id, 'page_id', 100);
+      if (a.outline_only !== undefined && a.outline_only !== null && typeof a.outline_only !== 'boolean') {
+        throw new ToolError('"outline_only" must be a boolean.');
+      }
+      const outlineOnly = a.outline_only === true;
+      const heading = optStr(a.heading, 'heading', 500);
+      let maxChars = MAX_READ_CHARS;
+      if (a.max_chars !== undefined && a.max_chars !== null) {
+        if (typeof a.max_chars !== 'number' || !Number.isFinite(a.max_chars)) {
+          throw new ToolError(`"max_chars" must be a number between 1 and ${MAX_READ_CHARS}.`);
+        }
+        maxChars = Math.min(MAX_READ_CHARS, Math.max(1, Math.floor(a.max_chars)));
+      }
+      if (a.offset !== undefined && a.offset !== null && (typeof a.offset !== 'number' || !Number.isFinite(a.offset))) {
+        throw new ToolError('"offset" must be a non-negative number.');
+      }
+      const offset = offsetOf(a.offset);
+
+      const page = await livePage(ctx, id);
+      const doc = cleanDocOf(page);
+      const title = stripPrivateText(page.title);
+      const path = (await ctx.repos.pages.ancestors(page.id)).map((p) => stripPrivateText(p.title || 'Untitled') || 'Untitled');
+      const updated_at = new Date(page.updated_at).toISOString();
+
+      if (outlineOnly) {
+        const sections = extractSections(doc);
+        const fullMd = docToMarkdown(doc);
+        return {
+          id: page.id,
+          title,
+          path,
+          updated_at,
+          total_characters: fullMd.length,
+          outline: sections.map(({ level, text, characters }) => ({ level, text, characters })),
+        };
+      }
+
+      if (heading) {
+        const sections = extractSections(doc);
+        const normHeading = (s: string) => s.trim().replace(/\s+/g, ' ').toLowerCase();
+        const wanted = normHeading(heading);
+        const wantedPlain = normHeading(heading.replace(/^#{1,6}\s+/, ''));
+        const section =
+          sections.find((s) => normHeading(s.text) === wanted) ??
+          (wantedPlain !== wanted ? sections.find((s) => normHeading(s.text) === wantedPlain) : undefined);
+        if (!section) throw new ToolError(`No heading matching "${heading}" found in "${title || 'Untitled'}".`);
+        const paged = sliceMarkdown(section.markdown, maxChars, offset);
+        return { id: page.id, title, path, updated_at, heading: section.text, ...paged };
+      }
+
+      const fullMd = docToMarkdown(doc);
+      const paged = sliceMarkdown(fullMd, maxChars, offset);
+      return { id: page.id, title, path, updated_at, ...paged };
     },
   },
   {
@@ -195,14 +430,15 @@ const TOOLS: ToolDef[] = [
   {
     name: 'append_to_page',
     title: 'Append to a page',
-    description: 'Appends Markdown to the end of an existing page. The user must approve the change in Noesis first; returns an error if they decline.',
+    description:
+      'Appends Markdown to the end of an existing page. The user must approve the change in Noesis first; returns an error if they decline. Text wrapped in <private>...</private> is omitted from approval previews.',
     inputSchema: { type: 'object', properties: { page_id: { type: 'string' }, markdown: { type: 'string' } }, required: ['page_id', 'markdown'] },
     annotations: { readOnlyHint: false, destructiveHint: false },
     async run(a, ctx) {
       const id = str(a.page_id, 'page_id', 100);
       const add = str(a.markdown, 'markdown', 100_000);
-      const { page } = await pageMarkdown(ctx, id);
-      const ok = await ctx.approve({ client: ctx.client, action: 'append', target: page.title || 'Untitled', preview: add });
+      const page = await livePage(ctx, id);
+      const ok = await ctx.approve({ client: ctx.client, action: 'append', target: page.title || 'Untitled', preview: stripPrivateText(add) });
       if (!ok) throw new ToolError('The user declined this change.');
       await livePage(ctx, id);
       await ctx.beforePageReplace?.(id);
@@ -222,7 +458,7 @@ const TOOLS: ToolDef[] = [
     name: 'update_page',
     title: 'Replace a page body',
     description:
-      'Replaces the entire body of an existing page with Markdown (and optionally updates its title). The user must approve the change in Noesis first; returns an error if they decline.',
+      'Replaces the entire body of an existing page with Markdown (and optionally updates its title). The user must approve the change in Noesis first; returns an error if they decline. Text wrapped in <private>...</private> is omitted from approval previews.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -241,7 +477,7 @@ const TOOLS: ToolDef[] = [
       const title = optStr(a.title, 'title', 300)?.trim();
       const page = await livePage(ctx, id);
       const currentTitle = page.title || 'Untitled';
-      const bodyPreview = md.slice(0, 2000);
+      const bodyPreview = stripPrivateText(md).slice(0, 2000);
       const titleChanged = title !== undefined && title !== currentTitle;
       const preview = titleChanged
         ? (bodyPreview ? `Title: ${currentTitle} -> ${title}\n\n${bodyPreview}` : `Title: ${currentTitle} -> ${title}`).slice(0, 2000)
@@ -432,7 +668,7 @@ const TOOLS: ToolDef[] = [
     name: 'find_duplicate_pages',
     title: 'Find duplicate pages',
     description:
-      'Finds groups of live pages in the current workspace with identical normalised plain text (ignoring pages under 20 characters). Marks groups where all titles also match (same_title: true) as well as identical text with different titles (same_title: false), capped at 50 groups.',
+      'Finds groups of live pages in the current workspace with identical normalised plain text (ignoring pages under 20 characters and excluding text wrapped in <private>...</private>). Marks groups where all titles also match (same_title: true) as well as identical text with different titles (same_title: false), capped at 50 groups.',
     inputSchema: { type: 'object', properties: {} },
     annotations: { readOnlyHint: true },
     async run(_a, ctx) {
@@ -441,9 +677,9 @@ const TOOLS: ToolDef[] = [
       const buckets = new Map<string, { ids: string[]; titles: string[]; normTitles: Set<string>; characters: number }>();
       for (const p of live) {
         if (p.kind !== 'page') continue;
-        const text = norm(p.content_text);
+        const text = norm(cleanPageText(p));
         if (text.length < 20) continue;
-        const title = p.title || 'Untitled';
+        const title = stripPrivateText(p.title || 'Untitled') || 'Untitled';
         let bucket = buckets.get(text);
         if (!bucket) {
           bucket = { ids: [], titles: [], normTitles: new Set(), characters: text.length };
@@ -610,7 +846,7 @@ export async function handleMcp(msg: unknown, ctx: McpContext): Promise<JsonRpcR
         capabilities: { tools: { listChanged: false } },
         serverInfo: { name: 'noesis', title: 'Noesis', version: import.meta.env.VITE_APP_VERSION ?? '0.1.0' },
         instructions:
-          'Noesis is the user’s local knowledge workspace. Use search_notes, list_pages (paginated), read_page and find_duplicate_pages to inspect notes, search_sources for cited evidence from imported documents, and create_page, create_task or restore_page to add or restore content. Changing, moving, renaming or trashing existing pages (append_to_page, update_page, move_page, rename_page, trash_page) requires the user’s approval in the app; pages are never permanently deleted through MCP.',
+          'Noesis is the user’s local knowledge workspace. To save tokens, read in layers: start with search_notes (detail: "index") or list_pages (paginated) to locate relevant pages, then call read_page with outline_only: true to inspect headings and section sizes, read only the needed section via read_page with heading (or page through long pages with max_chars and offset), and fetch the full page only when necessary. Text wrapped in <private>...</private> markers is automatically omitted from MCP responses. Use find_duplicate_pages to spot duplicates, search_sources for cited evidence from imported documents, and create_page, create_task or restore_page to add or restore content. Changing, moving, renaming or trashing existing pages (append_to_page, update_page, move_page, rename_page, trash_page) requires the user’s approval in the app; pages are never permanently deleted through MCP.',
       });
     }
     case 'ping':
@@ -650,5 +886,5 @@ async function clipsPage(ctx: McpContext): Promise<string> {
 
 /** Plain-text summary of a page body, used in approval previews. */
 export function docPreview(doc: DocNode | null) {
-  return extractDoc(doc).text.slice(0, 2000);
+  return extractDoc(stripPrivate(doc)).text.slice(0, 2000);
 }
