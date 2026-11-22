@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { beforeEach, describe, expect, it } from 'vitest';
 import type { Repos } from '../../src/core/store';
-import { docFromParagraphs, type DocNode } from '../../src/core/doc';
+import { docFromParagraphs, PAGE_LINK_PREFIX, type DocNode } from '../../src/core/doc';
 import { search } from '../../src/search/search';
 import { docPreview, handleMcp, type ApprovalRequest, type McpContext } from '../../src/mcp/server';
 import { formatApprovalBody, formatApprovalPreview } from '../../src/features/mcp/McpApprovalDialog';
@@ -60,6 +60,9 @@ describe('MCP server', () => {
         'trash_page',
         'restore_page',
         'find_duplicate_pages',
+        'check_links',
+        'list_trash',
+        'get_backlinks',
         'list_tasks',
         'create_task',
         'search_sources',
@@ -68,6 +71,9 @@ describe('MCP server', () => {
     expect(tools.find((t) => t.name === 'trash_page')?.annotations?.destructiveHint).toBe(true);
     expect(tools.find((t) => t.name === 'update_page')?.annotations?.destructiveHint).toBe(true);
     expect(tools.find((t) => t.name === 'find_duplicate_pages')?.annotations?.readOnlyHint).toBe(true);
+    expect(tools.find((t) => t.name === 'check_links')?.annotations?.readOnlyHint).toBe(true);
+    expect(tools.find((t) => t.name === 'list_trash')?.annotations?.readOnlyHint).toBe(true);
+    expect(tools.find((t) => t.name === 'get_backlinks')?.annotations?.readOnlyHint).toBe(true);
   });
 
   it('rejects malformed messages and unknown methods/tools', async () => {
@@ -112,6 +118,7 @@ describe('MCP server', () => {
 
     for (const targetId of [secret.id, trashed.id]) {
       expect((await call('read_page', { page_id: targetId })).isError).toBe(true);
+      expect((await call('get_backlinks', { page_id: targetId })).isError).toBe(true);
       expect((await call('move_page', { page_id: targetId, parent_id: null })).isError).toBe(true);
       expect((await call('move_page', { page_id: live.id, parent_id: targetId })).isError).toBe(true);
       expect((await call('rename_page', { page_id: targetId, title: 'Hacked' })).isError).toBe(true);
@@ -698,5 +705,169 @@ describe('MCP server', () => {
     expect(docPreview(secretDoc)).toContain('Visible botany notes about ferns.');
     expect(docPreview(secretDoc)).not.toContain('vaultcode9911');
     expect(docPreview(secretDoc)).not.toContain('supersecretpassphrase8822');
+  });
+
+  it('check_links reports broken links and orphans, strips private titles, isolates workspaces and caps at 200 entries', async () => {
+    const linkDoc = (targetId: string): DocNode => ({
+      type: 'doc',
+      content: [
+        {
+          type: 'paragraph',
+          content: [{ type: 'text', text: 'Ref', marks: [{ type: 'link', attrs: { href: `${PAGE_LINK_PREFIX}${targetId}` } }] }],
+        },
+      ],
+    });
+
+    const target = await s.pages.create({ workspaceId: ctx.workspaceId, title: 'Target <private>secret1</private>' });
+    const source = await s.pages.create({ workspaceId: ctx.workspaceId, title: 'Source <private>secret2</private>' });
+    await s.pages.saveContent(source.id, linkDoc(target.id));
+    await s.pages.trash(target.id);
+
+    const parent = await s.pages.create({ workspaceId: ctx.workspaceId, title: 'Folder <private>secret3</private>' });
+    const orphan = await s.pages.create({ workspaceId: ctx.workspaceId, parentId: parent.id, title: 'Orphan <private>secret4</private>' });
+    await s.db.run('UPDATE pages SET deleted_at = ? WHERE id = ?', [Date.now(), parent.id]);
+
+    // Noise in another workspace must not appear.
+    const otherWs = (await s.workspaces.create('Isolated')).id;
+    const otherTarget = await s.pages.create({ workspaceId: otherWs, title: 'Other Target' });
+    const otherSource = await s.pages.create({ workspaceId: otherWs, title: 'Other Source' });
+    await s.pages.saveContent(otherSource.id, linkDoc(otherTarget.id));
+    await s.pages.trash(otherTarget.id);
+
+    const report = (await call('check_links')).json();
+    expect(report).toMatchObject({
+      total_broken_links: 1,
+      total_orphans: 1,
+      total: 2,
+      truncated: false,
+    });
+    expect(report.broken_links).toEqual([
+      {
+        source_id: source.id,
+        source_title: 'Source',
+        target_id: target.id,
+        target_title: 'Target',
+        reason: 'trashed',
+      },
+    ]);
+    expect(report.orphans).toEqual([
+      {
+        id: orphan.id,
+        title: 'Orphan',
+        parent_id: parent.id,
+        parent_title: 'Folder',
+        reason: 'trashed',
+      },
+    ]);
+    expect(JSON.stringify(report)).not.toContain('secret');
+
+    // Cap at 200 entries total while reporting accurate total counts.
+    const nowTs = Date.now();
+    await s.db.transaction(async (tx) => {
+      for (let i = 0; i < 205; i++) {
+        const pid = `bulk-src-${i}`;
+        await tx.run(
+          `INSERT INTO pages(id, workspace_id, parent_id, kind, title, content_text, sort_order, created_at, updated_at)
+           VALUES (?, ?, NULL, 'page', ?, '', ?, ?, ?)`,
+          [pid, ctx.workspaceId, `Bulk ${i}`, i, nowTs, nowTs],
+        );
+        await tx.run('INSERT INTO page_links(source_id, target_id) VALUES (?, ?)', [pid, target.id]);
+      }
+    });
+
+    const capped = (await call('check_links')).json();
+    expect(capped.total_broken_links).toBe(206);
+    expect(capped.total_orphans).toBe(1);
+    expect(capped.total).toBe(207);
+    expect(capped.truncated).toBe(true);
+    expect(capped.broken_links.length + capped.orphans.length).toBe(200);
+    expect(capped.orphans).toHaveLength(1);
+    expect(capped.broken_links).toHaveLength(199);
+  });
+
+  it('list_trash paginates trashed pages, strips private titles and isolates workspaces', async () => {
+    const live = await s.pages.create({ workspaceId: ctx.workspaceId, title: 'Still Live' });
+    const t1 = await s.pages.create({ workspaceId: ctx.workspaceId, title: 'First Trash <private>hidden</private>' });
+    const t2 = await s.pages.create({ workspaceId: ctx.workspaceId, title: 'Second Trash' });
+    const t3 = await s.pages.create({ workspaceId: ctx.workspaceId, title: 'Third Trash' });
+    await s.pages.create({ workspaceId: ctx.workspaceId, parentId: t3.id, title: 'Child of Third' });
+
+    await s.pages.trash(t1.id);
+    await s.pages.trash(t2.id);
+    await s.pages.trash(t3.id);
+    await s.db.run('UPDATE pages SET deleted_at = ? WHERE id = ?', [1_700_000_001_000, t1.id]);
+    await s.db.run('UPDATE pages SET deleted_at = ? WHERE id = ?', [1_700_000_002_000, t2.id]);
+    await s.db.run('UPDATE pages SET deleted_at = ? WHERE id = ?', [1_700_000_003_000, t3.id]);
+
+    // Trashed page in another workspace must never appear.
+    const otherWs = (await s.workspaces.create('Other')).id;
+    const otherTrash = await s.pages.create({ workspaceId: otherWs, title: 'Secret Trash' });
+    await s.pages.trash(otherTrash.id);
+
+    const page1 = (await call('list_trash', { limit: 2, offset: 0 })).json();
+    expect(page1).toMatchObject({ total: 3, offset: 0, limit: 2, has_more: true });
+    expect(page1.pages.map((p: { id: string; title: string }) => [p.id, p.title])).toEqual([
+      [t3.id, 'Third Trash'],
+      [t2.id, 'Second Trash'],
+    ]);
+    expect(page1.pages[0].deleted_at).toBe(new Date(1_700_000_003_000).toISOString());
+
+    const page2 = (await call('list_trash', { limit: 2, offset: 2 })).json();
+    expect(page2).toMatchObject({ total: 3, offset: 2, limit: 2, has_more: false });
+    expect(page2.pages).toEqual([
+      {
+        id: t1.id,
+        title: 'First Trash',
+        deleted_at: new Date(1_700_000_001_000).toISOString(),
+      },
+    ]);
+    expect(JSON.stringify(page2)).not.toContain('hidden');
+    expect(page1.pages.some((p: { id: string }) => p.id === live.id || p.id === otherTrash.id)).toBe(false);
+  });
+
+  it('get_backlinks lists live linking pages with clean titles and isolates workspaces', async () => {
+    const target = await s.pages.create({ workspaceId: ctx.workspaceId, title: 'Hub <private>secret</private>' });
+    const linkerA = await s.pages.create({ workspaceId: ctx.workspaceId, title: 'Alpha <private>key</private>' });
+    const linkerB = await s.pages.create({ workspaceId: ctx.workspaceId, title: 'Beta Note' });
+    const trashedLinker = await s.pages.create({ workspaceId: ctx.workspaceId, title: 'Trashed Linker' });
+
+    await s.pages.saveContent(linkerA.id, {
+      type: 'doc',
+      content: [
+        {
+          type: 'paragraph',
+          content: [{ type: 'text', text: 'Hub', marks: [{ type: 'link', attrs: { href: `${PAGE_LINK_PREFIX}${target.id}` } }] }],
+        },
+      ],
+    });
+    await s.pages.saveContent(linkerB.id, {
+      type: 'doc',
+      content: [{ type: 'paragraph', content: [{ type: 'pageMention', attrs: { id: target.id, label: 'Hub' } }] }],
+    });
+    await s.pages.saveContent(trashedLinker.id, {
+      type: 'doc',
+      content: [{ type: 'paragraph', content: [{ type: 'pageMention', attrs: { id: target.id, label: 'Hub' } }] }],
+    });
+    await s.pages.trash(trashedLinker.id);
+
+    // Cross-workspace link row must not leak into backlinks.
+    const otherWs = (await s.workspaces.create('Other')).id;
+    const otherLinker = await s.pages.create({ workspaceId: otherWs, title: 'Foreign Linker' });
+    await s.db.run('INSERT INTO page_links(source_id, target_id) VALUES (?, ?)', [otherLinker.id, target.id]);
+
+    const res = (await call('get_backlinks', { page_id: target.id })).json();
+    expect(res).toEqual({
+      page_id: target.id,
+      title: 'Hub',
+      backlinks: [
+        { id: linkerA.id, title: 'Alpha' },
+        { id: linkerB.id, title: 'Beta Note' },
+      ],
+      total: 2,
+    });
+    expect(JSON.stringify(res)).not.toContain('secret');
+    expect(JSON.stringify(res)).not.toContain('key');
+    expect((await call('get_backlinks', { page_id: otherLinker.id })).isError).toBe(true);
+    expect((await call('get_backlinks', { page_id: 'does-not-exist' })).isError).toBe(true);
   });
 });

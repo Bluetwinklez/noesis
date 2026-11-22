@@ -28,6 +28,7 @@ import { Badge, Button, confirmDialog, cx, Input, Kbd, promptDialog, Select, Swi
 import { activeProvider, apiKeyName, configForProvider, errorMessage, reportError, saveAiConfig, saveLang, savePrefs, setWorkspace } from '../../app/services';
 import { McpSettings } from '../mcp/McpSettings';
 import { DuplicatePagesPanel } from './DuplicatePagesPanel';
+import { LinkHealthPanel } from './LinkHealthPanel';
 import { runExportAll, runImport } from '../import/runImport';
 import { PalettePicker } from '../../components/PalettePicker';
 import { checkForUpdates, installUpdate, setUpdatePrefs, useUpdates } from '../../app/updater';
@@ -740,6 +741,7 @@ function Storage() {
         </Button>
       </Row>
       <DuplicatePagesPanel />
+      <LinkHealthPanel />
       <p className="mt-4 text-xs text-muted">{t('settings.syncFuture')}</p>
     </section>
   );

@@ -59,6 +59,29 @@ export interface CreatePageInput {
   isTemplate?: boolean;
 }
 
+export type BrokenLinkReason = 'missing' | 'trashed';
+
+export interface BrokenLink {
+  source_id: string;
+  source_title: string;
+  target_id: string;
+  target_title: string | null;
+  reason: BrokenLinkReason;
+}
+
+export interface OrphanPage {
+  id: string;
+  title: string;
+  parent_id: string;
+  parent_title: string | null;
+  reason: BrokenLinkReason;
+}
+
+export interface LinkHealthReport {
+  brokenLinks: BrokenLink[];
+  orphans: OrphanPage[];
+}
+
 export class PageRepo {
   constructor(private db: Database) {}
 
@@ -276,6 +299,46 @@ export class PageRepo {
        WHERE l.target_id = ? AND p.deleted_at IS NULL ORDER BY p.title`,
       [id],
     );
+  }
+
+  /**
+   * Returns live pages in `workspaceId` with broken internal links (target page
+   * missing or in the trash) and live pages whose parent is missing or trashed.
+   */
+  async linkHealth(workspaceId: string): Promise<LinkHealthReport> {
+    const brokenLinks = await this.db.all<BrokenLink>(
+      `SELECT
+         l.source_id,
+         s.title AS source_title,
+         l.target_id,
+         CASE WHEN t.id IS NOT NULL AND t.workspace_id = s.workspace_id THEN t.title ELSE NULL END AS target_title,
+         CASE WHEN t.id IS NOT NULL AND t.workspace_id = s.workspace_id AND t.deleted_at IS NOT NULL THEN 'trashed' ELSE 'missing' END AS reason
+       FROM page_links l
+       JOIN pages s ON s.id = l.source_id
+       LEFT JOIN pages t ON t.id = l.target_id
+       WHERE s.workspace_id = ?
+         AND s.deleted_at IS NULL
+         AND (t.id IS NULL OR t.workspace_id != s.workspace_id OR t.deleted_at IS NOT NULL)
+       ORDER BY s.title COLLATE NOCASE, l.source_id, l.target_id`,
+      [workspaceId],
+    );
+    const orphans = await this.db.all<OrphanPage>(
+      `SELECT
+         p.id,
+         p.title,
+         p.parent_id,
+         CASE WHEN parent.id IS NOT NULL AND parent.workspace_id = p.workspace_id THEN parent.title ELSE NULL END AS parent_title,
+         CASE WHEN parent.id IS NOT NULL AND parent.workspace_id = p.workspace_id AND parent.deleted_at IS NOT NULL THEN 'trashed' ELSE 'missing' END AS reason
+       FROM pages p
+       LEFT JOIN pages parent ON parent.id = p.parent_id
+       WHERE p.workspace_id = ?
+         AND p.deleted_at IS NULL
+         AND p.parent_id IS NOT NULL
+         AND (parent.id IS NULL OR parent.workspace_id != p.workspace_id OR parent.deleted_at IS NOT NULL)
+       ORDER BY p.title COLLATE NOCASE, p.id`,
+      [workspaceId],
+    );
+    return { brokenLinks, orphans };
   }
 
   /** Moves a page under a new parent, preventing cycles and moves into trashed/archived parents. */

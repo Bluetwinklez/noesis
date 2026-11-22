@@ -93,10 +93,23 @@ const offsetOf = (v: unknown) => {
 const clean = (s: string) => s.replace(/[\u0002\u0003]/g, '');
 
 const MAX_READ_CHARS = 100_000;
+const MAX_CHECK_LINKS_ENTRIES = 200;
 const MIN_SNIPPET_CHARS = 40;
 const MAX_SNIPPET_CHARS = 1000;
 const DEFAULT_PRIVATE_SNIPPET_CHARS = 220;
 const QUERY_TOKEN_RE = /[^\p{L}\p{N}_]+/u;
+
+const cleanTitle = (title: string) => stripPrivateText(title || 'Untitled') || 'Untitled';
+const cleanOptTitle = (title: string | null) => (title === null ? null : cleanTitle(title));
+
+/** Caps the combined length of two lists at `max` without starving the smaller list. */
+function capPair<A, B>(a: A[], b: B[], max: number): [A[], B[]] {
+  if (a.length + b.length <= max) return [a, b];
+  const half = Math.floor(max / 2);
+  if (a.length <= half) return [a, b.slice(0, max - a.length)];
+  if (b.length <= half) return [a.slice(0, max - b.length), b];
+  return [a.slice(0, half), b.slice(0, max - half)];
+}
 
 async function livePage(ctx: McpContext, id: string) {
   const page = await ctx.repos.pages.get(id);
@@ -675,7 +688,7 @@ const TOOLS: ToolDef[] = [
     async run(_a, ctx) {
       const allGroups = await findWorkspaceDuplicates(ctx.repos, ctx.workspaceId, {
         getText: cleanPageText,
-        getTitle: (p) => stripPrivateText(p.title || 'Untitled') || 'Untitled',
+        getTitle: (p) => cleanTitle(p.title),
       });
       return {
         groups: allGroups.slice(0, 50).map((g) => ({
@@ -685,6 +698,97 @@ const TOOLS: ToolDef[] = [
           same_title: g.sameTitle,
         })),
         total_groups: allGroups.length,
+      };
+    },
+  },
+  {
+    name: 'check_links',
+    title: 'Check link health',
+    description:
+      'Finds broken internal page links (pointing to missing or trashed pages) and orphan pages (whose parent is missing or trashed) in the current workspace. Returns up to 200 entries across broken_links and orphans, along with total counts.',
+    inputSchema: { type: 'object', properties: {} },
+    annotations: { readOnlyHint: true },
+    async run(_a, ctx) {
+      const report = await ctx.repos.pages.linkHealth(ctx.workspaceId);
+      const totalBroken = report.brokenLinks.length;
+      const totalOrphans = report.orphans.length;
+      const total = totalBroken + totalOrphans;
+      const [brokenSlice, orphanSlice] = capPair(report.brokenLinks, report.orphans, MAX_CHECK_LINKS_ENTRIES);
+      return {
+        broken_links: brokenSlice.map((b) => ({
+          source_id: b.source_id,
+          source_title: cleanTitle(b.source_title),
+          target_id: b.target_id,
+          target_title: cleanOptTitle(b.target_title),
+          reason: b.reason,
+        })),
+        orphans: orphanSlice.map((o) => ({
+          id: o.id,
+          title: cleanTitle(o.title),
+          parent_id: o.parent_id,
+          parent_title: cleanOptTitle(o.parent_title),
+          reason: o.reason,
+        })),
+        total_broken_links: totalBroken,
+        total_orphans: totalOrphans,
+        total,
+        truncated: brokenSlice.length + orphanSlice.length < total,
+      };
+    },
+  },
+  {
+    name: 'list_trash',
+    title: 'List trashed pages',
+    description:
+      'Lists trashed pages in the current workspace (id, title, deleted_at) ordered newest-deleted first, with pagination. Use limit (1-500, default 200) and offset (default 0) and check total and has_more.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        limit: { type: 'number', description: 'Maximum pages to return (1-500, default 200)' },
+        offset: { type: 'number', description: 'Number of trashed pages to skip (default 0)' },
+      },
+    },
+    annotations: { readOnlyHint: true },
+    async run(a, ctx) {
+      const limit = limitOf(a.limit, 200, 500);
+      const offset = offsetOf(a.offset);
+      const trashed = await ctx.repos.pages.listTrash(ctx.workspaceId);
+      const total = trashed.length;
+      const pages = trashed.slice(offset, offset + limit).map((p) => ({
+        id: p.id,
+        title: cleanTitle(p.title),
+        deleted_at: p.deleted_at ? new Date(p.deleted_at).toISOString() : null,
+      }));
+      return { pages, total, offset, limit, has_more: offset + pages.length < total };
+    },
+  },
+  {
+    name: 'get_backlinks',
+    title: 'Get backlinks',
+    description: 'Lists live pages in the current workspace that link to the given page (id and title).',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        page_id: { type: 'string', description: 'Id of the target page' },
+      },
+      required: ['page_id'],
+    },
+    annotations: { readOnlyHint: true },
+    async run(a, ctx) {
+      const id = str(a.page_id, 'page_id', 100);
+      const page = await livePage(ctx, id);
+      const rows = await ctx.repos.pages.backlinks(page.id);
+      const backlinks = rows
+        .filter((p) => p.workspace_id === ctx.workspaceId && !p.deleted_at)
+        .map((p) => ({
+          id: p.id,
+          title: cleanTitle(p.title),
+        }));
+      return {
+        page_id: page.id,
+        title: cleanTitle(page.title),
+        backlinks,
+        total: backlinks.length,
       };
     },
   },
@@ -830,7 +934,7 @@ export async function handleMcp(msg: unknown, ctx: McpContext): Promise<JsonRpcR
         capabilities: { tools: { listChanged: false } },
         serverInfo: { name: 'noesis', title: 'Noesis', version: import.meta.env.VITE_APP_VERSION ?? '0.1.0' },
         instructions:
-          'Noesis is the user’s local knowledge workspace. To save tokens, read in layers: start with search_notes (detail: "index") or list_pages (paginated) to locate relevant pages, then call read_page with outline_only: true to inspect headings and section sizes, read only the needed section via read_page with heading (or page through long pages with max_chars and offset), and fetch the full page only when necessary. Text wrapped in <private>...</private> markers is automatically omitted from MCP responses. Use find_duplicate_pages to spot duplicates, search_sources for cited evidence from imported documents, and create_page, create_task or restore_page to add or restore content. Changing, moving, renaming or trashing existing pages (append_to_page, update_page, move_page, rename_page, trash_page) requires the user’s approval in the app; pages are never permanently deleted through MCP.',
+          'Noesis is the user’s local knowledge workspace. To save tokens, read in layers: start with search_notes (detail: "index") or list_pages (paginated) to locate relevant pages, then call read_page with outline_only: true to inspect headings and section sizes, read only the needed section via read_page with heading (or page through long pages with max_chars and offset), and fetch the full page only when necessary. Text wrapped in <private>...</private> markers is automatically omitted from MCP responses. Use find_duplicate_pages to spot duplicates, check_links to find broken links and orphan pages, get_backlinks to see incoming links, list_trash to inspect trashed pages, search_sources for cited evidence from imported documents, and create_page, create_task or restore_page to add or restore content. Changing, moving, renaming or trashing existing pages (append_to_page, update_page, move_page, rename_page, trash_page) requires the user’s approval in the app; pages are never permanently deleted through MCP.',
       });
     }
     case 'ping':
