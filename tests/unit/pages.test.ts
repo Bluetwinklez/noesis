@@ -32,6 +32,19 @@ describe('pages', () => {
     await expect(s.pages.move(a.id, a.id)).rejects.toThrow();
   });
 
+  it('rejects moving a page under a trashed or archived parent', async () => {
+    const origin = await s.pages.create({ workspaceId: ws, title: 'Origin' });
+    const child = await s.pages.create({ workspaceId: ws, parentId: origin.id, title: 'Child' });
+    const trashed = await s.pages.create({ workspaceId: ws, title: 'Trashed' });
+    await s.pages.trash(trashed.id);
+    const archived = await s.pages.create({ workspaceId: ws, title: 'Archived' });
+    await s.pages.setArchived(archived.id, true);
+
+    await expect(s.pages.move(child.id, trashed.id)).rejects.toThrow(/trashed/);
+    await expect(s.pages.move(child.id, archived.id)).rejects.toThrow(/archived/);
+    expect((await s.pages.get(child.id))!.parent_id).toBe(origin.id);
+  });
+
   it('autosaves content, updates search and keeps snapshots', async () => {
     const p = await s.pages.create({ workspaceId: ws, title: 'Notes' });
     await s.pages.saveContent(p.id, docFromParagraphs(['first version about volcanoes']));

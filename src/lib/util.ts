@@ -38,6 +38,7 @@ export function debounce<A extends unknown[], R>(fn: (...args: A) => R, ms: numb
   wrapped.cancel = () => {
     if (t) clearTimeout(t);
     t = null;
+    lastArgs = null;
   };
   /** Runs a pending call immediately. */
   wrapped.flush = () => {
