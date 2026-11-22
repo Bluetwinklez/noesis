@@ -58,6 +58,8 @@ describe('MCP server', () => {
       expect.arrayContaining([
         'search_notes',
         'list_pages',
+        'list_recent_pages',
+        'get_page_outline_tree',
         'read_page',
         'create_page',
         'append_to_page',
@@ -79,6 +81,8 @@ describe('MCP server', () => {
     expect(tools.find((t) => t.name === 'trash_page')?.annotations?.destructiveHint).toBe(true);
     expect(tools.find((t) => t.name === 'update_page')?.annotations?.destructiveHint).toBe(true);
     expect(tools.find((t) => t.name === 'merge_pages')?.annotations?.destructiveHint).toBe(true);
+    expect(tools.find((t) => t.name === 'list_recent_pages')?.annotations?.readOnlyHint).toBe(true);
+    expect(tools.find((t) => t.name === 'get_page_outline_tree')?.annotations?.readOnlyHint).toBe(true);
     expect(tools.find((t) => t.name === 'find_duplicate_pages')?.annotations?.readOnlyHint).toBe(true);
     expect(tools.find((t) => t.name === 'check_links')?.annotations?.readOnlyHint).toBe(true);
     expect(tools.find((t) => t.name === 'list_trash')?.annotations?.readOnlyHint).toBe(true);
@@ -353,6 +357,8 @@ describe('MCP server', () => {
     expect(instructions).toContain('heading');
     expect(instructions).toContain('max_chars');
     expect(instructions).toContain('<private>');
+    expect(instructions).toContain('list_recent_pages');
+    expect(instructions).toContain('get_page_outline_tree');
   });
 
   it('supports layered read_page: outline_only, heading sections, and max_chars/offset paging', async () => {
@@ -803,6 +809,8 @@ describe('MCP server', () => {
 
     expect((await call('search_notes', { query: 'glaciers' })).isError).toBe(false);
     expect((await call('list_pages')).isError).toBe(false);
+    expect((await call('list_recent_pages')).isError).toBe(false);
+    expect((await call('get_page_outline_tree')).isError).toBe(false);
     expect((await call('read_page', { page_id: p.id })).isError).toBe(false);
     expect((await call('find_duplicate_pages')).isError).toBe(false);
     expect((await call('check_links')).isError).toBe(false);

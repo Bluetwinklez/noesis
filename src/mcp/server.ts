@@ -10,9 +10,9 @@
  *  - changing existing content always needs the user's explicit approval.
  */
 import type { Repos } from '../core/store';
-import type { Page } from '../core/types';
+import type { Page, PageMeta, SearchKind } from '../core/types';
 import type { McpPermissions } from '../app/state';
-import { search } from '../search/search';
+import { search, type SearchHit } from '../search/search';
 import { retrieve } from '../ai/rag';
 import { docToHtml, htmlToDoc } from '../editor/serialize';
 import { htmlToMarkdown, markdownToHtml, sanitizeHtml } from '../editor/markdown';
@@ -102,10 +102,122 @@ const clean = (s: string) => s.replace(/[\u0002\u0003]/g, '');
 
 const MAX_READ_CHARS = 100_000;
 const MAX_CHECK_LINKS_ENTRIES = 200;
+const MAX_OUTLINE_TREE_NODES = 300;
+const RECENT_SNIPPET_CHARS = 120;
 const MIN_SNIPPET_CHARS = 40;
 const MAX_SNIPPET_CHARS = 1000;
 const DEFAULT_PRIVATE_SNIPPET_CHARS = 220;
 const QUERY_TOKEN_RE = /[^\p{L}\p{N}_]+/u;
+const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}(?:[T ]\d{2}:\d{2}(?::\d{2}(?:\.\d{1,9})?)?(?:Z|[+-]\d{2}:?\d{2})?)?$/i;
+const SEARCH_KINDS = ['page', 'row', 'task', 'notebook', 'chunk'] as const;
+type McpSearchKind = (typeof SEARCH_KINDS)[number];
+const SEARCH_KIND_SET = new Set<string>(SEARCH_KINDS);
+
+function parseIsoTimestamp(v: unknown, name: string): number | undefined {
+  const raw = optStr(v, name, 64)?.trim();
+  if (raw === undefined) return undefined;
+  if (!ISO_DATE_RE.test(raw)) {
+    throw new ToolError(`"${name}" must be a valid ISO 8601 date or timestamp.`);
+  }
+  const ts = Date.parse(raw);
+  if (!Number.isFinite(ts)) {
+    throw new ToolError(`"${name}" must be a valid ISO 8601 date or timestamp.`);
+  }
+  return ts;
+}
+
+async function liveSubtreeIds(ctx: McpContext, rootId: string): Promise<Set<string>> {
+  const rows = await ctx.repos.db.all<{ id: string }>(
+    `WITH RECURSIVE sub(id) AS (
+       SELECT id FROM pages WHERE id = ? AND workspace_id = ? AND deleted_at IS NULL
+       UNION
+       SELECT p.id FROM pages p JOIN sub ON p.parent_id = sub.id
+       WHERE p.workspace_id = ? AND p.deleted_at IS NULL
+     )
+     SELECT id FROM sub`,
+    [rootId, ctx.workspaceId, ctx.workspaceId],
+  );
+  return new Set(rows.map((r) => r.id));
+}
+
+async function loadUpdatedMap(
+  db: McpContext['repos']['db'],
+  ids: string[],
+  buildSql: (placeholders: string) => string,
+  trailingParams: (string | number)[] = [],
+): Promise<Map<string, number>> {
+  const out = new Map<string, number>();
+  const unique = [...new Set(ids)];
+  for (let i = 0; i < unique.length; i += 400) {
+    const batch = unique.slice(i, i + 400);
+    const ph = batch.map(() => '?').join(',');
+    const rows = await db.all<{ id: string; updated_at: number }>(buildSql(ph), [...batch, ...trailingParams]);
+    for (const r of rows) out.set(r.id, r.updated_at);
+  }
+  return out;
+}
+
+async function loadNonPageUpdatedAt(ctx: McpContext, hits: SearchHit[]): Promise<Map<string, number>> {
+  const rowIds: string[] = [];
+  const taskIds: string[] = [];
+  const notebookIds: string[] = [];
+  const noteIds: string[] = [];
+  const sourceIds: string[] = [];
+
+  for (const h of hits) {
+    if (h.kind === 'row') rowIds.push(h.refId);
+    else if (h.kind === 'task') taskIds.push(h.refId);
+    else if (h.kind === 'notebook') notebookIds.push(h.refId);
+    else if (h.kind === 'note') noteIds.push(h.refId);
+    else if (h.kind === 'source') sourceIds.push(h.refId);
+    else if (h.kind === 'chunk' && h.parentId) sourceIds.push(h.parentId);
+  }
+
+  const out = new Map<string, number>();
+  const db = ctx.repos.db;
+  const [rows, tasks, notebooks, notes, sources] = await Promise.all([
+    rowIds.length
+      ? loadUpdatedMap(
+          db,
+          rowIds,
+          (ph) =>
+            `SELECT r.id, r.updated_at FROM db_rows r JOIN pages p ON p.id = r.database_id WHERE r.id IN (${ph}) AND p.workspace_id = ? AND p.deleted_at IS NULL AND p.archived_at IS NULL`,
+          [ctx.workspaceId],
+        )
+      : Promise.resolve(new Map<string, number>()),
+    taskIds.length
+      ? loadUpdatedMap(db, taskIds, (ph) => `SELECT id, updated_at FROM tasks WHERE id IN (${ph}) AND workspace_id = ?`, [ctx.workspaceId])
+      : Promise.resolve(new Map<string, number>()),
+    notebookIds.length
+      ? loadUpdatedMap(db, notebookIds, (ph) => `SELECT id, updated_at FROM notebooks WHERE id IN (${ph}) AND workspace_id = ?`, [ctx.workspaceId])
+      : Promise.resolve(new Map<string, number>()),
+    noteIds.length
+      ? loadUpdatedMap(
+          db,
+          noteIds,
+          (ph) => `SELECT n.id, n.updated_at FROM notebook_notes n JOIN notebooks nb ON nb.id = n.notebook_id WHERE n.id IN (${ph}) AND nb.workspace_id = ?`,
+          [ctx.workspaceId],
+        )
+      : Promise.resolve(new Map<string, number>()),
+    sourceIds.length
+      ? loadUpdatedMap(db, sourceIds, (ph) => `SELECT id, updated_at FROM sources WHERE id IN (${ph}) AND workspace_id = ?`, [ctx.workspaceId])
+      : Promise.resolve(new Map<string, number>()),
+  ]);
+
+  for (const [id, ts] of rows) out.set(`row:${id}`, ts);
+  for (const [id, ts] of tasks) out.set(`task:${id}`, ts);
+  for (const [id, ts] of notebooks) out.set(`notebook:${id}`, ts);
+  for (const [id, ts] of notes) out.set(`note:${id}`, ts);
+  for (const [id, ts] of sources) out.set(`source:${id}`, ts);
+  return out;
+}
+
+interface OutlineTreeNode {
+  id: string;
+  title: string;
+  children: OutlineTreeNode[];
+  child_count: number;
+}
 
 const cleanTitle = (title: string) => stripPrivateText(title || 'Untitled') || 'Untitled';
 const cleanOptTitle = (title: string | null) => (title === null ? null : cleanTitle(title));
@@ -230,7 +342,7 @@ const TOOLS: ToolDef[] = [
     title: 'Search notes',
     group: 'read',
     description:
-      'Full-text search across the current Noesis workspace: pages, database rows, tasks, notebooks and imported document passages. Returns ids you can pass to read_page. Use detail: "index" for compact results (id, kind, title only) or snippet_chars (40-1000) to bound snippet length. Text wrapped in <private>...</private> (or after an unterminated <private>) is omitted from snippets and excluded from matching.',
+      'Full-text search across the current Noesis workspace: pages, database rows, tasks, notebooks and imported document passages. Returns ids you can pass to read_page. Supports optional filtering by parent_id (pages in that page’s subtree), kind ("page" | "row" | "task" | "notebook" | "chunk"), updated_since (ISO 8601 date/time), and sort ("relevance" default | "recent"). Use detail: "index" for compact results (id, kind, title only) or snippet_chars (40-1000) to bound snippet length. Text wrapped in <private>...</private> (or after an unterminated <private>) is omitted from snippets and excluded from matching.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -238,6 +350,10 @@ const TOOLS: ToolDef[] = [
         limit: { type: 'number', description: 'Maximum results (1-50, default 10)' },
         detail: { type: 'string', enum: ['index', 'full'], description: 'Result detail: "index" returns id, kind and title only; "full" (default) also includes snippets' },
         snippet_chars: { type: 'number', description: 'Maximum snippet length in characters (40-1000, default matches the search index snippet)' },
+        parent_id: { type: 'string', description: 'Restrict results to pages inside this page’s subtree (including the page itself and all sub-pages)' },
+        kind: { type: 'string', enum: ['page', 'row', 'task', 'notebook', 'chunk'], description: 'Restrict results to one entity kind' },
+        updated_since: { type: 'string', description: 'ISO 8601 date or timestamp; only include items updated at or after this time' },
+        sort: { type: 'string', enum: ['relevance', 'recent'], description: 'Result ordering: "relevance" (default) or "recent" (newest updated first)' },
       },
       required: ['query'],
     },
@@ -254,22 +370,55 @@ const TOOLS: ToolDef[] = [
         }
         snippetChars = Math.min(MAX_SNIPPET_CHARS, Math.max(MIN_SNIPPET_CHARS, Math.floor(a.snippet_chars)));
       }
+      const parentId = optStr(a.parent_id, 'parent_id', 100);
+      let kind: McpSearchKind | undefined;
+      if (a.kind !== undefined && a.kind !== null) {
+        if (typeof a.kind !== 'string' || !SEARCH_KIND_SET.has(a.kind)) {
+          throw new ToolError(`"kind" must be one of: ${SEARCH_KINDS.join(', ')}.`);
+        }
+        kind = a.kind as McpSearchKind;
+      }
+      const updatedSince = parseIsoTimestamp(a.updated_since, 'updated_since');
+      const sort = a.sort === undefined || a.sort === null ? 'relevance' : a.sort;
+      if (sort !== 'relevance' && sort !== 'recent') {
+        throw new ToolError('"sort" must be "relevance" or "recent".');
+      }
 
-      // Over-fetch so dropping private-only hits does not starve public results.
-      const fetchLimit = Math.min(100, Math.max(limit * 3, 20));
-      const rawHits = await search(ctx.repos.db, query, { workspaceId: ctx.workspaceId, mode: 'hybrid', limit: fetchLimit });
+      let subtree: Set<string> | null = null;
+      if (parentId) {
+        await livePage(ctx, parentId);
+        if (kind && kind !== 'page') return [];
+        subtree = await liveSubtreeIds(ctx, parentId);
+      }
+
+      const effectiveKinds: SearchKind[] | undefined = kind ? [kind] : parentId ? ['page'] : undefined;
+      const needTimestamps = updatedSince !== undefined || sort === 'recent';
+      const hasFilterOrRecent = Boolean(parentId || kind || needTimestamps);
+      // Over-fetch so dropping private-only hits or post-filtering does not starve results.
+      const fetchLimit = hasFilterOrRecent ? 500 : Math.min(100, Math.max(limit * 3, 20));
+      const rawHits = await search(ctx.repos.db, query, {
+        workspaceId: ctx.workspaceId,
+        mode: 'hybrid',
+        kinds: effectiveKinds,
+        limit: fetchLimit,
+      });
+      const candidateHits = subtree ? rawHits.filter((h) => h.kind === 'page' && subtree.has(h.refId)) : rawHits;
+      const nonPageUpdated = needTimestamps ? await loadNonPageUpdatedAt(ctx, candidateHits) : null;
       const words = queryWords(query);
-      const results: Record<string, unknown>[] = [];
+      const entries: { item: Record<string, unknown>; updatedAt: number; order: number }[] = [];
 
-      for (const h of rawHits) {
-        if (results.length >= limit) break;
+      for (const h of candidateHits) {
+        if (sort === 'relevance' && entries.length >= limit) break;
         const id = h.kind === 'chunk' ? h.parentId : h.refId;
         let title = stripPrivateText(h.title);
         let snippet = clean(h.snippet);
+        let updatedAt: number | undefined;
 
         if (h.kind === 'page') {
           const page = await ctx.repos.pages.get(h.refId);
           if (!page || page.workspace_id !== ctx.workspaceId || page.deleted_at || page.archived_at) continue;
+          updatedAt = page.updated_at;
+          if (updatedSince !== undefined && updatedAt < updatedSince) continue;
           const hasPriv =
             hasPrivateMarkers(page.title) ||
             hasPrivateMarkers(page.content_text) ||
@@ -290,6 +439,10 @@ const TOOLS: ToolDef[] = [
             }
           }
         } else {
+          if (nonPageUpdated) {
+            updatedAt = h.kind === 'chunk' ? (h.parentId ? nonPageUpdated.get(`source:${h.parentId}`) : undefined) : nonPageUpdated.get(`${h.kind}:${h.refId}`);
+            if (updatedSince !== undefined && (updatedAt === undefined || updatedAt < updatedSince)) continue;
+          }
           const hadPriv = hasPrivateMarkers(h.title) || hasPrivateMarkers(snippet);
           if (hadPriv) {
             snippet = stripPrivateText(snippet);
@@ -303,13 +456,180 @@ const TOOLS: ToolDef[] = [
           }
         }
 
-        if (detail === 'index') {
-          results.push({ id, kind: h.kind, title });
-        } else {
-          results.push({ kind: h.kind, id, title, snippet, ...(h.pageNumber ? { page: h.pageNumber } : {}) });
+        const item =
+          detail === 'index'
+            ? { id, kind: h.kind, title }
+            : { kind: h.kind, id, title, snippet, ...(h.pageNumber ? { page: h.pageNumber } : {}) };
+        entries.push({ item, updatedAt: updatedAt ?? 0, order: entries.length });
+      }
+
+      if (sort === 'recent') {
+        entries.sort((x, y) => y.updatedAt - x.updatedAt || x.order - y.order);
+      }
+      return entries.slice(0, limit).map((e) => e.item);
+    },
+  },
+  {
+    name: 'list_recent_pages',
+    title: 'List recent pages',
+    group: 'read',
+    description:
+      'Lists the newest-edited live pages in the current workspace with id, title, breadcrumb path (parent titles), updated_at (ISO 8601) and a 120-character snippet. Optionally restrict to a parent_id subtree or pages updated since an ISO 8601 date/time. Text wrapped in <private>...</private> is omitted from titles, breadcrumbs and snippets.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        limit: { type: 'number', description: 'Maximum pages to return (1-50, default 10)' },
+        parent_id: { type: 'string', description: 'Optional parent page id to restrict to that page and its sub-pages' },
+        since: { type: 'string', description: 'Optional ISO 8601 date or timestamp; only include pages updated at or after this time' },
+      },
+    },
+    annotations: { readOnlyHint: true },
+    async run(a, ctx) {
+      const limit = limitOf(a.limit, 10, 50);
+      const parentId = optStr(a.parent_id, 'parent_id', 100);
+      const since = parseIsoTimestamp(a.since, 'since');
+      if (parentId) await livePage(ctx, parentId);
+
+      let rows: Page[];
+      if (parentId) {
+        const params: (string | number)[] = [parentId, ctx.workspaceId, ctx.workspaceId, ctx.workspaceId];
+        const sinceClause = since !== undefined ? ' AND p.updated_at >= ?' : '';
+        if (since !== undefined) params.push(since);
+        params.push(limit + 1);
+        rows = await ctx.repos.db.all<Page>(
+          `WITH RECURSIVE sub(id) AS (
+             SELECT id FROM pages WHERE id = ? AND workspace_id = ? AND deleted_at IS NULL
+             UNION
+             SELECT p.id FROM pages p JOIN sub ON p.parent_id = sub.id
+             WHERE p.workspace_id = ? AND p.deleted_at IS NULL
+           )
+           SELECT p.* FROM pages p
+           JOIN sub ON sub.id = p.id
+           WHERE p.workspace_id = ? AND p.deleted_at IS NULL AND p.archived_at IS NULL AND p.kind = 'page'${sinceClause}
+           ORDER BY p.updated_at DESC, p.created_at DESC, p.id ASC
+           LIMIT ?`,
+          params,
+        );
+      } else {
+        const params: (string | number)[] = [ctx.workspaceId];
+        const sinceClause = since !== undefined ? ' AND updated_at >= ?' : '';
+        if (since !== undefined) params.push(since);
+        params.push(limit + 1);
+        rows = await ctx.repos.db.all<Page>(
+          `SELECT * FROM pages
+           WHERE workspace_id = ? AND deleted_at IS NULL AND archived_at IS NULL AND kind = 'page'${sinceClause}
+           ORDER BY updated_at DESC, created_at DESC, id ASC
+           LIMIT ?`,
+          params,
+        );
+      }
+
+      const hasMore = rows.length > limit;
+      const slice = rows.slice(0, limit);
+      const pages = await Promise.all(
+        slice.map(async (page) => {
+          const ancestors = await ctx.repos.pages.ancestors(page.id);
+          const path = ancestors
+            .filter((anc) => anc.workspace_id === ctx.workspaceId && anc.id !== page.id)
+            .map((anc) => cleanTitle(anc.title));
+          return {
+            id: page.id,
+            title: cleanTitle(page.title),
+            path,
+            updated_at: new Date(page.updated_at).toISOString(),
+            snippet: makeSnippet(cleanPageText(page), [], RECENT_SNIPPET_CHARS),
+          };
+        }),
+      );
+      return { pages, limit, has_more: hasMore };
+    },
+  },
+  {
+    name: 'get_page_outline_tree',
+    title: 'Get page outline tree',
+    group: 'read',
+    description:
+      'Returns the workspace (or a parent page’s) live page hierarchy as nested { id, title, children, child_count } objects up to depth (1-4, default 2), capped at 300 nodes with a truncated flag — useful for seeing page structure without paging list_pages. Text wrapped in <private>...</private> is omitted from titles.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        parent_id: { type: 'string', description: 'Optional parent page id to start the tree from (default: workspace top level)' },
+        depth: { type: 'number', description: 'Maximum nesting depth to expand (1-4, default 2)' },
+      },
+    },
+    annotations: { readOnlyHint: true },
+    async run(a, ctx) {
+      const parentId = optStr(a.parent_id, 'parent_id', 100);
+      if (a.depth !== undefined && a.depth !== null && (typeof a.depth !== 'number' || !Number.isFinite(a.depth))) {
+        throw new ToolError('"depth" must be a number between 1 and 4.');
+      }
+      const depth = limitOf(a.depth, 2, 4);
+      if (parentId) await livePage(ctx, parentId);
+
+      const allPages = await ctx.repos.pages.listTree(ctx.workspaceId);
+      const childrenByParent = new Map<string | null, PageMeta[]>();
+      for (const p of allPages) {
+        const key = p.parent_id ?? null;
+        const list = childrenByParent.get(key);
+        if (list) list.push(p);
+        else childrenByParent.set(key, [p]);
+      }
+
+      const roots: OutlineTreeNode[] = [];
+      const queue: { node: OutlineTreeNode; level: number }[] = [];
+      const visited = new Set<string>(parentId ? [parentId] : []);
+      let nodeCount = 0;
+      let truncated = false;
+
+      const makeNode = (p: PageMeta): OutlineTreeNode => ({
+        id: p.id,
+        title: cleanTitle(p.title),
+        children: [],
+        child_count: (childrenByParent.get(p.id) ?? []).length,
+      });
+
+      const topLevel = childrenByParent.get(parentId ?? null) ?? [];
+      for (const p of topLevel) {
+        if (visited.has(p.id)) continue;
+        if (nodeCount >= MAX_OUTLINE_TREE_NODES) {
+          truncated = true;
+          break;
+        }
+        visited.add(p.id);
+        const node = makeNode(p);
+        roots.push(node);
+        nodeCount++;
+        if (1 < depth && node.child_count > 0) {
+          queue.push({ node, level: 1 });
         }
       }
-      return results;
+
+      for (let qIdx = 0; qIdx < queue.length && !truncated; qIdx++) {
+        const { node, level } = queue[qIdx];
+        const kids = childrenByParent.get(node.id) ?? [];
+        for (const kid of kids) {
+          if (visited.has(kid.id)) continue;
+          if (nodeCount >= MAX_OUTLINE_TREE_NODES) {
+            truncated = true;
+            break;
+          }
+          visited.add(kid.id);
+          const childNode = makeNode(kid);
+          node.children.push(childNode);
+          nodeCount++;
+          if (level + 1 < depth && childNode.child_count > 0) {
+            queue.push({ node: childNode, level: level + 1 });
+          }
+        }
+      }
+
+      return {
+        parent_id: parentId ?? null,
+        depth,
+        nodes: roots,
+        node_count: nodeCount,
+        truncated,
+      };
     },
   },
   {
@@ -999,7 +1319,7 @@ export async function handleMcp(msg: unknown, ctx: McpContext): Promise<JsonRpcR
         capabilities: { tools: { listChanged: false } },
         serverInfo: { name: 'noesis', title: 'Noesis', version: import.meta.env.VITE_APP_VERSION ?? '0.1.0' },
         instructions:
-          'Noesis is the user’s local knowledge workspace. To save tokens, read in layers: start with search_notes (detail: "index") or list_pages (paginated) to locate relevant pages, then call read_page with outline_only: true to inspect headings and section sizes, read only the needed section via read_page with heading (or page through long pages with max_chars and offset), and fetch the full page only when necessary. Text wrapped in <private>...</private> markers is automatically omitted from MCP responses. Use find_duplicate_pages to spot duplicates, check_links to find broken links and orphan pages, get_backlinks to see incoming links, list_trash to inspect trashed pages, search_sources for cited evidence from imported documents, and create_page, create_task or restore_page to add or restore content. Changing, moving, renaming, merging or trashing existing pages (append_to_page, update_page, move_page, rename_page, merge_pages, trash_page) requires the user’s approval in the app; pages are never permanently deleted through MCP. The user may also turn off creating, modifying, or trashing in Settings -> AI connections.',
+          'Noesis is the user’s local knowledge workspace. To save tokens, read in layers: start with get_page_outline_tree to inspect workspace or subtree structure, list_recent_pages to find recently edited notes, or search_notes (with detail: "index" and optional parent_id, kind, updated_since and sort: "recent" filters) or list_pages (paginated) to locate relevant pages; then call read_page with outline_only: true to inspect headings and section sizes, read only the needed section via read_page with heading (or page through long pages with max_chars and offset), and fetch the full page only when necessary. Text wrapped in <private>...</private> markers is automatically omitted from MCP responses. Use find_duplicate_pages to spot duplicates, check_links to find broken links and orphan pages, get_backlinks to see incoming links, list_trash to inspect trashed pages, search_sources for cited evidence from imported documents, and create_page, create_task or restore_page to add or restore content. Changing, moving, renaming, merging or trashing existing pages (append_to_page, update_page, move_page, rename_page, merge_pages, trash_page) requires the user’s approval in the app; pages are never permanently deleted through MCP. The user may also turn off creating, modifying, or trashing in Settings -> AI connections.',
       });
     }
     case 'ping':
