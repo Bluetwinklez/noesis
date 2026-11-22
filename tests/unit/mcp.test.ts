@@ -3,6 +3,8 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import type { Repos } from '../../src/core/store';
 import { docFromParagraphs } from '../../src/core/doc';
 import { handleMcp, type ApprovalRequest, type McpContext } from '../../src/mcp/server';
+import { formatApprovalBody, formatApprovalPreview } from '../../src/features/mcp/McpApprovalDialog';
+import { translate } from '../../src/i18n';
 import { memoryStore } from '../helpers';
 
 let s: Repos;
@@ -154,7 +156,13 @@ describe('MCP server', () => {
     allow = false;
     const denied = await call('move_page', { page_id: b.id, parent_id: c.id });
     expect(denied.isError).toBe(true);
-    expect(approvals[0]).toMatchObject({ client: 'Test Client', action: 'move', target: 'Child B', preview: 'Move under "Target C"' });
+    expect(approvals[0]).toMatchObject({
+      client: 'Test Client',
+      action: 'move',
+      target: 'Child B',
+      preview: 'Move under "Target C"',
+      detail: { kind: 'move', parent: 'Target C' },
+    });
     expect((await s.pages.get(b.id))!.parent_id).toBe(a.id);
 
     allow = true;
@@ -169,7 +177,12 @@ describe('MCP server', () => {
 
     // Move B back to the top level.
     expect((await call('move_page', { page_id: b.id, parent_id: null })).isError).toBe(false);
-    expect(approvals.at(-1)).toMatchObject({ action: 'move', target: 'Child B', preview: 'Move to the top level' });
+    expect(approvals.at(-1)).toMatchObject({
+      action: 'move',
+      target: 'Child B',
+      preview: 'Move to the top level',
+      detail: { kind: 'move', parent: null },
+    });
     expect((await s.pages.get(b.id))!.parent_id).toBeNull();
   });
 
@@ -177,7 +190,13 @@ describe('MCP server', () => {
     const p = await s.pages.create({ workspaceId: ctx.workspaceId, title: 'Old Name' });
     allow = false;
     expect((await call('rename_page', { page_id: p.id, title: 'New Name' })).isError).toBe(true);
-    expect(approvals[0]).toMatchObject({ client: 'Test Client', action: 'rename', target: 'Old Name', preview: 'Old Name -> New Name' });
+    expect(approvals[0]).toMatchObject({
+      client: 'Test Client',
+      action: 'rename',
+      target: 'Old Name',
+      preview: 'Old Name -> New Name',
+      detail: { kind: 'rename', from: 'Old Name', to: 'New Name' },
+    });
     expect((await s.pages.get(p.id))!.title).toBe('Old Name');
 
     allow = true;
@@ -196,7 +215,13 @@ describe('MCP server', () => {
     allow = false;
     const denied = await call('update_page', { page_id: p.id, markdown: '# Fresh\n\ntidal estuary salt marsh heron' });
     expect(denied.isError).toBe(true);
-    expect(approvals[0]).toMatchObject({ client: 'Test Client', action: 'replace', target: 'Field log', preview: '# Fresh\n\ntidal estuary salt marsh heron' });
+    expect(approvals[0]).toMatchObject({
+      client: 'Test Client',
+      action: 'replace',
+      target: 'Field log',
+      preview: '# Fresh\n\ntidal estuary salt marsh heron',
+      detail: { kind: 'replace', body: '# Fresh\n\ntidal estuary salt marsh heron' },
+    });
     expect((await s.pages.get(p.id))!.content_text).toContain('volcano');
 
     allow = true;
@@ -204,6 +229,12 @@ describe('MCP server', () => {
     const updated = await call('update_page', { page_id: p.id, markdown: longBody, title: 'Estuary Notes' });
     expect(updated.isError).toBe(false);
     expect(approvals.at(-1)!.preview.length).toBe(2000);
+    expect(approvals.at(-1)!.preview).toContain('Title: Field log -> Estuary Notes');
+    expect(approvals.at(-1)!.detail).toMatchObject({
+      kind: 'replace',
+      titleFrom: 'Field log',
+      titleTo: 'Estuary Notes',
+    });
     const saved = (await s.pages.get(p.id))!;
     expect(saved.title).toBe('Estuary Notes');
     expect(saved.content_text).not.toContain('volcano');
@@ -217,6 +248,130 @@ describe('MCP server', () => {
     expect((await call('update_page', { page_id: p.id, markdown: 'x'.repeat(200_001) })).isError).toBe(true);
   });
 
+  it('calls beforePageReplace, writes the page, then calls afterPageReplace in order', async () => {
+    const p = await s.pages.create({ workspaceId: ctx.workspaceId, title: 'Live Doc' });
+    await s.pages.saveContent(p.id, docFromParagraphs(['old body']));
+    const events: string[] = [];
+    const origSave = s.pages.saveContent.bind(s.pages);
+    s.pages.saveContent = async (id, doc, title) => {
+      events.push(`write:${id}`);
+      return origSave(id, doc, title);
+    };
+    ctx.beforePageReplace = async (id) => {
+      events.push(`before:${id}`);
+    };
+    ctx.afterPageReplace = (id) => {
+      events.push(`after:${id}`);
+    };
+
+    allow = false;
+    expect((await call('update_page', { page_id: p.id, markdown: 'blocked' })).isError).toBe(true);
+    expect(events).toEqual([]);
+
+    allow = true;
+    expect((await call('update_page', { page_id: p.id, markdown: 'replaced body' })).isError).toBe(false);
+    expect(events).toEqual([`before:${p.id}`, `write:${p.id}`, `after:${p.id}`]);
+  });
+
+  it('revalidates live pages and cycles after approval before mutating', async () => {
+    const origin = await s.pages.create({ workspaceId: ctx.workspaceId, title: 'Origin' });
+    const doc = await s.pages.create({ workspaceId: ctx.workspaceId, parentId: origin.id, title: 'Doc' });
+    const dest = await s.pages.create({ workspaceId: ctx.workspaceId, title: 'Dest' });
+
+    // Destination trashed while approval is pending: move_page must fail and leave doc where it was.
+    ctx.approve = async () => {
+      await s.pages.trash(dest.id);
+      return true;
+    };
+    expect((await call('move_page', { page_id: doc.id, parent_id: dest.id })).isError).toBe(true);
+    expect((await s.pages.get(doc.id))!.parent_id).toBe(origin.id);
+
+    // Cycle formed concurrently while approval is pending: move_page must fail.
+    const dest2 = await s.pages.create({ workspaceId: ctx.workspaceId, title: 'Dest 2' });
+    ctx.approve = async () => {
+      await s.pages.move(dest2.id, doc.id);
+      return true;
+    };
+    expect((await call('move_page', { page_id: doc.id, parent_id: dest2.id })).isError).toBe(true);
+    expect((await s.pages.get(doc.id))!.parent_id).toBe(origin.id);
+
+    // Target trashed while approval is pending: every mutating tool must fail without mutating.
+    for (const [tool, extra] of [
+      ['update_page', { markdown: 'stale' }],
+      ['rename_page', { title: 'Stale' }],
+      ['trash_page', {}],
+      ['append_to_page', { markdown: 'stale' }],
+    ] as const) {
+      const live = await s.pages.create({ workspaceId: ctx.workspaceId, title: `Live-${tool}` });
+      ctx.approve = async () => {
+        await s.pages.trash(live.id);
+        return true;
+      };
+      expect((await call(tool, { page_id: live.id, ...extra })).isError).toBe(true);
+      expect((await s.pages.get(live.id))!.title).toBe(`Live-${tool}`);
+    }
+  });
+
+  it('formats localized English and Turkish approval bodies and previews with pluralization and fallback', () => {
+    const enT = (k: Parameters<typeof translate>[1], v?: Record<string, string | number>) => translate('en', k, v);
+    const trT = (k: Parameters<typeof translate>[1], v?: Record<string, string | number>) => translate('tr', k, v);
+
+    const moveUnder: ApprovalRequest = {
+      client: 'Claude',
+      action: 'move',
+      target: 'Note',
+      preview: 'Move under "Folder"',
+      detail: { kind: 'move', parent: 'Folder' },
+    };
+    expect(formatApprovalPreview(moveUnder, enT)).toBe('Move under “Folder”');
+    expect(formatApprovalPreview(moveUnder, trT)).toBe('“Folder” sayfasının altına taşı');
+
+    const moveRoot: ApprovalRequest = {
+      client: 'Claude',
+      action: 'move',
+      target: 'Note',
+      preview: 'Move to the top level',
+      detail: { kind: 'move', parent: null },
+    };
+    expect(formatApprovalPreview(moveRoot, enT)).toBe('Move to the top level');
+    expect(formatApprovalPreview(moveRoot, trT)).toBe('Üst düzeye taşı');
+
+    const renameReq: ApprovalRequest = {
+      client: 'Claude',
+      action: 'rename',
+      target: 'Old',
+      preview: 'Old -> New',
+      detail: { kind: 'rename', from: 'Old', to: 'New' },
+    };
+    expect(formatApprovalPreview(renameReq, enT)).toBe('Rename “Old” to “New”');
+    expect(formatApprovalPreview(renameReq, trT)).toBe('“Old” adını “New” olarak değiştir');
+
+    const trash0: ApprovalRequest = { client: 'Claude', action: 'trash', target: 'P', preview: 'fallback', detail: { kind: 'trash', subpages: 0 } };
+    const trash1: ApprovalRequest = { client: 'Claude', action: 'trash', target: 'P', preview: 'fallback', detail: { kind: 'trash', subpages: 1 } };
+    const trash2: ApprovalRequest = { client: 'Claude', action: 'trash', target: 'P', preview: 'fallback', detail: { kind: 'trash', subpages: 2 } };
+    expect(formatApprovalPreview(trash0, enT)).toBe('Move “P” to the trash (0 sub-pages).');
+    expect(formatApprovalPreview(trash1, enT)).toBe('Move “P” and 1 sub-page to the trash.');
+    expect(formatApprovalPreview(trash2, enT)).toBe('Move “P” and 2 sub-pages to the trash.');
+    expect(formatApprovalPreview(trash0, trT)).toBe('“P” sayfasını çöpe taşı (0 alt sayfa).');
+    expect(formatApprovalPreview(trash1, trT)).toBe('“P” sayfasını ve 1 alt sayfayı çöpe taşı.');
+    expect(formatApprovalPreview(trash2, trT)).toBe('“P” sayfasını ve 2 alt sayfayı çöpe taşı.');
+
+    const replaceTitle: ApprovalRequest = {
+      client: 'Claude',
+      action: 'replace',
+      target: 'Old',
+      preview: 'Title: Old -> New\n\nBody',
+      detail: { kind: 'replace', titleFrom: 'Old', titleTo: 'New', body: 'Body' },
+    };
+    expect(formatApprovalBody(replaceTitle, enT)).toContain('rename it to “New”');
+    expect(formatApprovalBody(replaceTitle, trT)).toContain('“New”');
+    expect(formatApprovalPreview(replaceTitle, enT)).toBe('Title: Old -> New\n\nBody');
+    expect(formatApprovalPreview(replaceTitle, trT)).toBe('Başlık: Old -> New\n\nBody');
+
+    const legacy: ApprovalRequest = { client: 'Claude', action: 'move', target: 'Note', preview: 'Legacy preview' };
+    expect(formatApprovalPreview(legacy, trT)).toBe('Legacy preview');
+  });
+
   it('trashes pages with approval and restores them without approval', async () => {
     const root = await s.pages.create({ workspaceId: ctx.workspaceId, title: 'Project Root' });
     await s.pages.saveContent(root.id, docFromParagraphs(['Unique kelp forest chronicle']));
@@ -225,7 +380,12 @@ describe('MCP server', () => {
 
     allow = false;
     expect((await call('trash_page', { page_id: root.id })).isError).toBe(true);
-    expect(approvals[0]).toMatchObject({ client: 'Test Client', action: 'trash', target: 'Project Root' });
+    expect(approvals[0]).toMatchObject({
+      client: 'Test Client',
+      action: 'trash',
+      target: 'Project Root',
+      detail: { kind: 'trash', subpages: 2 },
+    });
     expect(approvals[0].preview).toContain('2 sub-pages');
     expect((await s.pages.get(root.id))!.deleted_at).toBeNull();
 

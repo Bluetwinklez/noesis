@@ -946,3 +946,192 @@ test('the graph follows agent writes live, lists the activity of an agent and sw
   await page.getByRole('button', { name: '3D view' }).click();
   await expect(page.getByRole('img', { name: 'Knowledge Graph' })).toBeVisible();
 });
+
+function callMcpWithApproval(page: Page, name: string, args: Record<string, unknown>, client = 'Claude') {
+  return page.evaluate(
+    async ({ toolName, toolArgs, clientName }) => {
+      const serverModule = '/src/mcp/server.ts';
+      const hostModule = '/src/mcp/host.ts';
+      const { handleMcp } = (await import(/* @vite-ignore */ serverModule)) as typeof import('../../src/mcp/server');
+      const { createMcpContext, requestApproval } = (await import(/* @vite-ignore */ hostModule)) as typeof import('../../src/mcp/host');
+      const ctx = { ...createMcpContext(clientName), approve: requestApproval };
+      const res = await handleMcp(
+        { jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: toolName, arguments: toolArgs } },
+        ctx,
+      );
+      const r = res!.result as { content: { text: string }[]; isError?: boolean };
+      return { isError: !!r.isError, text: r.content[0].text };
+    },
+    { toolName: name, toolArgs: args, clientName: client },
+  );
+}
+
+test('MCP page-management approvals localize previews, respect decline and apply changes', async ({ page }) => {
+  await freshApp(page);
+  await onboard(page);
+  const { folderId, draftId } = await page.evaluate(async () => {
+    const state = (window as unknown as { __noesis: { getState(): { repos: Repos; workspaceId: string; bump(): void } } }).__noesis.getState();
+    const folder = await state.repos.pages.create({ workspaceId: state.workspaceId, title: 'Folder' });
+    const draft = await state.repos.pages.create({
+      workspaceId: state.workspaceId,
+      title: 'Draft Note',
+      content: { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Original body text.' }] }] },
+    });
+    await state.repos.pages.create({ workspaceId: state.workspaceId, parentId: draft.id, title: 'Child Note' });
+    state.bump();
+    return { folderId: folder.id, draftId: draft.id };
+  });
+
+  await page.getByRole('treeitem', { name: /Draft Note/ }).click();
+  await expect(page.getByLabel('Page title')).toHaveValue('Draft Note');
+  await expect(editor(page)).toContainText('Original body text.');
+  const dlg = page.getByRole('dialog');
+
+  // move_page: Decline leaves Folder childless, Allow moves Draft Note under Folder.
+  const moveDeclined = callMcpWithApproval(page, 'move_page', { page_id: draftId, parent_id: folderId });
+  await expect(dlg).toContainText('Claude asks to move “Draft Note”. Nothing changes unless you allow it.');
+  await expect(dlg.getByLabel('Proposed text')).toHaveText('Move under “Folder”');
+  await dlg.getByRole('button', { name: 'Decline', exact: true }).click();
+  expect((await moveDeclined).isError).toBe(true);
+  await expect(page.getByRole('treeitem', { name: /Folder/ })).not.toHaveAttribute('aria-expanded');
+
+  const moveAllowed = callMcpWithApproval(page, 'move_page', { page_id: draftId, parent_id: folderId });
+  await expect(dlg.getByLabel('Proposed text')).toHaveText('Move under “Folder”');
+  await dlg.getByRole('button', { name: 'Allow', exact: true }).click();
+  expect((await moveAllowed).isError).toBe(false);
+  await expect(page.getByRole('treeitem', { name: /Folder/ })).toHaveAttribute('aria-expanded', 'true');
+  await expect(page.getByRole('navigation', { name: 'Breadcrumb' })).toContainText('Folder');
+
+  // rename_page: Decline keeps Draft Note, Allow renames in sidebar and open page.
+  const renameDeclined = callMcpWithApproval(page, 'rename_page', { page_id: draftId, title: 'Renamed Note' });
+  await expect(dlg).toContainText('Claude asks to rename “Draft Note”. Nothing changes unless you allow it.');
+  await expect(dlg.getByLabel('Proposed text')).toHaveText('Rename “Draft Note” to “Renamed Note”');
+  await dlg.getByRole('button', { name: 'Decline', exact: true }).click();
+  expect((await renameDeclined).isError).toBe(true);
+  await expect(page.getByRole('treeitem', { name: /Draft Note/ })).toBeVisible();
+  await expect(page.getByLabel('Page title')).toHaveValue('Draft Note');
+
+  const renameAllowed = callMcpWithApproval(page, 'rename_page', { page_id: draftId, title: 'Renamed Note' });
+  await expect(dlg.getByLabel('Proposed text')).toHaveText('Rename “Draft Note” to “Renamed Note”');
+  await dlg.getByRole('button', { name: 'Allow', exact: true }).click();
+  expect((await renameAllowed).isError).toBe(false);
+  await expect(page.getByRole('treeitem', { name: /Renamed Note/ })).toBeVisible();
+  await expect(page.getByLabel('Page title')).toHaveValue('Renamed Note');
+
+  // update_page with a title change discloses the rename in both dialog copy and preview.
+  const updateDeclined = callMcpWithApproval(page, 'update_page', {
+    page_id: draftId,
+    markdown: 'Approved replacement body.',
+    title: 'Replaced Note',
+  });
+  await expect(dlg).toContainText('Claude asks to REPLACE the entire content of “Renamed Note” and rename it to “Replaced Note”. Nothing changes unless you allow it.');
+  await expect(dlg.getByLabel('Proposed text')).toHaveText('Title: Renamed Note -> Replaced Note\n\nApproved replacement body.');
+  await dlg.getByRole('button', { name: 'Decline', exact: true }).click();
+  expect((await updateDeclined).isError).toBe(true);
+  await expect(editor(page)).toContainText('Original body text.');
+  await expect(page.getByLabel('Page title')).toHaveValue('Renamed Note');
+
+  const updateAllowed = callMcpWithApproval(page, 'update_page', {
+    page_id: draftId,
+    markdown: 'Approved replacement body.',
+    title: 'Replaced Note',
+  });
+  await expect(dlg.getByLabel('Proposed text')).toHaveText('Title: Renamed Note -> Replaced Note\n\nApproved replacement body.');
+  await dlg.getByRole('button', { name: 'Allow', exact: true }).click();
+  expect((await updateAllowed).isError).toBe(false);
+  await expect(page.getByLabel('Page title')).toHaveValue('Replaced Note');
+  await expect(page.getByRole('treeitem', { name: /Replaced Note/ })).toBeVisible();
+  await expect(editor(page)).toContainText('Approved replacement body.');
+  await expect(editor(page)).not.toContainText('Original body text.');
+
+  // trash_page: verify English preview, then switch UI to Turkish to check localized preview, Decline and Allow.
+  const trashEnDeclined = callMcpWithApproval(page, 'trash_page', { page_id: draftId });
+  await expect(dlg).toContainText('Claude asks to move “Replaced Note” to the trash (you can restore it later). Nothing changes unless you allow it.');
+  await expect(dlg.getByLabel('Proposed text')).toHaveText('Move “Replaced Note” and 1 sub-page to the trash.');
+  await dlg.getByRole('button', { name: 'Decline', exact: true }).click();
+  expect((await trashEnDeclined).isError).toBe(true);
+  await expect(page.getByRole('treeitem', { name: /Replaced Note/ })).toBeVisible();
+
+  await page.getByRole('button', { name: 'Settings', exact: true }).click();
+  await page.getByRole('button', { name: 'Language', exact: true }).click();
+  await page.getByLabel('Language').selectOption('tr');
+  await expect(page.getByRole('heading', { name: 'Ayarlar', exact: true })).toBeVisible();
+
+  const trashTrDeclined = callMcpWithApproval(page, 'trash_page', { page_id: draftId });
+  await expect(dlg).toContainText('Claude, “Replaced Note” sayfasını çöpe taşımak istiyor (daha sonra geri yükleyebilirsin). Sen izin vermedikçe hiçbir şey değişmez.');
+  await expect(dlg.getByLabel('Önerilen metin')).toHaveText('“Replaced Note” sayfasını ve 1 alt sayfayı çöpe taşı.');
+  await dlg.getByRole('button', { name: 'Reddet', exact: true }).click();
+  expect((await trashTrDeclined).isError).toBe(true);
+  await expect(page.getByRole('treeitem', { name: /Replaced Note/ })).toBeVisible();
+
+  const trashTrAllowed = callMcpWithApproval(page, 'trash_page', { page_id: draftId });
+  await expect(dlg.getByLabel('Önerilen metin')).toHaveText('“Replaced Note” sayfasını ve 1 alt sayfayı çöpe taşı.');
+  await dlg.getByRole('button', { name: 'İzin ver', exact: true }).click();
+  expect((await trashTrAllowed).isError).toBe(false);
+  await expect(page.getByRole('treeitem', { name: /Replaced Note/ })).toHaveCount(0);
+  await page.getByRole('button', { name: 'Çöp kutusu', exact: true }).click();
+  await expect(page.locator('main').getByRole('button', { name: /Replaced Note/ })).toBeVisible();
+});
+
+test('MCP update_page refreshes an open editor and typing afterwards does not restore old text', async ({ page }) => {
+  const db = await freshApp(page);
+  await onboard(page);
+  await newPage(page, 'Live Page');
+  await editor(page).click();
+  await page.keyboard.type('Old stale draft.');
+  await expect(page.getByText('Saved', { exact: true })).toBeVisible();
+
+  // Open a second page and keep Live Page open in the split pane.
+  await newPage(page, 'Side Page');
+  await editor(page).click();
+  await page.keyboard.type('Side note.');
+  const tabs = page.getByRole('navigation', { name: 'Open pages' });
+  await tabs.getByRole('button', { name: 'Live Page', exact: true }).locator('..').getByRole('button', { name: 'Toggle side-by-side view' }).click();
+  await expect(page.getByLabel('Page content')).toHaveCount(2);
+  const splitEditor = page.getByLabel('Page content').nth(1);
+  await expect(splitEditor).toContainText('Old stale draft.');
+
+  const liveId = await page.evaluate(async () => {
+    const state = (window as unknown as { __noesis: { getState(): { repos: Repos; workspaceId: string } } }).__noesis.getState();
+    const list = await state.repos.pages.listTree(state.workspaceId);
+    return list.find((p) => p.title === 'Live Page')!.id;
+  });
+
+  // Type an unsaved change right before MCP update_page so a delayed autosave is pending.
+  await splitEditor.click();
+  await page.keyboard.type(' Unsaved tail.');
+
+  const updatePromise = callMcpWithApproval(page, 'update_page', {
+    page_id: liveId,
+    markdown: 'Brand new approved text.',
+  });
+  const dlg = page.getByRole('dialog');
+  await expect(dlg).toContainText('REPLACE');
+  await dlg.getByRole('button', { name: 'Allow', exact: true }).click();
+  expect((await updatePromise).isError).toBe(false);
+
+  await expect(splitEditor).toContainText('Brand new approved text.');
+  await expect(splitEditor).not.toContainText('Old stale draft.');
+  await expect(splitEditor).not.toContainText('Unsaved tail.');
+
+  // Typing afterwards must persist the replaced text plus the new edit without bringing old text back.
+  await splitEditor.click();
+  await page.keyboard.press('End');
+  await page.keyboard.type(' Follow-up edit.');
+  await expect(splitEditor).toContainText('Follow-up edit.');
+  await page.waitForTimeout(650);
+  await expect(page.getByText('Saved', { exact: true })).toBeVisible();
+  await page.evaluate(async () => {
+    const modulePath = '/src/app/pendingWrites.ts';
+    const pending = await import(/* @vite-ignore */ modulePath);
+    await pending.flushAllWrites();
+  });
+
+  await page.goto(`/?db=${db}`);
+  await page.getByRole('treeitem', { name: /Live Page/ }).click();
+  await expect(page.getByLabel('Page title')).toHaveValue('Live Page');
+  await expect(editor(page)).toContainText('Brand new approved text.');
+  await expect(editor(page)).toContainText('Follow-up edit.');
+  await expect(editor(page)).not.toContainText('Old stale draft.');
+  await expect(editor(page)).not.toContainText('Unsaved tail.');
+});
