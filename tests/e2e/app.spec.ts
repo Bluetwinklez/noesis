@@ -575,6 +575,8 @@ test('today shortcut creates one daily note and the sidebar calendar navigates d
   await expect(page.getByRole('treeitem', { name: /Daily notes/ })).toBeVisible();
   await page.keyboard.press('Control+k');
   await page.getByLabel('Search or run a command…').fill("Open today's note");
+  // Wait for the filtered action before pressing Enter: pressing it while the list is still updating leaves the palette open.
+  await expect(page.getByRole('option', { name: /Open today's note/ }).first()).toBeVisible();
   await page.keyboard.press('Enter');
   await expect(page.getByLabel('Page title')).toHaveValue(today.key);
   await expect(page.getByRole('treeitem', { name: new RegExp(today.key) })).toHaveCount(1);
