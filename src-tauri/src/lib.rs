@@ -147,6 +147,8 @@ fn attachment_delete(state: State<'_, AppState>, key: String) -> Result<(), Stri
 #[derive(serde::Deserialize)]
 struct AutoBackupMeta {
     keep: usize,
+    #[serde(default)]
+    kind: Option<String>,
 }
 
 #[derive(serde::Serialize)]
@@ -154,19 +156,102 @@ struct AutoBackupMeta {
 struct AutoBackups {
     dir: String,
     count: usize,
+    name: String,
 }
 
-/// Writes an automatic backup into `<app data>/backups` and keeps only the newest `keep`.
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct BackupFileInfo {
+    name: String,
+    kind: String,
+    size: u64,
+    created_at: u64,
+}
+
+const AUTO_BACKUP_PREFIX: &str = "noesis-auto-";
+const BEFORE_AI_BACKUP_PREFIX: &str = "noesis-before-ai-";
+
+fn backup_prefix(kind: Option<&str>) -> &'static str {
+    match kind {
+        Some("before-ai") => BEFORE_AI_BACKUP_PREFIX,
+        _ => AUTO_BACKUP_PREFIX,
+    }
+}
+
+fn unique_backup_name(dir: &Path, prefix: &str, stamp: &str) -> String {
+    let base = format!("{prefix}{stamp}.noesisbak");
+    if !dir.join(&base).exists() {
+        return base;
+    }
+    for n in 1..=999 {
+        let candidate = format!("{prefix}{stamp}-{n:03}.noesisbak");
+        if !dir.join(&candidate).exists() {
+            return candidate;
+        }
+    }
+    format!("{prefix}{stamp}-{}.noesisbak", uuid::Uuid::new_v4().simple())
+}
+
+/// Writes an automatic or safety backup into `<app data>/backups` and keeps only the newest `keep`
+/// for that backup kind (`noesis-auto-` or `noesis-before-ai-`).
 /// The folder is fixed on the Rust side: the WebView cannot choose where it goes.
 #[tauri::command]
 fn backup_auto_save(state: State<'_, AppState>, request: tauri::ipc::Request<'_>) -> Result<AutoBackups, String> {
-    let (AutoBackupMeta { keep }, bytes) = split_binary::<AutoBackupMeta>(raw_body(&request)?)?;
+    let (AutoBackupMeta { keep, kind }, bytes) = split_binary::<AutoBackupMeta>(raw_body(&request)?)?;
     let dir = state.data_dir.join("backups");
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
-    let name = format!("noesis-auto-{}.noesisbak", chrono_like_stamp());
-    files::atomic_write(&dir.join(name), bytes)?;
-    let count = files::prune_backups(&dir, keep.clamp(1, 100))?;
-    Ok(AutoBackups { dir: dir.to_string_lossy().into_owned(), count })
+    let prefix = backup_prefix(kind.as_deref());
+    let name = unique_backup_name(&dir, prefix, &chrono_like_stamp());
+    files::atomic_write(&dir.join(&name), bytes)?;
+    let count = files::prune_backups(&dir, prefix, keep.clamp(1, 100))?;
+    Ok(AutoBackups { dir: dir.to_string_lossy().into_owned(), count, name })
+}
+
+/// Lists automatic and "before AI changes" backups stored in `<app data>/backups`, newest first.
+#[tauri::command]
+fn backup_list(state: State<'_, AppState>) -> Result<Vec<BackupFileInfo>, String> {
+    let dir = state.data_dir.join("backups");
+    if !dir.exists() {
+        return Ok(Vec::new());
+    }
+    let mut items = Vec::new();
+    for entry in std::fs::read_dir(&dir).map_err(|e| e.to_string())?.filter_map(Result::ok) {
+        let name = entry.file_name().to_string_lossy().into_owned();
+        if !name.ends_with(".noesisbak") {
+            continue;
+        }
+        let kind = if name.starts_with(BEFORE_AI_BACKUP_PREFIX) {
+            "before-ai"
+        } else if name.starts_with(AUTO_BACKUP_PREFIX) {
+            "auto"
+        } else {
+            continue;
+        };
+        let meta = match entry.metadata() {
+            Ok(m) if m.is_file() => m,
+            _ => continue,
+        };
+        let created_at = meta
+            .modified()
+            .ok()
+            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+            .and_then(|d| u64::try_from(d.as_millis()).ok())
+            .unwrap_or(0);
+        items.push(BackupFileInfo { name, kind: kind.into(), size: meta.len(), created_at });
+    }
+    items.sort_by(|a, b| b.name.cmp(&a.name));
+    Ok(items)
+}
+
+/// Reads one named backup archive from `<app data>/backups` for in-app restore.
+#[tauri::command]
+fn backup_read(state: State<'_, AppState>, name: String) -> Result<tauri::ipc::Response, String> {
+    if !name.ends_with(".noesisbak") {
+        return Err("invalid backup name".into());
+    }
+    let dir = state.data_dir.join("backups");
+    let path = files::resolve_in(&dir, &name)?;
+    std::fs::read(path).map(tauri::ipc::Response::new).map_err(|e| format!("backup unavailable: {e}"))
 }
 
 /// UTC timestamp `YYYYMMDD-HHMMSS` that sorts by time (no chrono dependency needed).
@@ -497,6 +582,8 @@ pub fn run() {
             attachment_write,
             attachment_read,
             backup_auto_save,
+            backup_list,
+            backup_read,
             attachment_delete,
             export_save,
             fetch_public_url,
@@ -525,6 +612,20 @@ mod binary_ipc_tests {
         assert_eq!(s.len(), 15);
         assert!(s.starts_with("20"), "{s}");
         assert_eq!(&s[8..9], "-");
+    }
+
+    #[test]
+    fn backup_prefix_and_unique_names_separate_before_ai_from_auto() {
+        assert_eq!(backup_prefix(None), AUTO_BACKUP_PREFIX);
+        assert_eq!(backup_prefix(Some("auto")), AUTO_BACKUP_PREFIX);
+        assert_eq!(backup_prefix(Some("before-ai")), BEFORE_AI_BACKUP_PREFIX);
+
+        let dir = tempfile::tempdir().unwrap();
+        let first = unique_backup_name(dir.path(), BEFORE_AI_BACKUP_PREFIX, "20261122-120000");
+        assert_eq!(first, "noesis-before-ai-20261122-120000.noesisbak");
+        std::fs::write(dir.path().join(&first), b"1").unwrap();
+        let second = unique_backup_name(dir.path(), BEFORE_AI_BACKUP_PREFIX, "20261122-120000");
+        assert_eq!(second, "noesis-before-ai-20261122-120000-001.noesisbak");
     }
 
     #[test]

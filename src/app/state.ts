@@ -82,6 +82,9 @@ export interface Prefs {
   autoBackup: 'off' | 'daily' | 'weekly';
   autoBackupKeep: number;
   lastAutoBackupAt: number | null;
+  /** Take an extra safety snapshot labelled "before AI changes" before destructive MCP actions. */
+  backupBeforeAi: boolean;
+  lastBeforeAiBackupAt: number | null;
   /** Permanently delete pages that stayed in the trash this many days (0 = never). */
   trashRetentionDays: number;
   notifyReminders: boolean;
@@ -125,6 +128,8 @@ export const DEFAULT_PREFS: Prefs = {
   autoBackup: 'off',
   autoBackupKeep: 7,
   lastAutoBackupAt: null,
+  backupBeforeAi: true,
+  lastBeforeAiBackupAt: null,
   trashRetentionDays: 0,
   notifyReminders: true,
   cloudConsents: [],

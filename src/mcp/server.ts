@@ -53,6 +53,12 @@ export interface ApprovalRequest {
 
 export type McpPermissionGroup = keyof McpPermissions;
 export type McpToolGroup = 'read' | McpPermissionGroup;
+export type DestructiveMcpAction = 'update_page' | 'trash_page' | 'merge_pages' | 'move_page';
+
+export interface DestructiveActionInfo {
+  client: string;
+  action: DestructiveMcpAction;
+}
 
 export const DISABLED_CAPABILITY_ERROR = 'This capability is turned off in Noesis settings (Settings -> AI connections)';
 const DISABLED_TOOL_PREFIX = '[Disabled in Noesis settings (Settings -> AI connections)] ';
@@ -77,6 +83,11 @@ export interface McpContext {
   notify: (message: string) => void;
   /** Returns the current MCP capability permissions (default: all allowed). */
   permissions?: () => McpPermissions;
+  /**
+   * Optional hook run after user approval and before executing a destructive
+   * page action (`update_page`, `trash_page`, `merge_pages`, `move_page`).
+   */
+  beforeDestructive?: (info: DestructiveActionInfo) => Promise<void> | void;
   /** Flushes pending editor/title saves for a page right before an external replacement. */
   beforePageReplace?: (pageId: string) => Promise<void> | void;
   /** Notifies open editors showing a page to reload after an external replacement. */
@@ -846,6 +857,7 @@ const TOOLS: ToolDef[] = [
         : { kind: 'replace', body: bodyPreview };
       const ok = await ctx.approve({ client: ctx.client, action: 'replace', target: currentTitle, preview, detail });
       if (!ok) throw new ToolError('The user declined this change.');
+      await ctx.beforeDestructive?.({ client: ctx.client, action: 'update_page' });
       await livePage(ctx, id);
       await ctx.beforePageReplace?.(id);
       const fresh = await livePage(ctx, id);
@@ -897,6 +909,7 @@ const TOOLS: ToolDef[] = [
         detail: { kind: 'move', parent: parentTitle },
       });
       if (!ok) throw new ToolError('The user declined this change.');
+      await ctx.beforeDestructive?.({ client: ctx.client, action: 'move_page' });
       const fresh = await validateMove();
       try {
         await ctx.repos.pages.move(id, parentId);
@@ -992,6 +1005,7 @@ const TOOLS: ToolDef[] = [
         detail: { kind: 'trash', subpages: subCount },
       });
       if (!ok) throw new ToolError('The user declined this change.');
+      await ctx.beforeDestructive?.({ client: ctx.client, action: 'trash_page' });
       const fresh = await livePage(ctx, id);
       const finalSubCount = await countSubpages();
       const finalTitle = fresh.title || 'Untitled';
@@ -1059,6 +1073,7 @@ const TOOLS: ToolDef[] = [
 
       const ok = await ctx.approve({ client: ctx.client, action: 'merge', target: targetTitle, preview });
       if (!ok) throw new ToolError('The user declined this change.');
+      await ctx.beforeDestructive?.({ client: ctx.client, action: 'merge_pages' });
 
       let merged;
       try {

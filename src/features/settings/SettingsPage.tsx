@@ -22,7 +22,8 @@ import {
   Type as TypeIcon,
 } from 'lucide-react';
 import { DEFAULT_PREFS, repos, useApp, type Prefs } from '../../app/state';
-import { runAutoBackup } from '../../app/maintenance';
+import { listSavedBackups, readSavedBackup, runAutoBackup } from '../../app/maintenance';
+import { openRecoveryBackups } from '../../app/recovery';
 import { LANGUAGES, useT, type MessageKey } from '../../i18n';
 import { Badge, Button, confirmDialog, cx, Input, Kbd, promptDialog, Select, Switch, useAsync } from '../../components/ui';
 import { activeProvider, apiKeyName, configForProvider, errorMessage, reportError, saveAiConfig, saveLang, savePrefs, setWorkspace } from '../../app/services';
@@ -188,7 +189,7 @@ function General() {
           onClick={async () => {
             if (!(await confirmDialog(t('settings.reset'), t('settings.resetConfirm')))) return;
             // Look and behaviour only: consents, AI connections and backup history stay as they are.
-            const keep: (keyof Prefs)[] = ['onboarded', 'cloudConsents', 'lastBackupAt', 'lastAutoBackupAt', 'mcpEnabled', 'mcpAutoApprove', 'mcpPermissions'];
+            const keep: (keyof Prefs)[] = ['onboarded', 'cloudConsents', 'lastBackupAt', 'lastAutoBackupAt', 'lastBeforeAiBackupAt', 'mcpEnabled', 'mcpAutoApprove', 'mcpPermissions'];
             const cur = useApp.getState().prefs;
             await savePrefs({ ...DEFAULT_PREFS, ...Object.fromEntries(keep.map((k) => [k, cur[k]])) });
             useApp.getState().toast(t('settings.resetDone'), 'success');
@@ -584,6 +585,10 @@ function Storage() {
   const workspaceId = useApp((s) => s.workspaceId);
   const storageKind = useApp((s) => s.storageKind);
   const { data: info } = useAsync(() => appInfo(), []);
+  const { data: savedBackups, reload: reloadBackups } = useAsync(
+    () => listSavedBackups(),
+    [prefs.lastBeforeAiBackupAt, prefs.lastAutoBackupAt],
+  );
   const [busy, setBusy] = useState<string | null>(null);
   const [skipDuplicates, setSkipDuplicates] = useState(true);
   const wrap = (name: string, fn: () => Promise<void>) => async () => {
@@ -595,6 +600,15 @@ function Storage() {
     } finally {
       setBusy(null);
     }
+  };
+  const runRestore = async (bytes: Uint8Array) => {
+    if (!(await confirmDialog(t('settings.restore'), t('settings.restoreConfirm'), { danger: true }))) return;
+    // Safety copy of the current data before replacing it.
+    if (!(await downloadBackup())) return;
+    const manifest = await restoreBackup(repos().db, bytes, blobStore);
+    await repos().db.flushNow();
+    useApp.getState().toast(t('settings.restored', { pages: manifest.tables.pages ?? 0 }), 'success');
+    setTimeout(() => location.reload(), 800);
   };
   return (
     <section>
@@ -652,6 +666,7 @@ function Storage() {
               loading={busy === 'autoBackup'}
               onClick={wrap('autoBackup', async () => {
                 const r = await runAutoBackup();
+                reloadBackups();
                 useApp.getState().toast(t('settings.autoBackupDone', { n: r.count, dir: r.dir }), 'success');
               })}
             >
@@ -660,6 +675,76 @@ function Storage() {
           </div>
         </Row>
       )}
+      <div className="border-b border-line py-4">
+        <div className="flex items-center justify-between gap-6">
+          <div>
+            <div className="text-sm font-medium">{t('settings.backupBeforeAi')}</div>
+            <div className="mt-0.5 text-xs text-muted">
+              {t('settings.backupBeforeAiHint', {
+                when: prefs.lastBeforeAiBackupAt ? new Date(prefs.lastBeforeAiBackupAt).toLocaleString() : t('settings.never'),
+              })}
+            </div>
+          </div>
+          <div className="shrink-0">
+            <Switch
+              checked={prefs.backupBeforeAi}
+              onChange={(v) => void savePrefs({ backupBeforeAi: v })}
+              label={t('settings.backupBeforeAi')}
+            />
+          </div>
+        </div>
+        {savedBackups && savedBackups.length > 0 ? (
+          <div className="mt-3 space-y-2">
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-xs font-medium text-muted">{t('settings.savedBackups')}</span>
+              {isTauri() && (
+                <Button size="sm" variant="ghost" icon={<FolderOpen className="size-3.5" />} onClick={() => void openRecoveryBackups().catch(reportError)}>
+                  {t('settings.openBackupsFolder')}
+                </Button>
+              )}
+            </div>
+            <ul aria-label={t('settings.savedBackups')} className="space-y-1.5">
+              {savedBackups.map((entry) => (
+                <li
+                  key={entry.name}
+                  className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-line bg-elevated px-3 py-2 text-xs"
+                >
+                  <div className="flex min-w-0 flex-wrap items-center gap-2">
+                    <Badge color={entry.kind === 'before-ai' ? 'blue' : 'gray'}>
+                      {entry.kind === 'before-ai' ? t('settings.beforeAiBackupLabel') : t('settings.autoBackupLabel')}
+                    </Badge>
+                    <span className="font-medium text-fg">{new Date(entry.createdAt).toLocaleString()}</span>
+                    <span className="text-faint">·</span>
+                    <span className="text-muted">{formatBytes(entry.size)}</span>
+                    <span className="truncate font-mono text-[11px] text-faint">{entry.name}</span>
+                  </div>
+                  <Button
+                    size="sm"
+                    icon={<Upload className="size-3.5" />}
+                    loading={busy === `restore:${entry.name}`}
+                    disabled={busy !== null && busy !== `restore:${entry.name}`}
+                    onClick={wrap(`restore:${entry.name}`, async () => {
+                      const bytes = await readSavedBackup(entry.name);
+                      await runRestore(bytes);
+                    })}
+                  >
+                    {t('common.restore')}
+                  </Button>
+                </li>
+              ))}
+            </ul>
+          </div>
+        ) : (
+          <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
+            <p className="text-xs text-muted">{t('settings.beforeAiBackupsEmpty')}</p>
+            {isTauri() && (
+              <Button size="sm" variant="ghost" icon={<FolderOpen className="size-3.5" />} onClick={() => void openRecoveryBackups().catch(reportError)}>
+                {t('settings.openBackupsFolder')}
+              </Button>
+            )}
+          </div>
+        )}
+      </div>
       <Row label={t('settings.trashRetention')} hint={t('settings.trashRetentionHint')}>
         <Choice
           label={t('settings.trashRetention')}
@@ -703,13 +788,7 @@ function Storage() {
           onClick={wrap('restore', async () => {
             const [f] = await pickFiles('.noesisbak,.zip', false);
             if (!f) return;
-            if (!(await confirmDialog(t('settings.restore'), t('settings.restoreConfirm'), { danger: true }))) return;
-            // Safety copy of the current data before replacing it.
-            if (!(await downloadBackup())) return;
-            const manifest = await restoreBackup(repos().db, f.bytes, blobStore);
-            await repos().db.flushNow();
-            useApp.getState().toast(t('settings.restored', { pages: manifest.tables.pages ?? 0 }), 'success');
-            setTimeout(() => location.reload(), 800);
+            await runRestore(f.bytes);
           })}
         >
           {t('settings.restore')}

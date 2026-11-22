@@ -603,6 +603,15 @@ export const tr: Record<keyof typeof en, string> = {
   'settings.autoBackupKeepN': 'Son {n}',
   'settings.autoBackupNow': 'Şimdi yedekle',
   'settings.autoBackupDone': 'Yedek kaydedildi ({dir} içinde {n} yedek var).',
+  'settings.backupBeforeAi': 'AI değişikliklerinden önce yedek al',
+  'settings.backupBeforeAiHint':
+    'Bir AI asistanı sayfaları değiştirmeden, taşımadan, birleştirmeden veya çöpe atmadan önce “AI değişikliklerinden önce” etiketli ayrı bir yedek alır (istemci başına 30 dakikada en fazla bir kez; en yeni 5 yedek saklanır). Son yedek: {when}.',
+  'settings.beforeAiBackupLabel': 'AI değişikliklerinden önce',
+  'settings.autoBackupLabel': 'Otomatik yedek',
+  'settings.savedBackups': 'Kayıtlı yedekler',
+  'settings.beforeAiBackupsEmpty':
+    'Henüz güvenlik yedeği yok. Bir AI asistanı yıkıcı değişiklikler yaptığında yedekler burada görünür ve diğer yedekler gibi geri yüklenebilir.',
+  'settings.openBackupsFolder': 'Yedek klasörünü aç',
   'settings.trashRetention': 'Çöpü otomatik boşalt',
   'settings.trashRetentionHint': 'Çöp kutusunda bu süreden uzun kalan sayfalar kalıcı olarak silinir.',
   'settings.trashRetention.days': '{n} gün sonra',

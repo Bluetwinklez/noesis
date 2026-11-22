@@ -48,6 +48,8 @@ export async function loadSettings() {
   prefs.dailyNoteTitleFormat = stored.dailyNoteTitleFormat === 'short' || stored.dailyNoteTitleFormat === 'long' ? stored.dailyNoteTitleFormat : 'iso';
   prefs.dailyNoteTemplateId = typeof stored.dailyNoteTemplateId === 'string' && stored.dailyNoteTemplateId ? stored.dailyNoteTemplateId : null;
   prefs.mcpPermissions = normalizeMcpPermissions(stored.mcpPermissions);
+  prefs.backupBeforeAi = typeof stored.backupBeforeAi === 'boolean' ? stored.backupBeforeAi : DEFAULT_PREFS.backupBeforeAi;
+  prefs.lastBeforeAiBackupAt = typeof stored.lastBeforeAiBackupAt === 'number' && Number.isFinite(stored.lastBeforeAiBackupAt) ? stored.lastBeforeAiBackupAt : null;
   // Older versions had a serif on/off switch.
   if (!stored.editorFont && stored.serif) prefs.editorFont = 'serif';
   delete prefs.serif;

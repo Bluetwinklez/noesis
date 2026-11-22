@@ -2,7 +2,9 @@ import { create } from 'zustand';
 import { isTauri } from '../lib/platform';
 import { useApp } from '../app/state';
 import { savePrefs } from '../app/services';
+import { runBeforeAiBackup } from '../app/maintenance';
 import { flushPageWrites } from '../app/pendingWrites';
+import { SafetySnapshotThrottle } from './safety-snapshot';
 import type { ApprovalRequest, McpContext } from './server';
 
 /**
@@ -66,6 +68,13 @@ export function notifyAgentWrite(client: string, message: string): void {
   state.bump();
 }
 
+const safetySnapshots = new SafetySnapshotThrottle({
+  isEnabled: () => useApp.getState().prefs.backupBeforeAi,
+  takeSnapshot: async () => {
+    await runBeforeAiBackup();
+  },
+});
+
 /** Builds the live in-app MCP context, wiring approvals, notifications and open-editor refresh hooks. */
 export function createMcpContext(client: string): McpContext {
   const { repos, workspaceId } = useApp.getState();
@@ -79,6 +88,9 @@ export function createMcpContext(client: string): McpContext {
     beforePageReplace: (pageId) => flushPageWrites(pageId),
     afterPageReplace: (pageId) => useApp.getState().markPageReplaced(pageId),
     permissions: () => useApp.getState().prefs.mcpPermissions,
+    beforeDestructive: async ({ client: who }) => {
+      await safetySnapshots.maybeSnapshot(who);
+    },
   };
 }
 
