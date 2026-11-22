@@ -188,7 +188,7 @@ function General() {
           onClick={async () => {
             if (!(await confirmDialog(t('settings.reset'), t('settings.resetConfirm')))) return;
             // Look and behaviour only: consents, AI connections and backup history stay as they are.
-            const keep: (keyof Prefs)[] = ['onboarded', 'cloudConsents', 'lastBackupAt', 'lastAutoBackupAt', 'mcpEnabled', 'mcpAutoApprove'];
+            const keep: (keyof Prefs)[] = ['onboarded', 'cloudConsents', 'lastBackupAt', 'lastAutoBackupAt', 'mcpEnabled', 'mcpAutoApprove', 'mcpPermissions'];
             const cur = useApp.getState().prefs;
             await savePrefs({ ...DEFAULT_PREFS, ...Object.fromEntries(keep.map((k) => [k, cur[k]])) });
             useApp.getState().toast(t('settings.resetDone'), 'success');

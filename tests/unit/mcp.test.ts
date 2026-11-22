@@ -3,7 +3,16 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import type { Repos } from '../../src/core/store';
 import { docFromParagraphs, PAGE_LINK_PREFIX, type DocNode } from '../../src/core/doc';
 import { search } from '../../src/search/search';
-import { docPreview, handleMcp, type ApprovalRequest, type McpContext } from '../../src/mcp/server';
+import {
+  DISABLED_CAPABILITY_ERROR,
+  docPreview,
+  handleMcp,
+  toolList,
+  type ApprovalRequest,
+  type McpContext,
+} from '../../src/mcp/server';
+import { DEFAULT_MCP_PERMISSIONS, DEFAULT_PREFS, normalizeMcpPermissions, useApp, type McpPermissions } from '../../src/app/state';
+import { loadSettings } from '../../src/app/services';
 import { memoryStore } from '../helpers';
 
 let s: Repos;
@@ -785,5 +794,160 @@ describe('MCP server', () => {
 
     const activityRows = await s.activity.list(ctx.workspaceId);
     expect(activityRows[0]).toMatchObject({ client: 'Test Client', action: 'merge_pages', page_id: target.id });
+  });
+
+  it('keeps read tools available when every write group is disabled', async () => {
+    const p = await s.pages.create({ workspaceId: ctx.workspaceId, title: 'Readable Page' });
+    await s.pages.saveContent(p.id, docFromParagraphs(['Readable content about glaciers.']));
+    ctx.permissions = () => ({ create: false, modify: false, trash: false });
+
+    expect((await call('search_notes', { query: 'glaciers' })).isError).toBe(false);
+    expect((await call('list_pages')).isError).toBe(false);
+    expect((await call('read_page', { page_id: p.id })).isError).toBe(false);
+    expect((await call('find_duplicate_pages')).isError).toBe(false);
+    expect((await call('check_links')).isError).toBe(false);
+    expect((await call('list_trash')).isError).toBe(false);
+    expect((await call('get_backlinks', { page_id: p.id })).isError).toBe(false);
+    expect((await call('list_tasks')).isError).toBe(false);
+    expect((await call('list_sources')).isError).toBe(false);
+    expect((await call('search_sources', { query: 'glaciers' })).isError).toBe(false);
+    expect(approvals).toHaveLength(0);
+  });
+
+  it('enforces MCP permissions per group without requesting approval when disabled', async () => {
+    const p1 = await s.pages.create({ workspaceId: ctx.workspaceId, title: 'Alpha Page' });
+    await s.pages.saveContent(p1.id, docFromParagraphs(['Alpha body']));
+    const p2 = await s.pages.create({ workspaceId: ctx.workspaceId, title: 'Beta Page' });
+    await s.pages.saveContent(p2.id, docFromParagraphs(['Beta body']));
+    const trashed = await s.pages.create({ workspaceId: ctx.workspaceId, title: 'Trashed Page' });
+    await s.pages.trash(trashed.id);
+
+    const perms: McpPermissions = { create: false, modify: true, trash: true };
+    ctx.permissions = () => perms;
+
+    // create group disabled: create_page, create_task, clip_web_page, restore_page all fail cleanly.
+    const createCalls: [string, Record<string, unknown>][] = [
+      ['create_page', { title: 'Blocked Page' }],
+      ['create_task', { title: 'Blocked Task' }],
+      ['clip_web_page', { title: 'Blocked Clip', url: 'https://example.com', markdown: 'hi' }],
+      ['restore_page', { page_id: trashed.id }],
+    ];
+    for (const [tool, args] of createCalls) {
+      const res = await call(tool, args);
+      expect(res.isError).toBe(true);
+      expect(res.text).toBe(DISABLED_CAPABILITY_ERROR);
+    }
+    expect(approvals).toHaveLength(0);
+    expect(notices).toHaveLength(0);
+    expect((await s.pages.get(trashed.id))!.deleted_at).not.toBeNull();
+    expect(await s.tasks.list(ctx.workspaceId)).toHaveLength(0);
+
+    // modify group disabled: append_to_page, update_page, move_page, rename_page, merge_pages fail WITHOUT approval.
+    perms.create = true;
+    perms.modify = false;
+    const modifyCalls: [string, Record<string, unknown>][] = [
+      ['append_to_page', { page_id: p1.id, markdown: 'Appended' }],
+      ['update_page', { page_id: p1.id, markdown: 'Replaced' }],
+      ['move_page', { page_id: p2.id, parent_id: p1.id }],
+      ['rename_page', { page_id: p1.id, title: 'Renamed' }],
+      ['merge_pages', { target_id: p1.id, source_ids: [p2.id] }],
+    ];
+    for (const [tool, args] of modifyCalls) {
+      const res = await call(tool, args);
+      expect(res.isError).toBe(true);
+      expect(res.text).toBe(DISABLED_CAPABILITY_ERROR);
+    }
+    expect(approvals).toHaveLength(0);
+    expect(notices).toHaveLength(0);
+    expect((await s.pages.get(p1.id))!.title).toBe('Alpha Page');
+    expect((await s.pages.get(p2.id))!.parent_id).toBeNull();
+    expect((await s.pages.get(p2.id))!.deleted_at).toBeNull();
+
+    // create still works while modify is disabled.
+    const created = await call('create_page', { title: 'Allowed Create' });
+    expect(created.isError).toBe(false);
+
+    // trash group disabled: trash_page fails WITHOUT approval while modify works again.
+    perms.modify = true;
+    perms.trash = false;
+    const blockedTrash = await call('trash_page', { page_id: p2.id });
+    expect(blockedTrash.isError).toBe(true);
+    expect(blockedTrash.text).toBe(DISABLED_CAPABILITY_ERROR);
+    expect(approvals).toHaveLength(0);
+    expect((await s.pages.get(p2.id))!.deleted_at).toBeNull();
+
+    // Enabling trash via the live getter allows trash_page (with approval).
+    perms.trash = true;
+    const allowedTrash = await call('trash_page', { page_id: p2.id });
+    expect(allowedTrash.isError).toBe(false);
+    expect(approvals).toHaveLength(1);
+    expect(approvals[0].action).toBe('trash');
+    expect((await s.pages.get(p2.id))!.deleted_at).not.toBeNull();
+  });
+
+  it('marks disabled tools in tools/list descriptions without hiding them', async () => {
+    const baseline = toolList();
+    const perms: McpPermissions = { create: false, modify: true, trash: false };
+    ctx.permissions = () => perms;
+
+    const listRes = await handleMcp({ jsonrpc: '2.0', id: 20, method: 'tools/list' }, ctx);
+    const tools = (listRes!.result as { tools: { name: string; description: string }[] }).tools;
+    expect(tools).toHaveLength(baseline.length);
+
+    const disabledNames = new Set(['create_page', 'create_task', 'clip_web_page', 'restore_page', 'trash_page']);
+    for (const tool of tools) {
+      const base = baseline.find((b) => b.name === tool.name)!;
+      if (disabledNames.has(tool.name)) {
+        expect(tool.description).toContain('Disabled in Noesis settings (Settings -> AI connections)');
+        expect(tool.description).toContain(base.description);
+      } else {
+        expect(tool.description).toBe(base.description);
+      }
+    }
+
+    // Turning trash back on removes the disabled marker on the next tools/list call.
+    perms.trash = true;
+    const updatedRes = await handleMcp({ jsonrpc: '2.0', id: 21, method: 'tools/list' }, ctx);
+    const updatedTools = (updatedRes!.result as { tools: { name: string; description: string }[] }).tools;
+    const trashTool = updatedTools.find((t) => t.name === 'trash_page')!;
+    expect(trashTool.description).not.toContain('Disabled in Noesis settings');
+  });
+
+  it('defaults Prefs.mcpPermissions to all enabled and migrates missing or partial saved settings', async () => {
+    expect(DEFAULT_MCP_PERMISSIONS).toEqual({ create: true, modify: true, trash: true });
+    expect(DEFAULT_PREFS.mcpPermissions).toEqual({ create: true, modify: true, trash: true });
+
+    expect(normalizeMcpPermissions(undefined)).toEqual({ create: true, modify: true, trash: true });
+    expect(normalizeMcpPermissions(null)).toEqual({ create: true, modify: true, trash: true });
+    expect(normalizeMcpPermissions('invalid')).toEqual({ create: true, modify: true, trash: true });
+    expect(normalizeMcpPermissions({ trash: false })).toEqual({ create: true, modify: true, trash: false });
+    expect(normalizeMcpPermissions({ create: false, modify: 'no', trash: 0 })).toEqual({ create: false, modify: true, trash: true });
+
+    const prevMatchMedia = window.matchMedia;
+    const prevState = useApp.getState();
+    window.matchMedia = (() => ({ matches: false }) as unknown as MediaQueryList) as typeof window.matchMedia;
+    try {
+      useApp.setState({ repos: s });
+
+      // Older saved prefs without mcpPermissions migrate cleanly to all true.
+      await s.settings.set('prefs', { theme: 'light', mcpEnabled: true });
+      await loadSettings();
+      expect(useApp.getState().prefs.mcpPermissions).toEqual({ create: true, modify: true, trash: true });
+
+      // Partial saved mcpPermissions preserve false values and fill missing keys with true.
+      await s.settings.set('prefs', { theme: 'light', mcpPermissions: { modify: false } });
+      await loadSettings();
+      expect(useApp.getState().prefs.mcpPermissions).toEqual({ create: true, modify: false, trash: true });
+    } finally {
+      window.matchMedia = prevMatchMedia;
+      useApp.setState({
+        repos: prevState.repos,
+        prefs: prevState.prefs,
+        lang: prevState.lang,
+        ai: prevState.ai,
+        hasApiKey: prevState.hasApiKey,
+        workspaceId: prevState.workspaceId,
+      });
+    }
   });
 });

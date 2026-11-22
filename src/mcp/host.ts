@@ -83,6 +83,7 @@ async function listen() {
         client: payload.client,
         approve: requestApproval,
         notify: (m) => notifyAgentWrite(payload.client, m),
+        permissions: () => useApp.getState().prefs.mcpPermissions,
       });
       body = res ? JSON.stringify(res) : '';
     } catch (e) {
