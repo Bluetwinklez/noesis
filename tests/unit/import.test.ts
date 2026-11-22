@@ -120,6 +120,68 @@ describe('import with a literal percent sign (URI malformed)', () => {
   });
 });
 
+describe('duplicate skipping on import', () => {
+  it('skips matching pages under the same parent, remaps links to existing pages, and keeps modified or moved pages', async () => {
+    const first = await zip({
+      'Vault/Guide.md': '# Guide\n\nFollow the checklist carefully.',
+      'Vault/Sub/Guide.md': '# Guide\n\nFollow the checklist carefully.',
+    });
+    const r1 = await importWorkspace(s, ws, [first], { blobs, rootTitle: () => 'Imported notes' });
+    expect(r1).toMatchObject({ pages: 2, skippedDuplicates: 0 });
+
+    const tree1 = await s.pages.listTree(ws);
+    const existingGuide = tree1.find((p) => p.parent_id === r1.rootId && p.title === 'Guide')!;
+    const subFolder = tree1.find((p) => p.parent_id === r1.rootId && p.title === 'Sub')!;
+    const existingSubGuide = tree1.find((p) => p.parent_id === subFolder.id && p.title === 'Guide')!;
+
+    // Second import:
+    // - Guide.md has same normalised title/text under root -> skipped & linked to existingGuide.
+    // - Sub/Guide.md has updated text under Sub -> imported (NOT skipped).
+    // - Other/Guide.md is under a different parent -> imported (NOT skipped).
+    // - Index.md is new and links to Guide.md -> link remaps to existingGuide.id.
+    const second = await zip({
+      'Vault/  guide .md': '#   guide \n\nFollow   the checklist carefully.',
+      'Vault/Sub/Guide.md': '# Guide\n\nUpdated checklist for version two.',
+      'Vault/Other/Guide.md': '# Guide\n\nFollow the checklist carefully.',
+      'Vault/Index.md': '# Index\n\nStart at [the guide](%20%20guide%20.md).',
+    });
+    const r2 = await importWorkspace(s, ws, [second], { blobs, rootTitle: () => 'Imported notes' });
+    expect(r2).toMatchObject({ rootId: r1.rootId, pages: 3, skippedDuplicates: 1 });
+
+    const tree2 = await s.pages.listTree(ws);
+    // Only one "Guide" exists directly under root.
+    expect(tree2.filter((p) => p.parent_id === r1.rootId && p.title.trim().toLowerCase() === 'guide')).toHaveLength(1);
+    // Sub now has both the original and the modified Guide.
+    expect(tree2.filter((p) => p.parent_id === subFolder.id && p.title === 'Guide')).toHaveLength(2);
+    expect(existingSubGuide.id).toBeTruthy();
+
+    // Link in newly created Index points directly to the existing Guide page.
+    const indexPage = tree2.find((p) => p.parent_id === r1.rootId && p.title === 'Index')!;
+    expect(await json(indexPage.id)).toContain(`noesis://page/${existingGuide.id}`);
+    expect((await s.pages.backlinks(existingGuide.id)).map((p) => p.id)).toContain(indexPage.id);
+  });
+
+  it('handles Obsidian wikilinks and embeds when re-importing with skipDuplicates', async () => {
+    const file = await zip({
+      'Vault/Daily/2026-10-27.md': '---\ntags: [journal]\n---\nMet with [[People/Ada|Ada]] about [[Roadmap#Q4]].\n\n![[sketch.png]]\n',
+      'Vault/People/Ada.md': 'Ada works on [[Roadmap]].',
+      'Vault/Roadmap.md': '## Q4\n\nShip the importer.',
+      'Vault/attachments/sketch.png': PNG,
+    });
+    const r1 = await importWorkspace(s, ws, [file], { blobs, rootTitle: () => 'Imported from Obsidian' });
+    expect(r1).toMatchObject({ pages: 3, skippedDuplicates: 0 });
+    const countBefore = (await s.pages.listTree(ws)).length;
+
+    const r2 = await importWorkspace(s, ws, [file], { blobs, rootTitle: () => 'Imported from Obsidian' });
+    expect(r2).toMatchObject({ rootId: r1.rootId, pages: 0, skippedDuplicates: 3 });
+    expect((await s.pages.listTree(ws)).length).toBe(countBefore);
+
+    const r3 = await importWorkspace(s, ws, [file], { blobs, rootTitle: () => 'Imported from Obsidian', skipDuplicates: false });
+    expect(r3).toMatchObject({ pages: 3, skippedDuplicates: 0 });
+    expect((await s.pages.listTree(ws)).length).toBe(countBefore * 2);
+  });
+});
+
 describe('markdown sanitising', () => {
   it('keeps internal links and images but still strips script URLs', () => {
     const html = markdownToHtml('[p](noesis://page/abc) ![i](attachment:xyz) [x](javascript:alert(1))');

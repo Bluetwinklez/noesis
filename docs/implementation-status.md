@@ -10,6 +10,13 @@ Security scanning, immutable action references and an English audit were added. 
 
 ## Verification runs (this revision)
 
+### Duplicate handling: import skip and duplicate finder UI (unreleased)
+
+- Extracted duplicate-page grouping from MCP `find_duplicate_pages` into `src/core/duplicates.ts` (`normalizeDuplicateText`, `findDuplicateGroups`, `findWorkspaceDuplicates`, `rewriteDocPageLinks`, `findAffectedBacklinks`, `trashDuplicateCopies`); MCP `find_duplicate_pages` now calls the shared helper while keeping `<private>` stripping intact.
+- `importWorkspace` (`src/import/importer.ts`) adds `skipDuplicates` (default `true`) and reports `skippedDuplicates` in `ImportResult` and the import toast (`src/features/import/runImport.ts`). Matching live pages under the same parent (same normalised title and normalised plain text) are skipped and internal links remap to the existing pages. Settings → Storage exposes a default-on English/Turkish checkbox for skipping duplicates.
+- Settings → Storage adds `DuplicatePagesPanel` (`src/features/settings/DuplicatePagesPanel.tsx`) with a "Scan" button listing duplicate groups (titles, copy count, character size, parent paths, oldest marker) and a confirmed per-group "Move extra copies to trash" action that keeps the oldest page, lists and redirects affected internal links (`noesis://page/` marks and `pageMention` nodes) to the kept page, and recursively trashes extra copies so they remain restorable.
+- Unit tests in `tests/unit/duplicates.test.ts`, `tests/unit/export.test.ts` and `tests/unit/import.test.ts`; Playwright E2E flow in `tests/e2e/app.spec.ts`. Automated verification run pending by maintainer.
+
 ### MCP layered reading and private blocks (unreleased)
 
 - Pure private-block stripper `src/mcp/private.ts` (`stripPrivate`, `stripPrivateText`, `hasPrivateMarkers`) removes inline, multi-block, and unterminated `<private>...</private>` spans from TipTap documents and plain text without mutating inputs or changing in-app editing/search.
@@ -157,7 +164,8 @@ Security scanning, immutable action references and an English audit were added. 
 | Markdown paste → blocks | done | Added in this revision (unit + E2E) |
 | Autosave + snapshots, crash-safe persistence | done | Linux desktop SIGKILL test |
 | Markdown import/export, HTML export, Word (.docx) export | done | DOCX via the `docx` package, native headings/lists/tables/images |
-| Notion export / Obsidian vault import | done | Nested pages, internal links, CSV → databases, images (unit + E2E) |
+| Notion export / Obsidian vault import | done | Nested pages, internal links, CSV → databases, images, duplicate-page skip on re-import with link remapping (unit + E2E) |
+| Duplicate pages finder & cleanup | done | Shared grouping module (`src/core/duplicates.ts`) used by MCP `find_duplicate_pages` and Settings → Storage scanner; keeps oldest copy, redirects internal links and recursively trashes extra copies (unit + E2E) |
 | PDF export | done | Direct `.pdf` writer (pdfmake, embedded Roboto, selectable text). Emoji/CJK need the Print path |
 | Page templates, icons, covers | done | |
 | Workspaces, nested pages, tags, favorites, archive/trash/restore | done | |

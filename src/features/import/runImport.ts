@@ -7,7 +7,7 @@ import { t } from '../../i18n';
 import { restoreNotebookNotes } from '../../import/notebook-notes';
 
 /** Picks a Notion export zip, an Obsidian vault zip, a Noesis export or loose .md/.csv files and imports them. */
-export async function runImport(): Promise<void> {
+export async function runImport(opts: { skipDuplicates?: boolean } = {}): Promise<void> {
   const files = await pickFiles('.zip,.md,.markdown,.csv,.png,.jpg,.jpeg,.gif,.webp,.svg', true);
   if (!files.length) return;
   const app = useApp.getState();
@@ -18,6 +18,7 @@ export async function runImport(): Promise<void> {
     files.map((f) => ({ path: f.name, bytes: f.bytes })),
     {
       blobs: blobStore,
+      skipDuplicates: opts.skipDuplicates ?? true,
       rootTitle: (source) =>
         t(source === 'notion' ? 'import.rootNotion' : source === 'obsidian' ? 'import.rootObsidian' : source === 'noesis' ? 'import.rootNoesis' : 'import.rootGeneric'),
     },
@@ -26,7 +27,12 @@ export async function runImport(): Promise<void> {
   const sources = await restoreSources(r.sources, sourceIds);
   await restoreNotebookNotes(repos(), wsId(), r.notebooks, sourceIds);
   app.bump();
-  app.toast(t('import.done', { pages: r.pages, databases: r.databases, images: r.images }), 'success');
+  app.toast(
+    r.skippedDuplicates > 0
+      ? t('import.doneSkipped', { pages: r.pages, databases: r.databases, images: r.images, skipped: r.skippedDuplicates })
+      : t('import.done', { pages: r.pages, databases: r.databases, images: r.images }),
+    'success',
+  );
   if (r.tasks || sources) app.toast(t('import.doneExtra', { tasks: r.tasks, sources }), 'success');
   app.navigate({ name: 'page', id: r.rootId });
 }
