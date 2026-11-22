@@ -1,8 +1,9 @@
 // @vitest-environment jsdom
 import { beforeEach, describe, expect, it } from 'vitest';
 import type { Repos } from '../../src/core/store';
-import { docFromParagraphs } from '../../src/core/doc';
-import { handleMcp, type ApprovalRequest, type McpContext } from '../../src/mcp/server';
+import { docFromParagraphs, type DocNode } from '../../src/core/doc';
+import { search } from '../../src/search/search';
+import { docPreview, handleMcp, type ApprovalRequest, type McpContext } from '../../src/mcp/server';
 import { memoryStore } from '../helpers';
 
 let s: Repos;
@@ -324,5 +325,218 @@ describe('MCP server', () => {
     for (const bad of ['steal', 'alert', 'onerror', 'javascript:']) expect(stored).not.toContain(bad);
     expect((await call('clip_web_page', { title: 'x', url: 'file:///etc/passwd', html: '<p>x</p>' })).isError).toBe(true);
     expect(notices.at(-1)).toContain('Web clips');
+  });
+
+  it('recommends layered reading and documents private blocks in initialize instructions', async () => {
+    const init = await handleMcp({ jsonrpc: '2.0', id: 10, method: 'initialize', params: { protocolVersion: '2025-06-18' } }, ctx);
+    const instructions = (init!.result as { instructions: string }).instructions;
+    expect(instructions).toContain('detail: "index"');
+    expect(instructions).toContain('outline_only');
+    expect(instructions).toContain('heading');
+    expect(instructions).toContain('max_chars');
+    expect(instructions).toContain('<private>');
+  });
+
+  it('supports layered read_page: outline_only, heading sections, and max_chars/offset paging', async () => {
+    const doc: DocNode = {
+      type: 'doc',
+      content: [
+        { type: 'paragraph', content: [{ type: 'text', text: 'Preamble text before headings.' }] },
+        { type: 'heading', attrs: { level: 1 }, content: [{ type: 'text', text: 'Overview' }] },
+        { type: 'paragraph', content: [{ type: 'text', text: 'Overview summary text.' }] },
+        { type: 'heading', attrs: { level: 2 }, content: [{ type: 'text', text: 'Architecture' }] },
+        { type: 'paragraph', content: [{ type: 'text', text: 'Architecture details here.' }] },
+        { type: 'heading', attrs: { level: 3 }, content: [{ type: 'text', text: 'Storage' }] },
+        { type: 'paragraph', content: [{ type: 'text', text: 'SQLite local storage.' }] },
+        { type: 'heading', attrs: { level: 2 }, content: [{ type: 'text', text: 'Testing' }] },
+        { type: 'paragraph', content: [{ type: 'text', text: 'Vitest and Playwright.' }] },
+        { type: 'heading', attrs: { level: 1 }, content: [{ type: 'text', text: 'Conclusion' }] },
+        { type: 'paragraph', content: [{ type: 'text', text: 'Final remarks.' }] },
+      ],
+    };
+    const p = await s.pages.create({ workspaceId: ctx.workspaceId, title: 'Design Doc' });
+    await s.pages.saveContent(p.id, doc);
+
+    // Outline only: returns headings with levels and section character counts, no markdown.
+    const outlined = (await call('read_page', { page_id: p.id, outline_only: true })).json();
+    expect(outlined.markdown).toBeUndefined();
+    expect(outlined.total_characters).toBeGreaterThan(0);
+    expect(outlined.outline.map((h: { level: number; text: string }) => [h.level, h.text])).toEqual([
+      [1, 'Overview'],
+      [2, 'Architecture'],
+      [3, 'Storage'],
+      [2, 'Testing'],
+      [1, 'Conclusion'],
+    ]);
+    for (const entry of outlined.outline) {
+      expect(entry.characters).toBeGreaterThan(0);
+    }
+
+    // Heading section: case-insensitive match includes nested sub-headings and stops at same/higher level.
+    const arch = (await call('read_page', { page_id: p.id, heading: '  architecture ' })).json();
+    expect(arch.heading).toBe('Architecture');
+    expect(arch.markdown).toContain('## Architecture');
+    expect(arch.markdown).toContain('### Storage');
+    expect(arch.markdown).toContain('SQLite local storage.');
+    expect(arch.markdown).not.toContain('Testing');
+    expect(arch.markdown).not.toContain('Conclusion');
+    expect(arch.total_characters).toBe(outlined.outline[1].characters);
+    expect(arch.truncated).toBe(false);
+    expect(arch.next_offset).toBeNull();
+
+    // H3 stops before sibling H2 ("Testing").
+    const storage = (await call('read_page', { page_id: p.id, heading: 'STORAGE' })).json();
+    expect(storage.markdown).toContain('SQLite local storage.');
+    expect(storage.markdown).not.toContain('Testing');
+
+    // Missing heading returns a recoverable tool error.
+    expect((await call('read_page', { page_id: p.id, heading: 'Nonexistent' })).isError).toBe(true);
+
+    // Paging with max_chars and offset reconstructs the full Markdown losslessly.
+    const full = (await call('read_page', { page_id: p.id })).json();
+    expect(full.truncated).toBe(false);
+    expect(full.next_offset).toBeNull();
+    expect(full.total_characters).toBe(full.markdown.length);
+
+    let assembled = '';
+    let offset: number | null = 0;
+    let pagesRead = 0;
+    while (offset !== null) {
+      const chunk = (await call('read_page', { page_id: p.id, max_chars: 60, offset })).json();
+      expect(chunk.markdown.length).toBeLessThanOrEqual(60);
+      expect(chunk.total_characters).toBe(full.total_characters);
+      assembled += chunk.markdown;
+      offset = chunk.next_offset;
+      pagesRead++;
+    }
+    expect(pagesRead).toBeGreaterThan(2);
+    expect(assembled).toBe(full.markdown);
+
+    // Offset past end returns empty markdown and is not truncated.
+    const pastEnd = (await call('read_page', { page_id: p.id, offset: 99999 })).json();
+    expect(pastEnd.markdown).toBe('');
+    expect(pastEnd.truncated).toBe(false);
+    expect(pastEnd.next_offset).toBeNull();
+
+    // Very long page is capped at 100,000 chars even when max_chars is omitted or larger.
+    const huge = await s.pages.create({ workspaceId: ctx.workspaceId, title: 'Huge Page' });
+    await s.pages.saveContent(huge.id, docFromParagraphs(['x'.repeat(105_000)]));
+    const hugeDefault = (await call('read_page', { page_id: huge.id })).json();
+    expect(hugeDefault.markdown.length).toBe(100_000);
+    expect(hugeDefault.total_characters).toBe(105_001);
+    expect(hugeDefault.truncated).toBe(true);
+    expect(hugeDefault.next_offset).toBe(100_000);
+    const hugeOverCap = (await call('read_page', { page_id: huge.id, max_chars: 250_000 })).json();
+    expect(hugeOverCap.markdown.length).toBe(100_000);
+    const hugeTail = (await call('read_page', { page_id: huge.id, offset: hugeDefault.next_offset })).json();
+    expect(hugeTail.markdown.length).toBe(5_001);
+    expect(hugeTail.truncated).toBe(false);
+    expect(hugeTail.next_offset).toBeNull();
+  });
+
+  it('supports search_notes detail modes ("index" and "full") and snippet_chars bounds', async () => {
+    const p = await s.pages.create({ workspaceId: ctx.workspaceId, title: 'Oceanography Log' });
+    const longBody =
+      'Opening context about Atlantic currents and salinity measurements. '.repeat(8) +
+      'Unique abyssal hydrothermal vent discovery at 3800m depth. ' +
+      'Closing observations about marine sediment cores and plankton blooms. '.repeat(8);
+    await s.pages.saveContent(p.id, docFromParagraphs([longBody]));
+
+    // detail: 'index' returns id, kind and title only (no snippet).
+    const idxHits = (await call('search_notes', { query: 'hydrothermal vent', detail: 'index' })).json();
+    const idxHit = idxHits.find((h: { id: string }) => h.id === p.id);
+    expect(idxHit).toEqual({ id: p.id, kind: 'page', title: 'Oceanography Log' });
+    expect('snippet' in idxHit).toBe(false);
+
+    // detail: 'full' with small snippet_chars bounds the snippet around the match.
+    const shortHits = (await call('search_notes', { query: 'hydrothermal vent', detail: 'full', snippet_chars: 60 })).json();
+    const shortHit = shortHits.find((h: { id: string }) => h.id === p.id);
+    expect(shortHit.snippet.length).toBeLessThanOrEqual(60);
+    expect(shortHit.snippet.toLowerCase()).toContain('hydrothermal');
+
+    // Larger snippet_chars returns wider context up to 1000 chars.
+    const wideHits = (await call('search_notes', { query: 'hydrothermal vent', snippet_chars: 400 })).json();
+    const wideHit = wideHits.find((h: { id: string }) => h.id === p.id);
+    expect(wideHit.snippet.length).toBeGreaterThan(200);
+    expect(wideHit.snippet.length).toBeLessThanOrEqual(400);
+
+    // Invalid detail value returns a tool error.
+    expect((await call('search_notes', { query: 'hydrothermal', detail: 'compact' })).isError).toBe(true);
+  });
+
+  it('hides <private> blocks across read_page, search_notes, find_duplicate_pages and approval previews while keeping in-app search intact', async () => {
+    const secretDoc: DocNode = {
+      type: 'doc',
+      content: [
+        { type: 'heading', attrs: { level: 1 }, content: [{ type: 'text', text: 'Public Section' }] },
+        { type: 'paragraph', content: [{ type: 'text', text: 'Visible botany notes <private>vaultcode9911</private> about ferns.' }] },
+        { type: 'paragraph', content: [{ type: 'text', text: '<private>' }] },
+        { type: 'heading', attrs: { level: 2 }, content: [{ type: 'text', text: 'Hidden Credentials' }] },
+        { type: 'paragraph', content: [{ type: 'text', text: 'supersecretpassphrase8822' }] },
+        { type: 'paragraph', content: [{ type: 'text', text: '</private>' }] },
+        { type: 'paragraph', content: [{ type: 'text', text: 'Public closing <private>unterminatedsecret7733' }] },
+        { type: 'paragraph', content: [{ type: 'text', text: 'Trailing secret after unterminated tag' }] },
+      ],
+    };
+    const p = await s.pages.create({ workspaceId: ctx.workspaceId, title: 'Botany Notebook' });
+    await s.pages.saveContent(p.id, secretDoc);
+
+    // 1. read_page omits inline, multi-block, private heading and unterminated private content.
+    const read = (await call('read_page', { page_id: p.id })).json();
+    expect(read.markdown).toContain('Visible botany notes about ferns.');
+    expect(read.markdown).toContain('Public closing');
+    for (const secret of ['vaultcode9911', 'Hidden Credentials', 'supersecretpassphrase8822', 'unterminatedsecret7733', 'Trailing secret', '<private>']) {
+      expect(read.markdown).not.toContain(secret);
+    }
+
+    // Outline excludes private headings too.
+    const outline = (await call('read_page', { page_id: p.id, outline_only: true })).json();
+    expect(outline.outline.map((h: { text: string }) => h.text)).toEqual(['Public Section']);
+
+    // 2. In-app search STILL finds private text, while MCP search_notes drops private-only hits (in both full and index detail).
+    const inAppHits = await search(s.db, 'supersecretpassphrase8822', { workspaceId: ctx.workspaceId, mode: 'hybrid' });
+    expect(inAppHits.some((h) => h.refId === p.id)).toBe(true);
+
+    expect((await call('search_notes', { query: 'supersecretpassphrase8822' })).json()).toEqual([]);
+    expect((await call('search_notes', { query: 'supersecretpassphrase8822', detail: 'index' })).json()).toEqual([]);
+    expect((await call('search_notes', { query: 'vaultcode9911' })).json()).toEqual([]);
+    expect((await call('search_notes', { query: 'unterminatedsecret7733' })).json()).toEqual([]);
+
+    // Public word on the same page IS returned, and its snippet never leaks adjacent private text.
+    const publicHits = (await call('search_notes', { query: 'botany ferns' })).json();
+    const publicHit = publicHits.find((h: { id: string }) => h.id === p.id);
+    expect(publicHit).toBeDefined();
+    expect(publicHit.snippet).toContain('botany');
+    expect(publicHit.snippet).not.toContain('vaultcode9911');
+    expect(publicHit.snippet).not.toContain('supersecretpassphrase8822');
+
+    // 3. find_duplicate_pages strips private content before comparing.
+    const privDup1 = await s.pages.create({ workspaceId: ctx.workspaceId, title: 'Secret A' });
+    const privDup2 = await s.pages.create({ workspaceId: ctx.workspaceId, title: 'Secret B' });
+    await s.pages.saveContent(privDup1.id, docFromParagraphs(['<private>Identical private payload exceeding twenty characters.</private>']));
+    await s.pages.saveContent(privDup2.id, docFromParagraphs(['<private>Identical private payload exceeding twenty characters.</private>']));
+
+    const pubDup1 = await s.pages.create({ workspaceId: ctx.workspaceId, title: 'Shared Note' });
+    const pubDup2 = await s.pages.create({ workspaceId: ctx.workspaceId, title: 'Shared Note' });
+    await s.pages.saveContent(pubDup1.id, docFromParagraphs(['Public shared text exceeding twenty characters. <private>alpha secret</private>']));
+    await s.pages.saveContent(pubDup2.id, docFromParagraphs(['Public shared text exceeding twenty characters. <private>beta completely different</private>']));
+
+    const dups = (await call('find_duplicate_pages')).json();
+    expect(dups.total_groups).toBe(1);
+    expect(dups.groups[0].ids).toEqual(expect.arrayContaining([pubDup1.id, pubDup2.id]));
+    expect(dups.groups[0].ids).not.toContain(privDup1.id);
+    expect(dups.groups[0].characters).toBe('public shared text exceeding twenty characters.'.length);
+
+    // 4. append_to_page / update_page approval previews and docPreview omit private text.
+    allow = false;
+    await call('append_to_page', { page_id: p.id, markdown: 'Public addendum <private>hidden append secret</private> end' });
+    expect(approvals.at(-1)!.preview).toBe('Public addendum end');
+
+    await call('update_page', { page_id: p.id, markdown: 'Public body\n<private>hidden replace secret</private>\nFooter' });
+    expect(approvals.at(-1)!.preview).toBe('Public body\n\nFooter');
+
+    expect(docPreview(secretDoc)).toContain('Visible botany notes about ferns.');
+    expect(docPreview(secretDoc)).not.toContain('vaultcode9911');
+    expect(docPreview(secretDoc)).not.toContain('supersecretpassphrase8822');
   });
 });
