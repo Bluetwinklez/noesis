@@ -58,19 +58,24 @@ async function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T
   return invoke<T>(cmd, args);
 }
 
+/** Announces an MCP write in the UI: shows a toast, tracks active agents, and refreshes open views. */
+export function notifyAgentWrite(client: string, message: string): void {
+  const state = useApp.getState();
+  state.toast(message, 'info');
+  state.recordAgentActivity(client);
+  state.bump();
+}
+
 /** Builds the live in-app MCP context, wiring approvals, notifications and open-editor refresh hooks. */
 export function createMcpContext(client: string): McpContext {
-  const { repos, workspaceId, toast } = useApp.getState();
+  const { repos, workspaceId } = useApp.getState();
   if (!repos || !workspaceId) throw new Error('Noesis is still starting.');
   return {
     repos,
     workspaceId,
     client,
     approve: requestApproval,
-    notify: (m) => {
-      toast(m, 'info');
-      useApp.getState().bump();
-    },
+    notify: (m) => notifyAgentWrite(client, m),
     beforePageReplace: (pageId) => flushPageWrites(pageId),
     afterPageReplace: (pageId) => useApp.getState().markPageReplaced(pageId),
   };

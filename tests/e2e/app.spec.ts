@@ -1340,3 +1340,76 @@ test('Settings -> Storage checks link health, lists broken links and orphans, an
   await page.getByRole('button', { name: 'Check', exact: true }).click();
   await expect(page.getByText('No broken links or orphan pages found.', { exact: true })).toBeVisible();
 });
+
+test('agent activity indicator appears on MCP writes and opens the filterable live activity timeline', async ({ page }) => {
+  await freshApp(page);
+  await onboard(page);
+
+  const mcpCall = (client: string, name: string, args: Record<string, unknown>) =>
+    page.evaluate(
+      async ({ client, name, args }) => {
+        const state = (window as unknown as { __noesis: { getState(): { repos: Repos; workspaceId: string } } }).__noesis.getState();
+        const serverModule = '/src/mcp/server.ts';
+        const hostModule = '/src/mcp/host.ts';
+        const { handleMcp } = (await import(/* @vite-ignore */ serverModule)) as typeof import('../../src/mcp/server');
+        const { notifyAgentWrite } = (await import(/* @vite-ignore */ hostModule)) as typeof import('../../src/mcp/host');
+        const res = await handleMcp(
+          { jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name, arguments: args } },
+          {
+            repos: state.repos,
+            workspaceId: state.workspaceId,
+            client,
+            approve: async () => true,
+            notify: (m) => notifyAgentWrite(client, m),
+          },
+        );
+        const r = res!.result as { content: { text: string }[] };
+        return JSON.parse(r.content[0].text) as Record<string, unknown>;
+      },
+      { client, name, args },
+    );
+
+  // No indicator before any agent activity.
+  await expect(page.getByRole('button', { name: /^Working:/ })).toHaveCount(0);
+
+  // First MCP write makes the top-bar indicator appear immediately.
+  const first = await mcpCall('Codex', 'create_page', { title: 'Agent Research Note', markdown: 'Initial findings.' });
+  await expect(page.getByRole('button', { name: /Working:.*Codex/ })).toBeVisible();
+
+  // Second agent writes appear in the indicator once the throttle interval elapses.
+  await mcpCall('Claude Code', 'append_to_page', { page_id: first.id as string, markdown: 'Additional evidence.' });
+  await mcpCall('Claude Code', 'create_page', { title: 'Claude Summary', markdown: 'Concise summary.' });
+  await expect(page.getByRole('button', { name: /Working:.*Claude Code/ })).toBeVisible({ timeout: 10_000 });
+
+  // Clicking the indicator opens the Activity panel in the Knowledge Graph.
+  await page.getByRole('button', { name: /^Working:/ }).click();
+  const timeline = page.getByRole('list', { name: 'Agent activity' });
+  await expect(timeline).toBeVisible();
+  await expect(timeline.getByRole('listitem')).toHaveCount(3);
+  await expect(timeline).toContainText('Agent Research Note');
+  await expect(timeline).toContainText('Claude Summary');
+
+  // An MCP write while the Activity panel is open updates the timeline live.
+  await mcpCall('Codex', 'rename_page', { page_id: first.id as string, title: 'Renamed Research Note' });
+  await expect(timeline.getByRole('listitem')).toHaveCount(4);
+  await expect(timeline.getByRole('listitem').first()).toContainText('Codex');
+  await expect(timeline.getByRole('listitem').first()).toContainText('renamed');
+  await expect(timeline.getByRole('listitem').first()).toContainText('Renamed Research Note');
+
+  // Filtering by agent narrows the timeline.
+  await page.getByLabel('Filter by agent').selectOption('Codex');
+  await expect(timeline.getByRole('listitem')).toHaveCount(2);
+  await expect(timeline).not.toContainText('Claude Summary');
+
+  // Combining the action filter narrows it further.
+  await page.getByLabel('Filter by action').selectOption('rename_page');
+  await expect(timeline.getByRole('listitem')).toHaveCount(1);
+  await expect(timeline.getByRole('listitem').first()).toContainText('Renamed Research Note');
+
+  // Clearing filters shows all entries again, and clicking an entry opens its page.
+  await page.getByLabel('Filter by agent').selectOption('');
+  await page.getByLabel('Filter by action').selectOption('');
+  await expect(timeline.getByRole('listitem')).toHaveCount(4);
+  await timeline.getByRole('button', { name: /Claude Summary/ }).click();
+  await expect(page.getByLabel('Page title')).toHaveValue('Claude Summary');
+});

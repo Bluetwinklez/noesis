@@ -146,7 +146,7 @@ export function App() {
               </div>
             }
           >
-            <ErrorBoundary key={route.name === 'page' ? 'page-workspace' : JSON.stringify(route)}><RouteView /></ErrorBoundary>
+            <ErrorBoundary key={route.name === 'page' ? 'page-workspace' : route.name === 'graph' ? 'graph' : JSON.stringify(route)}><RouteView /></ErrorBoundary>
           </Suspense>
         </div>
       </main>

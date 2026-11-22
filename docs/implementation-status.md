@@ -10,6 +10,13 @@ Security scanning, immutable action references and an English audit were added. 
 
 ## Verification runs (this revision)
 
+### Agent activity visibility (unreleased)
+
+- Extended `AgentActivityRepo` (`src/core/repos/agent-activity.ts`) with `AGENT_ACTIONS`, `listFiltered(workspaceId, { client, action, limit, offset })` (newest-first with deterministic `rowid` tie-breaking, workspace-scoped page/task title joins keeping trashed page titles visible, and `{ items, total, hasMore }`) and `listClients(workspaceId)`.
+- Added throttled active-agent tracker (`src/app/agentActivity.ts`) wired into `useApp` (`lastAgentActivity`, `activeAgents`, `recordAgentActivity`, `clearAgentActivity` in `src/app/state.ts`) and driven from `notifyAgentWrite` in `src/mcp/host.ts`. State updates coalesce bursts to at most once per 2.5 s and automatically clear clients after 5 minutes of inactivity.
+- Added a top-bar "Working: …" indicator (`src/components/shell/TopBar.tsx`) listing MCP client(s) active in the last 5 minutes; clicking it navigates to `{ name: 'graph', tab: 'activity' }` to open the Knowledge Graph's combined Activity panel (`src/features/graph/AgentActivityPanel.tsx`, `src/features/graph/GraphPage.tsx`) with live updates, agent/action filters across all nine actions, "Load more" offset paging, and click-to-open navigation. Added English and Turkish strings.
+- Unit tests in `tests/unit/agent-activity.test.ts`; Playwright E2E flow in `tests/e2e/app.spec.ts`. Automated verification run pending by maintainer.
+
 ### Link health and MCP read tools (unreleased)
 
 - Added workspace-scoped SQL method `PageRepo.linkHealth(workspaceId)` (`src/core/repos/pages.ts`) reporting broken internal links (`page_links` rows from live pages whose target is missing, in another workspace, or in the trash) and orphan pages (live pages whose parent is missing, in another workspace, or trashed).
@@ -189,7 +196,7 @@ Security scanning, immutable action references and an English audit were added. 
 | AI providers: OpenAI-compat, Gemini, Anthropic, Ollama | partial | Tested against a mock server only, never against the live APIs |
 | AI assistant actions incl. study guide, flashcards, quiz, compare, translate | done (mock) | Preview-before-apply enforced |
 | Audio overviews | done (mock) | Multi-speaker only where the provider supports it; no interactive mode |
-| Knowledge graph | done | Force layout; agent nodes (MCP clients) with live activity list, GitHub repository nodes, optional 3D view; performance with very large graphs not benchmarked |
+| Knowledge graph | done | Force layout; agent nodes (MCP clients) with per-agent activity list and combined filterable/paged Activity panel, live top-bar active-agent indicator, GitHub repository nodes, optional 3D view; performance with very large graphs not benchmarked |
 | Unified search (keyword/full-text/semantic/hybrid) | done | Includes batched workspace index rebuild (Settings → Storage) and once-per-launch startup self-healing |
 | Settings (all §21 sections) | done | |
 | Onboarding (7 steps, AI skippable) | done | Two cosmetic issues fixed in this revision |

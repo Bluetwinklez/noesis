@@ -5,6 +5,9 @@ import type { AiConfig } from '../ai/types';
 import { DEFAULT_AI_CONFIG } from '../ai/types';
 import type { VisualThemeId } from './visual-themes';
 import type { DailyTitleFormat } from '../features/daily-notes/daily';
+import { createAgentActivityTracker, type AgentActivityStamp } from './agentActivity';
+
+export type { AgentActivityStamp };
 
 export type Route =
   | { name: 'home' }
@@ -16,7 +19,7 @@ export type Route =
   | { name: 'sources'; id?: string; highlight?: { start: number; end: number } }
   | { name: 'databases' }
   | { name: 'tasks' }
-  | { name: 'graph' }
+  | { name: 'graph'; tab?: 'graph' | 'activity' }
   | { name: 'search'; q?: string }
   | { name: 'favorites' }
   | { name: 'trash' }
@@ -141,6 +144,10 @@ interface AppState {
   toasts: Toast[];
   consent: ConsentRequest | null;
   online: boolean;
+  /** Most recent MCP agent write within the 5-minute activity window (cleared on timeout). */
+  lastAgentActivity: AgentActivityStamp | null;
+  /** Distinct MCP clients active within the last 5 minutes, newest first. */
+  activeAgents: AgentActivityStamp[];
 
   navigate(route: Route, opts?: { replace?: boolean }): void;
   goBack(): void;
@@ -150,62 +157,78 @@ interface AppState {
   toast(message: string, kind?: Toast['kind'], action?: Toast['action']): void;
   dismissToast(id: number): void;
   setPaletteOpen(open: boolean): void;
+  recordAgentActivity(client: string, at?: number): void;
+  clearAgentActivity(): void;
 }
 
 let toastId = 0;
 
-export const useApp = create<AppState>((set, get) => ({
-  repos: null,
-  storageKind: null,
-  workspaceId: null,
-  lang: 'en',
-  prefs: DEFAULT_PREFS,
-  ai: DEFAULT_AI_CONFIG,
-  hasApiKey: false,
-  route: { name: 'home' },
-  back: [],
-  forward: [],
-  paletteOpen: false,
-  version: 0,
-  pageReloads: {},
-  toasts: [],
-  consent: null,
-  online: typeof navigator === 'undefined' ? true : navigator.onLine,
+export const useApp = create<AppState>((set, get) => {
+  const activityTracker = createAgentActivityTracker({
+    onChange: (snap) => set(snap),
+  });
 
-  navigate(route, opts) {
-    const cur = get().route;
-    if (JSON.stringify(cur) === JSON.stringify(route)) return;
-    if (opts?.replace) set({ route });
-    else set({ route, back: [...get().back.slice(-49), cur], forward: [] });
-  },
-  goBack() {
-    const { back, route, forward } = get();
-    if (!back.length) return;
-    set({ route: back[back.length - 1], back: back.slice(0, -1), forward: [route, ...forward] });
-  },
-  goForward() {
-    const { back, route, forward } = get();
-    if (!forward.length) return;
-    set({ route: forward[0], forward: forward.slice(1), back: [...back, route] });
-  },
-  bump() {
-    set({ version: get().version + 1 });
-  },
-  markPageReplaced(pageId) {
-    set((s) => ({ pageReloads: { ...s.pageReloads, [pageId]: (s.pageReloads[pageId] ?? 0) + 1 } }));
-  },
-  toast(message, kind = 'info', action) {
-    const id = ++toastId;
-    set({ toasts: [...get().toasts, { id, kind, message, action }] });
-    setTimeout(() => get().dismissToast(id), kind === 'error' ? 8000 : 4000);
-  },
-  dismissToast(id) {
-    set({ toasts: get().toasts.filter((t) => t.id !== id) });
-  },
-  setPaletteOpen(open) {
-    set({ paletteOpen: open });
-  },
-}));
+  return {
+    repos: null,
+    storageKind: null,
+    workspaceId: null,
+    lang: 'en',
+    prefs: DEFAULT_PREFS,
+    ai: DEFAULT_AI_CONFIG,
+    hasApiKey: false,
+    route: { name: 'home' },
+    back: [],
+    forward: [],
+    paletteOpen: false,
+    version: 0,
+    pageReloads: {},
+    toasts: [],
+    consent: null,
+    online: typeof navigator === 'undefined' ? true : navigator.onLine,
+    lastAgentActivity: null,
+    activeAgents: [],
+
+    navigate(route, opts) {
+      const cur = get().route;
+      if (JSON.stringify(cur) === JSON.stringify(route)) return;
+      if (opts?.replace) set({ route });
+      else set({ route, back: [...get().back.slice(-49), cur], forward: [] });
+    },
+    goBack() {
+      const { back, route, forward } = get();
+      if (!back.length) return;
+      set({ route: back[back.length - 1], back: back.slice(0, -1), forward: [route, ...forward] });
+    },
+    goForward() {
+      const { back, route, forward } = get();
+      if (!forward.length) return;
+      set({ route: forward[0], forward: forward.slice(1), back: [...back, route] });
+    },
+    bump() {
+      set({ version: get().version + 1 });
+    },
+    markPageReplaced(pageId) {
+      set((s) => ({ pageReloads: { ...s.pageReloads, [pageId]: (s.pageReloads[pageId] ?? 0) + 1 } }));
+    },
+    toast(message, kind = 'info', action) {
+      const id = ++toastId;
+      set({ toasts: [...get().toasts, { id, kind, message, action }] });
+      setTimeout(() => get().dismissToast(id), kind === 'error' ? 8000 : 4000);
+    },
+    dismissToast(id) {
+      set({ toasts: get().toasts.filter((t) => t.id !== id) });
+    },
+    setPaletteOpen(open) {
+      set({ paletteOpen: open });
+    },
+    recordAgentActivity(client, at) {
+      activityTracker.record(client, at);
+    },
+    clearAgentActivity() {
+      activityTracker.clear();
+    },
+  };
+});
 
 /** Typed accessor for repositories once boot has completed. */
 export function repos(): Repos {
