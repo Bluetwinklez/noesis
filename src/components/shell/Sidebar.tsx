@@ -277,6 +277,7 @@ export function Sidebar() {
         await flushAllWrites();
         const res = await repos().pages.mergePages(workspaceId, target.id, [source.id]);
         const st = useApp.getState();
+        st.markPageReplaced(target.id);
         st.bump();
         const viewingSource = st.route.name === 'page' && st.route.id === source.id;
         st.navigate({ name: 'page', id: target.id }, { replace: viewingSource });
