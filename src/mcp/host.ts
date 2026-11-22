@@ -3,8 +3,9 @@ import { isTauri } from '../lib/platform';
 import { useApp } from '../app/state';
 import { savePrefs } from '../app/services';
 import { runBeforeAiBackup } from '../app/maintenance';
+import { flushPageWrites } from '../app/pendingWrites';
 import { SafetySnapshotThrottle } from './safety-snapshot';
-import type { ApprovalRequest } from './server';
+import type { ApprovalRequest, McpContext } from './server';
 
 /**
  * Connects the Rust MCP endpoint to the TypeScript MCP server: Rust emits
@@ -74,6 +75,25 @@ const safetySnapshots = new SafetySnapshotThrottle({
   },
 });
 
+/** Builds the live in-app MCP context, wiring approvals, notifications and open-editor refresh hooks. */
+export function createMcpContext(client: string): McpContext {
+  const { repos, workspaceId } = useApp.getState();
+  if (!repos || !workspaceId) throw new Error('Noesis is still starting.');
+  return {
+    repos,
+    workspaceId,
+    client,
+    approve: requestApproval,
+    notify: (m) => notifyAgentWrite(client, m),
+    beforePageReplace: (pageId) => flushPageWrites(pageId),
+    afterPageReplace: (pageId) => useApp.getState().markPageReplaced(pageId),
+    permissions: () => useApp.getState().prefs.mcpPermissions,
+    beforeDestructive: async ({ client: who }) => {
+      await safetySnapshots.maybeSnapshot(who);
+    },
+  };
+}
+
 let unlisten: (() => void) | null = null;
 
 async function listen() {
@@ -82,21 +102,10 @@ async function listen() {
   unlisten = await listen<{ rid: number; client: string; message: string }>('mcp-request', async ({ payload }) => {
     let body = '';
     try {
-      const { repos, workspaceId } = useApp.getState();
-      if (!repos || !workspaceId) throw new Error('Noesis is still starting.');
+      const ctx = createMcpContext(payload.client);
       // Loaded on first use: the MCP server pulls in the editor schema and search.
       const { handleMcp } = await import('./server');
-      const res = await handleMcp(JSON.parse(payload.message), {
-        repos,
-        workspaceId,
-        client: payload.client,
-        approve: requestApproval,
-        notify: (m) => notifyAgentWrite(payload.client, m),
-        permissions: () => useApp.getState().prefs.mcpPermissions,
-        beforeDestructive: async ({ client }) => {
-          await safetySnapshots.maybeSnapshot(client);
-        },
-      });
+      const res = await handleMcp(JSON.parse(payload.message), ctx);
       body = res ? JSON.stringify(res) : '';
     } catch (e) {
       const id = (() => {

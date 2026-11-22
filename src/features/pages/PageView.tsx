@@ -56,59 +56,18 @@ const COVERS = [
 export function PageView({ id }: { id: string }) {
   const t = useT();
   const version = useApp((s) => s.version);
+  const reloadNonce = useApp((s) => s.pageReloads[id] ?? 0);
   const bump = useApp((s) => s.bump);
   const prefs = useApp((s) => s.prefs);
   const [page, setPage] = useState<Page | null | undefined>(undefined);
   const [title, setTitle] = useState('');
+  const [loadedNonce, setLoadedNonce] = useState(reloadNonce);
+  const lastDbTitleRef = useRef<string | undefined>(undefined);
   const editorRef = useRef<TEditor | null>(null);
   const lastSavedJsonRef = useRef<string | null | undefined>(undefined);
   const [wordCount, setWordCount] = useState(0);
   const [tocOpen, setTocOpen] = useState(false);
   const [readyEditor, setReadyEditor] = useState<TEditor | null>(null);
-
-  useEffect(() => {
-    let alive = true;
-    lastSavedJsonRef.current = undefined;
-    void repos()
-      .pages.get(id)
-      .then((p) => {
-        if (!alive) return;
-        lastSavedJsonRef.current = p?.content_json ?? null;
-        setPage(p ?? null);
-        setTitle(p?.title ?? '');
-        setWordCount(p?.content_text.split(/\s+/).filter(Boolean).length ?? 0);
-        if (p && !p.deleted_at) void repos().pages.touchRecent(id);
-      });
-    return () => {
-      alive = false;
-    };
-  }, [id]);
-
-  // Meta refresh (favorite, icon …), plus external body updates (e.g. merge or MCP writes)
-  // without disrupting local edits.
-  useEffect(() => {
-    if (page === undefined) return;
-    let alive = true;
-    void repos()
-      .pages.get(id)
-      .then((p) => {
-        if (!alive || !p) return;
-        const externalContentChange = lastSavedJsonRef.current !== undefined && p.content_json !== lastSavedJsonRef.current;
-        if (externalContentChange) {
-          lastSavedJsonRef.current = p.content_json;
-          const nextDoc = p.content_json ? (JSON.parse(p.content_json) as DocNode) : { type: 'doc', content: [{ type: 'paragraph' }] };
-          editorRef.current?.commands.setContent(nextDoc, { emitUpdate: false });
-          setWordCount(p.content_text.split(/\s+/).filter(Boolean).length);
-          setPage(p);
-        } else {
-          setPage((cur) => (cur ? { ...cur, ...p, content_json: cur.content_json } : p));
-        }
-      });
-    return () => {
-      alive = false;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [version]);
 
   const saveContent = useMemo(
     () =>
@@ -130,34 +89,78 @@ export function PageView({ id }: { id: string }) {
     [id],
   );
 
-  // Flush pending edits when leaving the page or the window; quitting and updating wait for them.
+  const saveTitle = useMemo(
+    () =>
+      debounce(async (value: string) => {
+        lastDbTitleRef.current = value;
+        await repos().pages.updateMeta(id, { title: value });
+        bump();
+      }, 400),
+    [id, bump],
+  );
+
+  useEffect(() => {
+    let alive = true;
+    if (reloadNonce > 0) {
+      saveContent.cancel();
+      saveTitle.cancel();
+    }
+    void repos()
+      .pages.get(id)
+      .then((p) => {
+        if (!alive) return;
+        lastDbTitleRef.current = p?.title;
+        setPage(p ?? null);
+        setTitle(p?.title ?? '');
+        setWordCount(p?.content_text.split(/\s+/).filter(Boolean).length ?? 0);
+        setLoadedNonce(reloadNonce);
+        if (p && !p.deleted_at) void repos().pages.touchRecent(id);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [id, reloadNonce, saveContent, saveTitle]);
+
+  // Meta refresh (favorite, icon, external rename …) without reloading editor content.
+  useEffect(() => {
+    if (page === undefined) return;
+    let alive = true;
+    void repos()
+      .pages.get(id)
+      .then((p) => {
+        if (!alive || !p) return;
+        if (p.title !== lastDbTitleRef.current) {
+          lastDbTitleRef.current = p.title;
+          setTitle(p.title);
+        }
+        setPage((cur) => (cur ? { ...cur, ...p, content_json: cur.content_json } : p));
+      });
+    return () => {
+      alive = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [version]);
+
+  // Flush pending edits when leaving the page or the window; quitting, updating and external replacements wait for them.
   useEffect(() => {
     const flush = () => saveContent.flush();
     window.addEventListener('beforeunload', flush);
-    const unregister = registerFlusher(() => saveContent.settle());
+    const unregister = registerFlusher(() => saveContent.settle(), id);
     return () => {
       window.removeEventListener('beforeunload', flush);
       unregister();
       flush();
       useSaveStatus.setState({ status: 'idle' });
     };
-  }, [saveContent]);
+  }, [saveContent, id]);
 
-  const saveTitle = useMemo(
-    () =>
-      debounce(async (value: string) => {
-        await repos().pages.updateMeta(id, { title: value });
-        bump();
-      }, 400),
-    [id, bump],
-  );
   useEffect(() => {
-    const unregister = registerFlusher(() => saveTitle.settle());
+    const unregister = registerFlusher(() => saveTitle.settle(), id);
     return () => {
       unregister();
       saveTitle.flush();
     };
-  }, [saveTitle]);
+  }, [saveTitle, id]);
 
   const onChange = useCallback(
     (doc: DocNode, editor: TEditor) => {
@@ -230,6 +233,7 @@ export function PageView({ id }: { id: string }) {
         ) : (
           <div className="mt-4">
             <NoteEditor
+              key={`${id}:${loadedNonce}`}
               pageId={id}
               initialContent={initial}
               onChange={onChange}
