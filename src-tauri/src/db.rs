@@ -32,14 +32,14 @@ pub fn configure(conn: &mut Connection) -> rusqlite::Result<()> {
          PRAGMA foreign_keys=ON;
          PRAGMA busy_timeout=5000;",
     )?;
-    install_guard(conn);
+    install_guard(conn)?;
     Ok(())
 }
 
 /// SQL arriving over IPC may touch the user's database, but never the file system:
 /// ATTACH/DETACH (create or read arbitrary files), extension loading and schema
 /// corruption pragmas are refused for every statement on this connection.
-pub fn install_guard(conn: &mut Connection) {
+pub fn install_guard(conn: &mut Connection) -> rusqlite::Result<()> {
     use rusqlite::hooks::{AuthAction, AuthContext, Authorization};
     conn.authorizer(Some(|ctx: AuthContext<'_>| match ctx.action {
         AuthAction::Attach { .. } | AuthAction::Detach { .. } => Authorization::Deny,
@@ -52,16 +52,16 @@ pub fn install_guard(conn: &mut Connection) {
             Authorization::Deny
         }
         _ => Authorization::Allow,
-    }));
+    }))
 }
 
 /// Runs `f` with the guard lifted, for trusted Rust-side maintenance (e.g. VACUUM INTO snapshots).
 /// No command needs it today; the tests use it to show the guard can be lifted deliberately.
 #[cfg(test)]
 pub fn unguarded<T>(conn: &mut Connection, f: impl FnOnce(&Connection) -> T) -> T {
-    conn.authorizer(None::<fn(rusqlite::hooks::AuthContext<'_>) -> rusqlite::hooks::Authorization>);
+    conn.authorizer(None::<fn(rusqlite::hooks::AuthContext<'_>) -> rusqlite::hooks::Authorization>).expect("lift the SQL guard");
     let out = f(conn);
-    install_guard(conn);
+    install_guard(conn).expect("restore the SQL guard");
     out
 }
 
