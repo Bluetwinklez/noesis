@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Check, Copy, Link2, Unlink } from 'lucide-react';
-import { useApp } from '../../app/state';
+import { useApp, type McpPermissions } from '../../app/state';
 import { reportError, savePrefs } from '../../app/services';
 import { isTauri } from '../../lib/platform';
 import { useT } from '../../i18n';
@@ -35,6 +35,7 @@ export function McpSettings() {
   const t = useT();
   const enabled = useApp((s) => s.prefs.mcpEnabled);
   const autoApprove = useApp((s) => s.prefs.mcpAutoApprove);
+  const permissions = useApp((s) => s.prefs.mcpPermissions);
   const toast = useApp((s) => s.toast);
   const [status, setStatus] = useState<McpStatus | null>(null);
   const [clients, setClients] = useState<ClientTarget[]>([]);
@@ -48,10 +49,61 @@ export function McpSettings() {
     if (isTauri()) void refresh().catch(reportError);
   }, []);
 
+  const setPermission = (key: keyof McpPermissions, value: boolean) => {
+    void savePrefs({ mcpPermissions: { ...useApp.getState().prefs.mcpPermissions, [key]: value } }).catch(reportError);
+  };
+
+  const permissionsSection = (
+    <div className="space-y-2">
+      <div>
+        <h3 className="font-medium">{t('mcp.permissions.title')}</h3>
+        <p className="text-xs text-muted">{t('mcp.permissions.hint')}</p>
+      </div>
+      <div className="divide-y divide-line rounded-md border border-line">
+        <div className="flex items-center justify-between gap-4 p-3">
+          <div>
+            <div className="font-medium">{t('mcp.permissions.create')}</div>
+            <div className="text-xs text-muted">{t('mcp.permissions.createHint')}</div>
+          </div>
+          <Switch checked={permissions.create} label={t('mcp.permissions.create')} onChange={(v) => setPermission('create', v)} />
+        </div>
+        <div className="flex items-center justify-between gap-4 p-3">
+          <div>
+            <div className="font-medium">{t('mcp.permissions.modify')}</div>
+            <div className="text-xs text-muted">{t('mcp.permissions.modifyHint')}</div>
+          </div>
+          <Switch checked={permissions.modify} label={t('mcp.permissions.modify')} onChange={(v) => setPermission('modify', v)} />
+        </div>
+        <div className="flex items-center justify-between gap-4 p-3">
+          <div>
+            <div className="font-medium">{t('mcp.permissions.trash')}</div>
+            <div className="text-xs text-muted">{t('mcp.permissions.trashHint')}</div>
+          </div>
+          <Switch checked={permissions.trash} label={t('mcp.permissions.trash')} onChange={(v) => setPermission('trash', v)} />
+        </div>
+      </div>
+    </div>
+  );
+
+  const toolsDetails = (
+    <details className="rounded-md border border-line p-3">
+      <summary className="cursor-pointer font-medium">{t('mcp.tools')}</summary>
+      <ul className="mt-2 space-y-1">
+        {toolList(permissions).map((tool) => (
+          <li key={tool.name}>
+            <code className="text-xs">{tool.name}</code> — <span className="text-muted">{tool.description}</span>
+          </li>
+        ))}
+      </ul>
+    </details>
+  );
+
   if (!isTauri())
     return (
-      <section className="space-y-2 text-sm">
+      <section className="space-y-5 text-sm">
         <p className="text-muted">{t('mcp.desktopOnly')}</p>
+        {permissionsSection}
+        {toolsDetails}
       </section>
     );
 
@@ -87,6 +139,7 @@ export function McpSettings() {
         </div>
         <Switch checked={autoApprove} label={t('mcp.autoApprove')} onChange={(v) => void savePrefs({ mcpAutoApprove: v }).catch(reportError)} />
       </div>
+      {permissionsSection}
 
       <div>
         <h3 className="mb-2 font-medium">{t('mcp.clients')}</h3>
@@ -140,16 +193,7 @@ export function McpSettings() {
         {status?.running && status.token ? <CopyBox label={t('mcp.clipperKey')} text={status.token} /> : <p className="text-xs text-faint">{t('mcp.clipperOff')}</p>}
       </div>
 
-      <details className="rounded-md border border-line p-3">
-        <summary className="cursor-pointer font-medium">{t('mcp.tools')}</summary>
-        <ul className="mt-2 space-y-1">
-          {toolList().map((tool) => (
-            <li key={tool.name}>
-              <code className="text-xs">{tool.name}</code> — <span className="text-muted">{tool.description}</span>
-            </li>
-          ))}
-        </ul>
-      </details>
+      {toolsDetails}
       <p className="text-xs text-muted">{t('mcp.privacy')}</p>
     </section>
   );

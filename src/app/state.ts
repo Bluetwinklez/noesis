@@ -27,6 +27,29 @@ export type Route =
 
 export type ThemePref = 'light' | 'dark' | 'system';
 
+export interface McpPermissions {
+  create: boolean;
+  modify: boolean;
+  trash: boolean;
+}
+
+export const DEFAULT_MCP_PERMISSIONS: McpPermissions = {
+  create: true,
+  modify: true,
+  trash: true,
+};
+
+/** Normalises saved MCP permissions, filling missing or invalid fields with defaults (all allowed). */
+export function normalizeMcpPermissions(raw: unknown): McpPermissions {
+  if (!raw || typeof raw !== 'object') return { ...DEFAULT_MCP_PERMISSIONS };
+  const obj = raw as Record<string, unknown>;
+  return {
+    create: typeof obj.create === 'boolean' ? obj.create : DEFAULT_MCP_PERMISSIONS.create,
+    modify: typeof obj.modify === 'boolean' ? obj.modify : DEFAULT_MCP_PERMISSIONS.modify,
+    trash: typeof obj.trash === 'boolean' ? obj.trash : DEFAULT_MCP_PERMISSIONS.trash,
+  };
+}
+
 export interface Prefs {
   theme: ThemePref;
   /** Whole-interface visual style; palette and accent remain independently adjustable. */
@@ -76,6 +99,8 @@ export interface Prefs {
   mcpEnabled: boolean;
   /** Apply AI assistants' changes to existing pages without asking. */
   mcpAutoApprove: boolean;
+  /** Capability groups enabled for connected MCP assistants (read tools remain on while MCP is enabled). */
+  mcpPermissions: McpPermissions;
 }
 
 export const DEFAULT_PREFS: Prefs = {
@@ -110,6 +135,7 @@ export const DEFAULT_PREFS: Prefs = {
   closeToTray: true,
   mcpEnabled: false,
   mcpAutoApprove: false,
+  mcpPermissions: { ...DEFAULT_MCP_PERMISSIONS },
 };
 
 export interface Toast {

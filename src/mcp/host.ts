@@ -78,6 +78,7 @@ export function createMcpContext(client: string): McpContext {
     notify: (m) => notifyAgentWrite(client, m),
     beforePageReplace: (pageId) => flushPageWrites(pageId),
     afterPageReplace: (pageId) => useApp.getState().markPageReplaced(pageId),
+    permissions: () => useApp.getState().prefs.mcpPermissions,
   };
 }
 

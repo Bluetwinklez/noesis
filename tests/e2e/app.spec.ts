@@ -1530,3 +1530,50 @@ test('sidebar context menu merges a page into a chosen target, redirects links, 
   await page.getByRole('button', { name: 'Trash', exact: true }).click();
   await expect(page.getByRole('main').getByText('Tidal Notes')).toBeVisible();
 });
+
+test('Settings -> AI connections toggles MCP permissions and persists them across restarts', async ({ page }) => {
+  const db = await freshApp(page);
+  await onboard(page);
+
+  await page.getByRole('button', { name: 'Settings', exact: true }).click();
+  await page.getByRole('button', { name: 'AI connections', exact: true }).click();
+
+  const createSwitch = page.getByRole('switch', { name: 'Create pages, tasks and clips' });
+  const modifySwitch = page.getByRole('switch', { name: 'Modify existing pages' });
+  const trashSwitch = page.getByRole('switch', { name: 'Move pages to trash' });
+
+  await expect(createSwitch).toHaveAttribute('aria-checked', 'true');
+  await expect(modifySwitch).toHaveAttribute('aria-checked', 'true');
+  await expect(trashSwitch).toHaveAttribute('aria-checked', 'true');
+
+  // Turn off modifying and trashing while keeping create enabled.
+  await modifySwitch.click();
+  await trashSwitch.click();
+  await expect(createSwitch).toHaveAttribute('aria-checked', 'true');
+  await expect(modifySwitch).toHaveAttribute('aria-checked', 'false');
+  await expect(trashSwitch).toHaveAttribute('aria-checked', 'false');
+
+  // Tool list in Settings reflects disabled groups immediately without hiding them.
+  await page.getByText('What assistants can do', { exact: true }).click();
+  const trashItem = page.locator('details li').filter({ has: page.locator('code', { hasText: /^trash_page$/ }) });
+  await expect(trashItem).toContainText('Disabled in Noesis settings (Settings -> AI connections)');
+  const createItem = page.locator('details li').filter({ has: page.locator('code', { hasText: /^create_page$/ }) });
+  await expect(createItem).not.toContainText('Disabled in Noesis settings');
+
+  // Wait until persisted in SQLite and flushed to IndexedDB before reloading.
+  await expect.poll(() => page.evaluate(async () => {
+    const state = (window as unknown as { __noesis: { getState(): { repos: Repos } } }).__noesis.getState();
+    const saved = await state.repos.settings.get<{ mcpPermissions?: { create: boolean; modify: boolean; trash: boolean } }>('prefs', {});
+    await state.repos.db.flushNow();
+    return saved.mcpPermissions;
+  })).toEqual({ create: true, modify: false, trash: false });
+
+  // Reload and confirm the saved permission state survives a restart.
+  await page.goto(`/?db=${db}`);
+  await page.getByRole('button', { name: 'Settings', exact: true }).click();
+  await page.getByRole('button', { name: 'AI connections', exact: true }).click();
+
+  await expect(page.getByRole('switch', { name: 'Create pages, tasks and clips' })).toHaveAttribute('aria-checked', 'true');
+  await expect(page.getByRole('switch', { name: 'Modify existing pages' })).toHaveAttribute('aria-checked', 'false');
+  await expect(page.getByRole('switch', { name: 'Move pages to trash' })).toHaveAttribute('aria-checked', 'false');
+});

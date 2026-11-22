@@ -1,4 +1,4 @@
-import { useApp, repos, wsId, DEFAULT_PREFS, type Prefs } from './state';
+import { useApp, repos, wsId, DEFAULT_PREFS, normalizeMcpPermissions, type Prefs } from './state';
 import { createProvider } from '../ai/providers';
 import { AiError, DEFAULT_AI_CONFIG, PROVIDER_DEFAULTS, type AiConfig, type AiProvider, type ProviderId } from '../ai/types';
 import { blobStore, fetchPublicUrl, notify, secrets } from '../lib/platform';
@@ -47,6 +47,7 @@ export async function loadSettings() {
   prefs.visualTheme = visualThemeById(stored.visualTheme).id;
   prefs.dailyNoteTitleFormat = stored.dailyNoteTitleFormat === 'short' || stored.dailyNoteTitleFormat === 'long' ? stored.dailyNoteTitleFormat : 'iso';
   prefs.dailyNoteTemplateId = typeof stored.dailyNoteTemplateId === 'string' && stored.dailyNoteTemplateId ? stored.dailyNoteTemplateId : null;
+  prefs.mcpPermissions = normalizeMcpPermissions(stored.mcpPermissions);
   // Older versions had a serif on/off switch.
   if (!stored.editorFont && stored.serif) prefs.editorFont = 'serif';
   delete prefs.serif;

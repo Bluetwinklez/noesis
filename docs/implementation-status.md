@@ -10,6 +10,13 @@ Security scanning, immutable action references and an English audit were added. 
 
 ## Verification runs (this revision)
 
+### MCP permissions in Settings (unreleased)
+
+- Added `McpPermissions` (`{ create, modify, trash }`), `DEFAULT_MCP_PERMISSIONS` (all `true`), and `normalizeMcpPermissions` in `src/app/state.ts`, wired into `Prefs`, `DEFAULT_PREFS`, `loadSettings` (`src/app/services.ts`), and the Settings reset preservation list (`src/features/settings/SettingsPage.tsx`).
+- Every MCP tool in `src/mcp/server.ts` declares its capability group (`read`, `create`, `modify`, or `trash`), and `McpContext` accepts an optional `permissions` getter (wired to live `Prefs` in `src/mcp/host.ts`, defaulting to all allowed). Disabled groups return a `ToolError` (`This capability is turned off in Noesis settings (Settings -> AI connections)`) before requesting user approval, while `tools/list` keeps disabled tools visible with a disabled prefix in their descriptions.
+- Added three persisted permission switches (and live tool-list status) with English and Turkish strings in Settings → AI connections (`src/features/mcp/McpSettings.tsx`, `src/i18n/en.ts`, `src/i18n/tr.ts`).
+- Unit tests in `tests/unit/mcp.test.ts` (enforcement per group, zero approval prompts when disabled, `tools/list` descriptions, `Prefs` defaults and `loadSettings` migration); Playwright E2E flow in `tests/e2e/app.spec.ts`. Automated verification run pending by maintainer.
+
 ### Merge pages (unreleased)
 
 - Added pure TipTap merge helpers in `src/core/merge.ts` (`demoteHeadingLevel`, `demoteHeadings`, `prepareSourceBlocks`, `buildMergedDoc`) and transactional `PageRepo.mergePages(workspaceId, targetId, sourceIds, options)` in `src/core/repos/pages.ts`. Appends sources in order under level-2 headings, skips leading H1s matching the source title, demotes headings by 1 (capped at 4), re-points `page_links` rows and internal link marks / `pageMention` nodes to the target, moves live sub-pages under the target, moves sources to trash (restorable), preserves a pre-merge target snapshot, and refreshes `search_index` while rejecting cycles, cross-workspace ids, trashed pages, databases and target-in-sources.
@@ -214,7 +221,7 @@ Security scanning, immutable action references and an English audit were added. 
 | Quick capture (global shortcut, tray) | done | `Ctrl+Shift+Space` system-wide; notes go to an Inbox page |
 | Close to tray (desktop) | done in code, not verified interactively | Closing the window hides it (Settings → General, default on); tray left click, tray "Open" and a second launch show it again; "Quit" exits for real. Hide/show must be checked on a Windows desktop (CI cannot) |
 | Web clipper (browser extension) | done | `extensions/web-clipper`, MV3; developer-mode install; not in stores |
-| MCP server for AI assistants | done | 20 tools (paginated/filtered `list_pages`, layered `read_page` with `outline_only`/`heading`/`max_chars`/`offset`, `search_notes` `detail`/`snippet_chars`, `<private>...</private>` filtering across MCP outputs, `check_links`, `list_trash`, `get_backlinks`, `update_page`, `move_page`, `rename_page`, `merge_pages`, `trash_page`, `restore_page`, `find_duplicate_pages`, plus create/append/clip/tasks/sources), approval for mutating existing pages, no permanent deletion, schema v9 `agent_activity`, one-click config for Claude Desktop/Cursor/Windsurf/LM Studio |
+| MCP server for AI assistants | done | 20 tools (paginated/filtered `list_pages`, layered `read_page` with `outline_only`/`heading`/`max_chars`/`offset`, `search_notes` `detail`/`snippet_chars`, `<private>...</private>` filtering across MCP outputs, `check_links`, `list_trash`, `get_backlinks`, `update_page`, `move_page`, `rename_page`, `merge_pages`, `trash_page`, `restore_page`, `find_duplicate_pages`, plus create/append/clip/tasks/sources), per-group capability permissions (`create`/`modify`/`trash`) in Settings → AI connections, approval for mutating existing pages, no permanent deletion, schema v9 `agent_activity`, one-click config for Claude Desktop/Cursor/Windsurf/LM Studio |
 | Auto-update | done (config) | Tauri updater, minisign-signed, every push to `main` publishes a build. Needs the `TAURI_SIGNING_PRIVATE_KEY` secret; end-to-end update not yet observed |
 | Code signing | blocked | No certificate |
 | Performance benchmarks | done | Reproducible 5,000-page / 100,000-row / 1,000-source seed, data and browser startup, search, paginated table and full export/import measurements. Packaged WebView2 cold start remains manual |
