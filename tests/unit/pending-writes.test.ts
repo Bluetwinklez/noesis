@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { Database, type SqlDriver } from '../../src/core/db/driver';
 import { debounce } from '../../src/lib/util';
-import { flushAllWrites, registerFlusher } from '../../src/app/pendingWrites';
+import { flushAllWrites, flushPageWrites, registerFlusher } from '../../src/app/pendingWrites';
 import { useApp } from '../../src/app/state';
 import { memoryStore } from '../helpers';
 
@@ -62,5 +62,20 @@ describe('finishing writes before quit', () => {
     await flushAllWrites();
     unregister();
     expect((await repos.pages.get(page.id))?.title).toBe('Typed just before quitting');
+  });
+
+  it('flushPageWrites flushes only flushers registered for that page', async () => {
+    const repos = await memoryStore();
+    useApp.setState({ repos });
+    const ws = (await repos.workspaces.create('W')).id;
+    const pageA = await repos.pages.create({ workspaceId: ws, title: 'A' });
+    const pageB = await repos.pages.create({ workspaceId: ws, title: 'B' });
+    const flushed: string[] = [];
+    const unA = registerFlusher(async () => { flushed.push(pageA.id); }, pageA.id);
+    const unB = registerFlusher(async () => { flushed.push(pageB.id); }, pageB.id);
+    await flushPageWrites(pageA.id);
+    unA();
+    unB();
+    expect(flushed).toEqual([pageA.id]);
   });
 });

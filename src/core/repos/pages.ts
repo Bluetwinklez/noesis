@@ -278,11 +278,21 @@ export class PageRepo {
     );
   }
 
-  /** Moves a page under a new parent, preventing cycles. */
+  /** Moves a page under a new parent, preventing cycles and moves into trashed/archived parents. */
   async move(id: string, newParentId: string | null, beforeSortOrder?: number) {
     await this.db.transaction(async (tx) => {
+      const page = await tx.get<{ workspace_id: string }>('SELECT workspace_id FROM pages WHERE id = ?', [id]);
+      if (!page) throw new Error('Page not found');
       if (newParentId) {
         if (newParentId === id) throw new Error('A page cannot contain itself');
+        const parent = await tx.get<{ workspace_id: string; deleted_at: number | null; archived_at: number | null }>(
+          'SELECT workspace_id, deleted_at, archived_at FROM pages WHERE id = ?',
+          [newParentId],
+        );
+        if (!parent) throw new Error('Parent page does not exist');
+        if (parent.workspace_id !== page.workspace_id) throw new Error('Parent page belongs to another workspace');
+        if (parent.deleted_at) throw new Error('Cannot move a page under a trashed page');
+        if (parent.archived_at) throw new Error('Cannot move a page under an archived page');
         const cycle = await tx.get<{ id: string }>(
           `WITH RECURSIVE up(id) AS (SELECT ? UNION ALL SELECT p.parent_id FROM pages p JOIN up ON p.id = up.id WHERE p.parent_id IS NOT NULL)
            SELECT id FROM up WHERE id = ?`,
