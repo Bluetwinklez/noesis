@@ -64,6 +64,7 @@ export function PageView({ id }: { id: string }) {
   const [loadedNonce, setLoadedNonce] = useState(reloadNonce);
   const lastDbTitleRef = useRef<string | undefined>(undefined);
   const editorRef = useRef<TEditor | null>(null);
+  const lastSavedJsonRef = useRef<string | null | undefined>(undefined);
   const [wordCount, setWordCount] = useState(0);
   const [tocOpen, setTocOpen] = useState(false);
   const [readyEditor, setReadyEditor] = useState<TEditor | null>(null);
@@ -75,6 +76,7 @@ export function PageView({ id }: { id: string }) {
         for (let attempt = 0; attempt < 3; attempt++) {
           try {
             await repos().pages.saveContent(id, doc);
+            lastSavedJsonRef.current = JSON.stringify(doc);
             useSaveStatus.setState({ status: 'saved' });
             return;
           } catch (e) {

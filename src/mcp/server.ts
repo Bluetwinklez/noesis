@@ -654,6 +654,89 @@ const TOOLS: ToolDef[] = [
     },
   },
   {
+    name: 'merge_pages',
+    title: 'Merge pages',
+    description:
+      'Merges 1 to 20 source pages into an existing target page in order, appending each source under a level-2 heading (demoting headings inside sources, capped at level 4), redirecting internal links to the target, moving source sub-pages under the target, and moving the source pages to the trash (restorable). Rejects cycles and trashed or cross-workspace pages. The user must approve the merge in Noesis first.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        target_id: { type: 'string', description: 'Id of the target page to merge into' },
+        source_ids: {
+          type: 'array',
+          items: { type: 'string' },
+          minItems: 1,
+          maxItems: 20,
+          description: 'Ordered list of 1 to 20 source page ids to merge into the target',
+        },
+      },
+      required: ['target_id', 'source_ids'],
+    },
+    annotations: { readOnlyHint: false, destructiveHint: true },
+    async run(a, ctx) {
+      const targetId = str(a.target_id, 'target_id', 100);
+      if (!Array.isArray(a.source_ids) || a.source_ids.length < 1 || a.source_ids.length > 20) {
+        throw new ToolError('"source_ids" must be an array of 1 to 20 page ids.');
+      }
+      const rawSourceIds = a.source_ids.map((v, i) => str(v, `source_ids[${i}]`, 100));
+      if (rawSourceIds.includes(targetId)) {
+        throw new ToolError('Target page cannot be listed in "source_ids".');
+      }
+      const uniqueSourceIds = [...new Set(rawSourceIds)];
+
+      const target = await livePage(ctx, targetId);
+      if (target.kind !== 'page') throw new ToolError('Cannot merge into a database.');
+
+      const sources: Page[] = [];
+      for (const sid of uniqueSourceIds) {
+        const src = await livePage(ctx, sid);
+        if (src.kind !== 'page') throw new ToolError(`Cannot merge database page ${sid}.`);
+        sources.push(src);
+      }
+
+      const sourceSet = new Set(uniqueSourceIds);
+      const targetAncestors = await ctx.repos.pages.ancestors(targetId);
+      if (targetAncestors.some((p) => sourceSet.has(p.id))) {
+        throw new ToolError('Cannot merge a page into one of its own sub-pages.');
+      }
+
+      const targetTitle = cleanTitle(target.title);
+      const sourceTitles = sources.map((s) => cleanTitle(s.title));
+      const totalChars = sources.reduce((sum, s) => sum + cleanPageText(s).length, 0);
+      const preview = [
+        `Merge ${sources.length} ${sources.length === 1 ? 'page' : 'pages'} into "${targetTitle}" (${totalChars} characters total):`,
+        ...sourceTitles.map((title, idx) => `${idx + 1}. ${title}`),
+      ].join('\n');
+
+      const ok = await ctx.approve({ client: ctx.client, action: 'merge', target: targetTitle, preview });
+      if (!ok) throw new ToolError('The user declined this change.');
+
+      let merged;
+      try {
+        await ctx.beforePageReplace?.(targetId);
+        merged = await ctx.repos.pages.mergePages(ctx.workspaceId, targetId, uniqueSourceIds);
+        ctx.afterPageReplace?.(targetId);
+      } catch (e) {
+        throw new ToolError(e instanceof Error ? e.message : String(e));
+      }
+
+      await ctx.repos.activity.record({ workspaceId: ctx.workspaceId, client: ctx.client, action: 'merge_pages', pageId: targetId });
+      ctx.notify(
+        `${ctx.client} merged ${merged.mergedSourceIds.length} ${merged.mergedSourceIds.length === 1 ? 'page' : 'pages'} into “${targetTitle}”.`,
+      );
+      return {
+        target_id: merged.targetId,
+        target_title: targetTitle,
+        merged_source_ids: merged.mergedSourceIds,
+        merged_source_titles: sourceTitles,
+        moved_subpages: merged.movedSubpageCount,
+        redirected_pages: merged.redirectedPages,
+        redirected_links: merged.redirectedLinks,
+        total_characters: totalChars,
+      };
+    },
+  },
+  {
     name: 'restore_page',
     title: 'Restore a trashed page',
     description: 'Restores a trashed page (and its sub-pages) in the current workspace. Additive action: no approval dialog, notifies the user.',
@@ -934,7 +1017,7 @@ export async function handleMcp(msg: unknown, ctx: McpContext): Promise<JsonRpcR
         capabilities: { tools: { listChanged: false } },
         serverInfo: { name: 'noesis', title: 'Noesis', version: import.meta.env.VITE_APP_VERSION ?? '0.1.0' },
         instructions:
-          'Noesis is the user’s local knowledge workspace. To save tokens, read in layers: start with search_notes (detail: "index") or list_pages (paginated) to locate relevant pages, then call read_page with outline_only: true to inspect headings and section sizes, read only the needed section via read_page with heading (or page through long pages with max_chars and offset), and fetch the full page only when necessary. Text wrapped in <private>...</private> markers is automatically omitted from MCP responses. Use find_duplicate_pages to spot duplicates, check_links to find broken links and orphan pages, get_backlinks to see incoming links, list_trash to inspect trashed pages, search_sources for cited evidence from imported documents, and create_page, create_task or restore_page to add or restore content. Changing, moving, renaming or trashing existing pages (append_to_page, update_page, move_page, rename_page, trash_page) requires the user’s approval in the app; pages are never permanently deleted through MCP.',
+          'Noesis is the user’s local knowledge workspace. To save tokens, read in layers: start with search_notes (detail: "index") or list_pages (paginated) to locate relevant pages, then call read_page with outline_only: true to inspect headings and section sizes, read only the needed section via read_page with heading (or page through long pages with max_chars and offset), and fetch the full page only when necessary. Text wrapped in <private>...</private> markers is automatically omitted from MCP responses. Use find_duplicate_pages to spot duplicates, check_links to find broken links and orphan pages, get_backlinks to see incoming links, list_trash to inspect trashed pages, search_sources for cited evidence from imported documents, and create_page, create_task or restore_page to add or restore content. Changing, moving, renaming, merging or trashing existing pages (append_to_page, update_page, move_page, rename_page, merge_pages, trash_page) requires the user’s approval in the app; pages are never permanently deleted through MCP.',
       });
     }
     case 'ping':

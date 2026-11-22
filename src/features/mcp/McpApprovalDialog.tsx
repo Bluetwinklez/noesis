@@ -11,6 +11,7 @@ const BODY_KEYS: Record<string, MessageKey> = {
   move: 'mcp.approve.body.move',
   rename: 'mcp.approve.body.rename',
   trash: 'mcp.approve.body.trash',
+  merge: 'mcp.approve.body.merge',
 };
 const bodyKey = (action: string): MessageKey => BODY_KEYS[action] ?? 'mcp.approve.body';
 

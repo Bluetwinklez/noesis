@@ -10,7 +10,8 @@ export type AgentAction =
   | 'move_page'
   | 'rename_page'
   | 'trash_page'
-  | 'restore_page';
+  | 'restore_page'
+  | 'merge_pages';
 
 export const AGENT_ACTIONS: readonly AgentAction[] = [
   'create_page',
@@ -22,6 +23,7 @@ export const AGENT_ACTIONS: readonly AgentAction[] = [
   'rename_page',
   'trash_page',
   'restore_page',
+  'merge_pages',
 ] as const;
 
 export interface AgentActivity {

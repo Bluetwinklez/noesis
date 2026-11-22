@@ -57,6 +57,7 @@ describe('MCP server', () => {
         'update_page',
         'move_page',
         'rename_page',
+        'merge_pages',
         'trash_page',
         'restore_page',
         'find_duplicate_pages',
@@ -70,6 +71,7 @@ describe('MCP server', () => {
     );
     expect(tools.find((t) => t.name === 'trash_page')?.annotations?.destructiveHint).toBe(true);
     expect(tools.find((t) => t.name === 'update_page')?.annotations?.destructiveHint).toBe(true);
+    expect(tools.find((t) => t.name === 'merge_pages')?.annotations?.destructiveHint).toBe(true);
     expect(tools.find((t) => t.name === 'find_duplicate_pages')?.annotations?.readOnlyHint).toBe(true);
     expect(tools.find((t) => t.name === 'check_links')?.annotations?.readOnlyHint).toBe(true);
     expect(tools.find((t) => t.name === 'list_trash')?.annotations?.readOnlyHint).toBe(true);
@@ -869,5 +871,79 @@ describe('MCP server', () => {
     expect(JSON.stringify(res)).not.toContain('key');
     expect((await call('get_backlinks', { page_id: otherLinker.id })).isError).toBe(true);
     expect((await call('get_backlinks', { page_id: 'does-not-exist' })).isError).toBe(true);
+  });
+
+  it('merge_pages requires approval, respects denial, merges in order, records activity and rejects invalid inputs', async () => {
+    const target = await s.pages.create({ workspaceId: ctx.workspaceId, title: 'Combined Topic' });
+    await s.pages.saveContent(target.id, docFromParagraphs(['Original target intro.']));
+
+    const srcA = await s.pages.create({ workspaceId: ctx.workspaceId, title: 'Notes Alpha <private>secret</private>' });
+    await s.pages.saveContent(srcA.id, docFromParagraphs(['Alpha details <private>hidden</private> visible.']));
+    const srcB = await s.pages.create({ workspaceId: ctx.workspaceId, title: 'Notes Beta' });
+    await s.pages.saveContent(srcB.id, docFromParagraphs(['Beta details here.']));
+    const childOfA = await s.pages.create({ workspaceId: ctx.workspaceId, parentId: srcA.id, title: 'Sub Note' });
+
+    const linker = await s.pages.create({ workspaceId: ctx.workspaceId, title: 'Linker' });
+    await s.pages.saveContent(linker.id, {
+      type: 'doc',
+      content: [
+        {
+          type: 'paragraph',
+          content: [{ type: 'text', text: 'Alpha', marks: [{ type: 'link', attrs: { href: `${PAGE_LINK_PREFIX}${srcA.id}` } }] }],
+        },
+      ],
+    });
+
+    // Denial leaves everything unchanged and sends an approval preview with clean titles and character count.
+    allow = false;
+    const denied = await call('merge_pages', { target_id: target.id, source_ids: [srcA.id, srcB.id] });
+    expect(denied.isError).toBe(true);
+    expect(approvals).toHaveLength(1);
+    expect(approvals[0]).toMatchObject({ client: 'Test Client', action: 'merge', target: 'Combined Topic' });
+    expect(approvals[0].preview).toContain('Notes Alpha');
+    expect(approvals[0].preview).toContain('Notes Beta');
+    expect(approvals[0].preview).toMatch(/\d+ characters total/);
+    expect(approvals[0].preview).not.toContain('secret');
+    expect(approvals[0].preview).not.toContain('hidden');
+    expect((await s.pages.get(srcA.id))!.deleted_at).toBeNull();
+    expect((await s.pages.get(target.id))!.content_text).not.toContain('Beta details');
+
+    // Validation errors fail before asking for user approval.
+    const approvalsBeforeValidation = approvals.length;
+    expect((await call('merge_pages', { target_id: target.id, source_ids: [] })).isError).toBe(true);
+    expect(
+      (await call('merge_pages', { target_id: target.id, source_ids: Array.from({ length: 21 }, (_, i) => `id-${i}`) })).isError,
+    ).toBe(true);
+    expect((await call('merge_pages', { target_id: target.id, source_ids: [target.id] })).isError).toBe(true);
+    expect((await call('merge_pages', { target_id: childOfA.id, source_ids: [srcA.id] })).isError).toBe(true);
+    const otherWs = (await s.workspaces.create('Isolated')).id;
+    const foreign = await s.pages.create({ workspaceId: otherWs, title: 'Foreign' });
+    expect((await call('merge_pages', { target_id: target.id, source_ids: [foreign.id] })).isError).toBe(true);
+    expect(approvals).toHaveLength(approvalsBeforeValidation);
+
+    // Approval executes the merge, re-points links, moves sub-pages, trashes sources and records activity.
+    allow = true;
+    const merged = await call('merge_pages', { target_id: target.id, source_ids: [srcA.id, srcB.id] });
+    expect(merged.isError).toBe(false);
+    expect(merged.json()).toMatchObject({
+      target_id: target.id,
+      target_title: 'Combined Topic',
+      merged_source_ids: [srcA.id, srcB.id],
+      merged_source_titles: ['Notes Alpha', 'Notes Beta'],
+      moved_subpages: 1,
+      redirected_pages: 1,
+      redirected_links: 1,
+    });
+
+    const targetAfter = (await s.pages.get(target.id))!;
+    expect(targetAfter.content_text.indexOf('Alpha details')).toBeLessThan(targetAfter.content_text.indexOf('Beta details'));
+    expect((await s.pages.get(childOfA.id))!.parent_id).toBe(target.id);
+    expect((await s.pages.get(srcA.id))!.deleted_at).not.toBeNull();
+    expect((await s.pages.get(srcB.id))!.deleted_at).not.toBeNull();
+    expect((await s.pages.get(linker.id))!.content_json).toContain(`${PAGE_LINK_PREFIX}${target.id}`);
+    expect(notices.at(-1)).toContain('merged 2 pages into “Combined Topic”');
+
+    const activityRows = await s.activity.list(ctx.workspaceId);
+    expect(activityRows[0]).toMatchObject({ client: 'Test Client', action: 'merge_pages', page_id: target.id });
   });
 });

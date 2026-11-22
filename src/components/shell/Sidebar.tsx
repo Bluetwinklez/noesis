@@ -22,13 +22,16 @@ import {
   Copy,
   Archive,
   Check,
+  Layers,
 } from 'lucide-react';
 import { useApp, repos, type Route } from '../../app/state';
 import { useT } from '../../i18n';
-import { cx, IconButton, MenuButton, Popover, MenuList, useAsync, Kbd, type MenuItem } from '../ui';
+import { confirmDialog, cx, IconButton, MenuButton, Popover, MenuList, useAsync, Kbd, type MenuItem } from '../ui';
 import { createPage, toggleFavorite, togglePinned, trashPage } from '../../features/actions';
+import { flushAllWrites } from '../../app/pendingWrites';
 import { savePrefs, setWorkspace, reportError } from '../../app/services';
 import { SidebarCalendar } from '../../features/daily-notes/SidebarCalendar';
+import { MergePageDialog } from '../../features/pages/MergePageDialog';
 import type { PageMeta } from '../../core/types';
 import { clamp } from '../../lib/util';
 
@@ -67,7 +70,19 @@ function buildTree(pages: PageMeta[]): TreeNode[] {
   return roots;
 }
 
-function PageRow({ node, depth, expanded, toggle }: { node: TreeNode; depth: number; expanded: Set<string>; toggle: (id: string) => void }) {
+function PageRow({
+  node,
+  depth,
+  expanded,
+  toggle,
+  onMerge,
+}: {
+  node: TreeNode;
+  depth: number;
+  expanded: Set<string>;
+  toggle: (id: string) => void;
+  onMerge: (page: PageMeta) => void;
+}) {
   const t = useT();
   const route = useApp((s) => s.route);
   const navigate = useApp((s) => s.navigate);
@@ -89,6 +104,9 @@ function PageRow({ node, depth, expanded, toggle }: { node: TreeNode; depth: num
         navigate({ name: 'page', id: p.id });
       },
     },
+    ...(node.kind === 'page'
+      ? [{ label: t('page.mergeInto'), icon: <Layers className="size-3.5" />, onSelect: () => onMerge(node) }]
+      : []),
     {
       label: t('page.archive'),
       icon: <Archive className="size-3.5" />,
@@ -175,7 +193,7 @@ function PageRow({ node, depth, expanded, toggle }: { node: TreeNode; depth: num
           </IconButton>
         </span>
       </div>
-      {open && node.children.slice(0, visibleChildren).map((c) => <PageRow key={c.id} node={c} depth={depth + 1} expanded={expanded} toggle={toggle} />)}
+      {open && node.children.slice(0, visibleChildren).map((c) => <PageRow key={c.id} node={c} depth={depth + 1} expanded={expanded} toggle={toggle} onMerge={onMerge} />)}
       {open && visibleChildren < node.children.length && (
         <button
           onClick={() => setVisibleChildren((count) => count + SIDEBAR_ROOT_BATCH)}
@@ -232,6 +250,7 @@ export function Sidebar() {
   const version = useApp((s) => s.version);
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
   const [visibleRoots, setVisibleRoots] = useState(SIDEBAR_ROOT_BATCH);
+  const [mergeSource, setMergeSource] = useState<PageMeta | null>(null);
   const { data: pages } = useAsync(async () => (workspaceId ? repos().pages.listTree(workspaceId) : []), [workspaceId, version]);
   const tree = useMemo(() => buildTree(pages ?? []), [pages]);
   const pinned = useMemo(() => (pages ?? []).filter((p) => p.is_pinned), [pages]);
@@ -242,6 +261,38 @@ export function Sidebar() {
     else n.add(id);
     return n;
   }), []);
+  const handleMergeSelect = useCallback(
+    async (source: PageMeta, target: PageMeta) => {
+      setMergeSource(null);
+      if (!workspaceId) return;
+      const sourceTitle = source.title || t('common.untitled');
+      const targetTitle = target.title || t('common.untitled');
+      const confirmed = await confirmDialog(
+        t('page.mergeConfirmTitle'),
+        t('page.mergeConfirmBody', { source: sourceTitle, target: targetTitle }),
+        { danger: true, confirmLabel: t('page.mergeConfirm') },
+      );
+      if (!confirmed) return;
+      try {
+        await flushAllWrites();
+        const res = await repos().pages.mergePages(workspaceId, target.id, [source.id]);
+        const st = useApp.getState();
+        st.markPageReplaced(target.id);
+        st.bump();
+        const viewingSource = st.route.name === 'page' && st.route.id === source.id;
+        st.navigate({ name: 'page', id: target.id }, { replace: viewingSource });
+        st.toast(
+          res.redirectedPages > 0
+            ? t('page.mergedWithLinks', { source: sourceTitle, target: targetTitle, links: res.redirectedPages })
+            : t('page.merged', { source: sourceTitle, target: targetTitle }),
+          'success',
+        );
+      } catch (e) {
+        reportError(e);
+      }
+    },
+    [workspaceId, t],
+  );
   const width = prefs.sidebarWidth;
 
   // Auto-expand ancestors of the active page.
@@ -261,7 +312,10 @@ export function Sidebar() {
     const rootIndex = tree.findIndex((node) => node.id === rootId);
     if (rootIndex >= visibleRoots) setVisibleRoots(Math.ceil((rootIndex + 1) / SIDEBAR_ROOT_BATCH) * SIDEBAR_ROOT_BATCH);
   }, [activeId, pages, tree, expanded, visibleRoots]);
-  useEffect(() => setVisibleRoots(SIDEBAR_ROOT_BATCH), [workspaceId]);
+  useEffect(() => {
+    setVisibleRoots(SIDEBAR_ROOT_BATCH);
+    setMergeSource(null);
+  }, [workspaceId]);
 
   const onResize = (e: React.PointerEvent) => {
     const startX = e.clientX;
@@ -340,7 +394,7 @@ export function Sidebar() {
           }}
         >
           {tree.slice(0, visibleRoots).map((n) => (
-            <PageRow key={n.id} node={n} depth={0} expanded={expanded} toggle={toggle} />
+            <PageRow key={n.id} node={n} depth={0} expanded={expanded} toggle={toggle} onMerge={setMergeSource} />
           ))}
           {visibleRoots < tree.length && (
             <button
@@ -367,6 +421,12 @@ export function Sidebar() {
         aria-label="Resize sidebar"
         onPointerDown={onResize}
         className="absolute -right-1 top-0 z-10 h-full w-2 cursor-col-resize hover:bg-accent/30"
+      />
+      <MergePageDialog
+        source={mergeSource}
+        pages={pages ?? []}
+        onClose={() => setMergeSource(null)}
+        onSelectTarget={(src, target) => void handleMergeSelect(src, target)}
       />
     </aside>
   );
