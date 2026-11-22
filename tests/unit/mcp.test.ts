@@ -9,8 +9,10 @@ import {
   handleMcp,
   toolList,
   type ApprovalRequest,
+  type DestructiveActionInfo,
   type McpContext,
 } from '../../src/mcp/server';
+import { SafetySnapshotThrottle } from '../../src/mcp/safety-snapshot';
 import { DEFAULT_MCP_PERMISSIONS, DEFAULT_PREFS, normalizeMcpPermissions, useApp, type McpPermissions } from '../../src/app/state';
 import { loadSettings } from '../../src/app/services';
 import { memoryStore } from '../helpers';
@@ -957,5 +959,92 @@ describe('MCP server', () => {
         workspaceId: prevState.workspaceId,
       });
     }
+  });
+
+  it('invokes beforeDestructive once before mutating on approved destructive actions and skips denied, read, create, append and rename calls', async () => {
+    const folder = await s.pages.create({ workspaceId: ctx.workspaceId, title: 'Folder' });
+    const p1 = await s.pages.create({ workspaceId: ctx.workspaceId, title: 'Target Page' });
+    await s.pages.saveContent(p1.id, docFromParagraphs(['Original protected body']));
+    const p2 = await s.pages.create({ workspaceId: ctx.workspaceId, title: 'Merge Source' });
+    await s.pages.saveContent(p2.id, docFromParagraphs(['Source text to merge']));
+    const trashed = await s.pages.create({ workspaceId: ctx.workspaceId, title: 'Trashed Note' });
+    await s.pages.trash(trashed.id);
+
+    const hookCalls: (DestructiveActionInfo & { preMutationOk: boolean })[] = [];
+    ctx.beforeDestructive = async (info) => {
+      let preMutationOk = true;
+      if (info.action === 'update_page') {
+        preMutationOk = (await s.pages.get(p1.id))!.content_text.includes('Original protected body');
+      } else if (info.action === 'move_page') {
+        preMutationOk = (await s.pages.get(p1.id))!.parent_id === null;
+      } else if (info.action === 'merge_pages') {
+        preMutationOk = (await s.pages.get(p2.id))!.deleted_at === null;
+      } else if (info.action === 'trash_page') {
+        preMutationOk = (await s.pages.get(p1.id))!.deleted_at === null;
+      }
+      hookCalls.push({ ...info, preMutationOk });
+    };
+
+    // Read, create, restore, append and rename calls must never trigger beforeDestructive.
+    expect((await call('read_page', { page_id: p1.id })).isError).toBe(false);
+    expect((await call('search_notes', { query: 'Original' })).isError).toBe(false);
+    expect((await call('list_pages')).isError).toBe(false);
+    expect((await call('create_page', { title: 'Fresh Page', markdown: 'Hello' })).isError).toBe(false);
+    expect((await call('create_task', { title: 'Fresh Task' })).isError).toBe(false);
+    expect((await call('restore_page', { page_id: trashed.id })).isError).toBe(false);
+    expect((await call('append_to_page', { page_id: p1.id, markdown: 'Appended line' })).isError).toBe(false);
+    expect((await call('rename_page', { page_id: p1.id, title: 'Renamed Target' })).isError).toBe(false);
+    expect(hookCalls).toHaveLength(0);
+
+    // Denied destructive calls must not trigger beforeDestructive.
+    allow = false;
+    expect((await call('update_page', { page_id: p1.id, markdown: 'Wiped' })).isError).toBe(true);
+    expect((await call('move_page', { page_id: p1.id, parent_id: folder.id })).isError).toBe(true);
+    expect((await call('merge_pages', { target_id: p1.id, source_ids: [p2.id] })).isError).toBe(true);
+    expect((await call('trash_page', { page_id: p1.id })).isError).toBe(true);
+    expect(hookCalls).toHaveLength(0);
+
+    // Approved destructive calls each invoke beforeDestructive once BEFORE mutating the database.
+    allow = true;
+    expect((await call('update_page', { page_id: p1.id, markdown: 'Replaced body' })).isError).toBe(false);
+    expect(hookCalls).toEqual([{ client: 'Test Client', action: 'update_page', preMutationOk: true }]);
+
+    expect((await call('move_page', { page_id: p1.id, parent_id: folder.id })).isError).toBe(false);
+    expect((await call('merge_pages', { target_id: p1.id, source_ids: [p2.id] })).isError).toBe(false);
+    expect((await call('trash_page', { page_id: p1.id })).isError).toBe(false);
+    expect(hookCalls).toEqual([
+      { client: 'Test Client', action: 'update_page', preMutationOk: true },
+      { client: 'Test Client', action: 'move_page', preMutationOk: true },
+      { client: 'Test Client', action: 'merge_pages', preMutationOk: true },
+      { client: 'Test Client', action: 'trash_page', preMutationOk: true },
+    ]);
+  });
+
+  it('wires SafetySnapshotThrottle through beforeDestructive so only the first destructive call per client window snapshots', async () => {
+    const folder = await s.pages.create({ workspaceId: ctx.workspaceId, title: 'Archive Folder' });
+    const p1 = await s.pages.create({ workspaceId: ctx.workspaceId, title: 'Working Draft' });
+    await s.pages.saveContent(p1.id, docFromParagraphs(['Initial draft']));
+
+    let now = 1_700_000_000_000;
+    const snapshots: string[] = [];
+    const throttle = new SafetySnapshotThrottle({
+      now: () => now,
+      takeSnapshot: async (client) => {
+        snapshots.push(client);
+      },
+    });
+    ctx.beforeDestructive = async ({ client }) => {
+      await throttle.maybeSnapshot(client);
+    };
+
+    ctx.client = 'Claude';
+    expect((await call('update_page', { page_id: p1.id, markdown: 'Draft v2' })).isError).toBe(false);
+    now += 5 * 60_000;
+    expect((await call('move_page', { page_id: p1.id, parent_id: folder.id })).isError).toBe(false);
+    expect(snapshots).toEqual(['Claude']);
+
+    ctx.client = 'Cursor';
+    expect((await call('trash_page', { page_id: p1.id })).isError).toBe(false);
+    expect(snapshots).toEqual(['Claude', 'Cursor']);
   });
 });

@@ -46,6 +46,12 @@ export interface ApprovalRequest {
 
 export type McpPermissionGroup = keyof McpPermissions;
 export type McpToolGroup = 'read' | McpPermissionGroup;
+export type DestructiveMcpAction = 'update_page' | 'trash_page' | 'merge_pages' | 'move_page';
+
+export interface DestructiveActionInfo {
+  client: string;
+  action: DestructiveMcpAction;
+}
 
 export const DISABLED_CAPABILITY_ERROR = 'This capability is turned off in Noesis settings (Settings -> AI connections)';
 const DISABLED_TOOL_PREFIX = '[Disabled in Noesis settings (Settings -> AI connections)] ';
@@ -70,6 +76,11 @@ export interface McpContext {
   notify: (message: string) => void;
   /** Returns the current MCP capability permissions (default: all allowed). */
   permissions?: () => McpPermissions;
+  /**
+   * Optional hook run after user approval and before executing a destructive
+   * page action (`update_page`, `trash_page`, `merge_pages`, `move_page`).
+   */
+  beforeDestructive?: (info: DestructiveActionInfo) => Promise<void> | void;
 }
 
 interface ToolDef {
@@ -823,6 +834,7 @@ const TOOLS: ToolDef[] = [
       const currentTitle = page.title || 'Untitled';
       const ok = await ctx.approve({ client: ctx.client, action: 'replace', target: currentTitle, preview: stripPrivateText(md).slice(0, 2000) });
       if (!ok) throw new ToolError('The user declined this change.');
+      await ctx.beforeDestructive?.({ client: ctx.client, action: 'update_page' });
       await ctx.repos.pages.saveContent(id, htmlToDoc(markdownToHtml(md)), title);
       const finalTitle = title ?? currentTitle;
       await ctx.repos.activity.record({ workspaceId: ctx.workspaceId, client: ctx.client, action: 'update_page', pageId: id });
@@ -859,6 +871,7 @@ const TOOLS: ToolDef[] = [
       const preview = parentTitle !== null ? `Move under "${parentTitle}"` : 'Move to the top level';
       const ok = await ctx.approve({ client: ctx.client, action: 'move', target: pageTitle, preview });
       if (!ok) throw new ToolError('The user declined this change.');
+      await ctx.beforeDestructive?.({ client: ctx.client, action: 'move_page' });
       try {
         await ctx.repos.pages.move(id, parentId);
       } catch (e) {
@@ -934,6 +947,7 @@ const TOOLS: ToolDef[] = [
           : `Move "${pageTitle}" and ${subCount} ${subCount === 1 ? 'sub-page' : 'sub-pages'} to the trash.`;
       const ok = await ctx.approve({ client: ctx.client, action: 'trash', target: pageTitle, preview });
       if (!ok) throw new ToolError('The user declined this change.');
+      await ctx.beforeDestructive?.({ client: ctx.client, action: 'trash_page' });
       await ctx.repos.pages.trash(id);
       await ctx.repos.activity.record({ workspaceId: ctx.workspaceId, client: ctx.client, action: 'trash_page', pageId: id });
       ctx.notify(`${ctx.client} moved the page “${pageTitle}” to the trash.`);
@@ -998,6 +1012,7 @@ const TOOLS: ToolDef[] = [
 
       const ok = await ctx.approve({ client: ctx.client, action: 'merge', target: targetTitle, preview });
       if (!ok) throw new ToolError('The user declined this change.');
+      await ctx.beforeDestructive?.({ client: ctx.client, action: 'merge_pages' });
 
       let merged;
       try {

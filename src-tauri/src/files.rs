@@ -93,13 +93,13 @@ pub fn validate_user_path(path: &str) -> Result<PathBuf, String> {
     }
 }
 
-/// Deletes the oldest `noesis-auto-*.noesisbak` files so that `keep` remain; returns how many are left.
-pub fn prune_backups(dir: &Path, keep: usize) -> Result<usize, String> {
+/// Deletes the oldest `<prefix>*.noesisbak` files so that `keep` remain; returns how many are left.
+pub fn prune_backups(dir: &Path, prefix: &str, keep: usize) -> Result<usize, String> {
     let mut names: Vec<_> = fs::read_dir(dir)
         .map_err(|e| e.to_string())?
         .filter_map(Result::ok)
         .map(|e| e.file_name().to_string_lossy().into_owned())
-        .filter(|n| n.starts_with("noesis-auto-") && n.ends_with(".noesisbak"))
+        .filter(|n| n.starts_with(prefix) && n.ends_with(".noesisbak"))
         .collect();
     names.sort(); // timestamps sort chronologically
     let excess = names.len().saturating_sub(keep);
@@ -158,10 +158,29 @@ mod tests {
         for n in ["noesis-auto-20260101-000000.noesisbak", "noesis-auto-20260102-000000.noesisbak", "noesis-auto-20260103-000000.noesisbak", "manual.noesisbak"] {
             fs::write(dir.path().join(n), b"x").unwrap();
         }
-        assert_eq!(prune_backups(dir.path(), 2).unwrap(), 2);
+        assert_eq!(prune_backups(dir.path(), "noesis-auto-", 2).unwrap(), 2);
         assert!(!dir.path().join("noesis-auto-20260101-000000.noesisbak").exists());
         assert!(dir.path().join("noesis-auto-20260103-000000.noesisbak").exists());
         assert!(dir.path().join("manual.noesisbak").exists(), "manual backups are never touched");
+    }
+
+    #[test]
+    fn prunes_before_ai_backups_independently_of_auto_backups() {
+        let dir = tempfile::tempdir().unwrap();
+        for i in 1..=7 {
+            fs::write(dir.path().join(format!("noesis-before-ai-2026010{i}-000000.noesisbak")), b"ai").unwrap();
+        }
+        fs::write(dir.path().join("noesis-auto-20260101-000000.noesisbak"), b"auto").unwrap();
+        fs::write(dir.path().join("manual.noesisbak"), b"manual").unwrap();
+
+        assert_eq!(prune_backups(dir.path(), "noesis-before-ai-", 5).unwrap(), 5);
+        assert!(!dir.path().join("noesis-before-ai-20260101-000000.noesisbak").exists());
+        assert!(!dir.path().join("noesis-before-ai-20260102-000000.noesisbak").exists());
+        for i in 3..=7 {
+            assert!(dir.path().join(format!("noesis-before-ai-2026010{i}-000000.noesisbak")).exists());
+        }
+        assert!(dir.path().join("noesis-auto-20260101-000000.noesisbak").exists());
+        assert!(dir.path().join("manual.noesisbak").exists());
     }
 
     #[test]

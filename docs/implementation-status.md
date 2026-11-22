@@ -10,6 +10,14 @@ Security scanning, immutable action references and an English audit were added. 
 
 ## Verification runs (this revision)
 
+### Safety snapshot before AI bulk changes (unreleased)
+
+- Added optional `label` support (`BEFORE_AI_BACKUP_LABEL = 'before AI changes'`) to `BackupManifest` / `createBackup` (`src/core/backup.ts`), keeping older manifests backwards compatible.
+- Added `runBeforeAiBackup`, `listSavedBackups`, `readSavedBackup`, `pruneBackupList`, and `createMemoryBackupStore` in `src/app/maintenance.ts`, paired with prefix-isolated pruning (`prune_backups` with `noesis-before-ai-*.noesisbak`, keeping the newest 5 separately from `noesis-auto-*.noesisbak`) and `backup_list` / `backup_read` commands in `src-tauri/src/files.rs` and `src-tauri/src/lib.rs`.
+- Added `SafetySnapshotThrottle` (`src/mcp/safety-snapshot.ts`, injectable clock, 30-minute per-client window, live preference check) wired in `src/mcp/host.ts` through the optional `McpContext.beforeDestructive` hook in `src/mcp/server.ts`, firing after user approval and before mutation on `update_page`, `trash_page`, `merge_pages`, and `move_page` (never on reads, creates, appends, renames, or denied/disabled calls).
+- Added `Prefs.backupBeforeAi` (default `true`) and `Prefs.lastBeforeAiBackupAt` (`src/app/state.ts`, `loadSettings` migration in `src/app/services.ts`), a Settings → Storage switch "Take a backup before AI changes", and a saved backups list labelled "Before AI changes" that restores through the normal confirmation + safety-copy restore flow (`src/features/settings/SettingsPage.tsx`, English and Turkish strings).
+- Unit tests in `tests/unit/safety-snapshot.test.ts`, `tests/unit/mcp.test.ts`, `src-tauri/src/files.rs`, and `src-tauri/src/lib.rs`; Playwright E2E flow in `tests/e2e/app.spec.ts`. Automated verification run pending by maintainer.
+
 ### MCP search filters, recent pages and outline tree (unreleased)
 
 - Pushed `SearchOptions.kinds` down into `keywordSearch`, `fullTextSearch`, and `semanticSearch` (`src/search/search.ts`) so kind-filtered queries do not get starved by higher-ranked hits of other kinds.
@@ -222,7 +230,7 @@ Security scanning, immutable action references and an English audit were added. 
 | Settings (all §21 sections) | done | |
 | Onboarding (7 steps, AI skippable) | done | Two cosmetic issues fixed in this revision |
 | i18n English + Turkish | done | |
-| Backup/restore, integrity check, independent corrupt-DB recovery | done | |
+| Backup/restore, integrity check, independent corrupt-DB recovery | done | Includes separate "before AI changes" safety snapshots (newest 5, 30-minute per-client cooldown before destructive MCP writes) restorable from Settings → Storage |
 | Keyring secret storage | done | Linux/Windows backends compiled; Windows Credential Manager not verified on a real Windows host in this session |
 | Cloud sync | not-started | No sync code; the architecture doc describes the seam |
 | Quick capture (global shortcut, tray) | done | `Ctrl+Shift+Space` system-wide; notes go to an Inbox page |

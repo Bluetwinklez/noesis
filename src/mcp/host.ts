@@ -2,6 +2,8 @@ import { create } from 'zustand';
 import { isTauri } from '../lib/platform';
 import { useApp } from '../app/state';
 import { savePrefs } from '../app/services';
+import { runBeforeAiBackup } from '../app/maintenance';
+import { SafetySnapshotThrottle } from './safety-snapshot';
 import type { ApprovalRequest } from './server';
 
 /**
@@ -65,6 +67,13 @@ export function notifyAgentWrite(client: string, message: string): void {
   state.bump();
 }
 
+const safetySnapshots = new SafetySnapshotThrottle({
+  isEnabled: () => useApp.getState().prefs.backupBeforeAi,
+  takeSnapshot: async () => {
+    await runBeforeAiBackup();
+  },
+});
+
 let unlisten: (() => void) | null = null;
 
 async function listen() {
@@ -84,6 +93,9 @@ async function listen() {
         approve: requestApproval,
         notify: (m) => notifyAgentWrite(payload.client, m),
         permissions: () => useApp.getState().prefs.mcpPermissions,
+        beforeDestructive: async ({ client }) => {
+          await safetySnapshots.maybeSnapshot(client);
+        },
       });
       body = res ? JSON.stringify(res) : '';
     } catch (e) {

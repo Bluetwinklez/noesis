@@ -601,6 +601,15 @@ export const en = {
   'settings.autoBackupKeepN': 'Last {n}',
   'settings.autoBackupNow': 'Back up now',
   'settings.autoBackupDone': 'Backup saved ({n} kept in {dir}).',
+  'settings.backupBeforeAi': 'Take a backup before AI changes',
+  'settings.backupBeforeAiHint':
+    'Saves a separate snapshot labelled “before AI changes” before an AI assistant replaces, moves, merges or trashes pages (at most once every 30 minutes per client; keeps the newest 5). Last snapshot: {when}.',
+  'settings.beforeAiBackupLabel': 'Before AI changes',
+  'settings.autoBackupLabel': 'Automatic backup',
+  'settings.savedBackups': 'Saved backups',
+  'settings.beforeAiBackupsEmpty':
+    'No safety snapshots yet. Snapshots appear here when an AI assistant makes destructive changes and can be restored like any backup.',
+  'settings.openBackupsFolder': 'Open backups folder',
   'settings.trashRetention': 'Empty trash automatically',
   'settings.trashRetentionHint': 'Pages that stayed in the trash longer than this are deleted for good.',
   'settings.trashRetention.days': 'After {n} days',

@@ -1388,3 +1388,43 @@ test('Settings -> AI connections toggles MCP permissions and persists them acros
   await expect(page.getByRole('switch', { name: 'Modify existing pages' })).toHaveAttribute('aria-checked', 'false');
   await expect(page.getByRole('switch', { name: 'Move pages to trash' })).toHaveAttribute('aria-checked', 'false');
 });
+
+test('Settings -> Storage toggles "Take a backup before AI changes" and persists across restarts', async ({ page }) => {
+  const db = await freshApp(page);
+  await onboard(page);
+
+  await page.getByRole('button', { name: 'Settings', exact: true }).click();
+  await page.getByRole('button', { name: 'Storage & backups', exact: true }).click();
+
+  const snapshotSwitch = page.getByRole('switch', { name: 'Take a backup before AI changes' });
+  await expect(snapshotSwitch).toBeVisible();
+  await expect(snapshotSwitch).toHaveAttribute('aria-checked', 'true');
+
+  // Turn off the safety snapshot switch and wait for persistence in SQLite/IndexedDB.
+  await snapshotSwitch.click();
+  await expect(snapshotSwitch).toHaveAttribute('aria-checked', 'false');
+  await expect.poll(() => page.evaluate(async () => {
+    const state = (window as unknown as { __noesis: { getState(): { repos: Repos } } }).__noesis.getState();
+    const saved = await state.repos.settings.get<{ backupBeforeAi?: boolean }>('prefs', {});
+    await state.repos.db.flushNow();
+    return saved.backupBeforeAi;
+  })).toBe(false);
+
+  // Reload and verify the off state survived a restart.
+  await page.goto(`/?db=${db}`);
+  await page.getByRole('button', { name: 'Settings', exact: true }).click();
+  await page.getByRole('button', { name: 'Storage & backups', exact: true }).click();
+
+  const afterReload = page.getByRole('switch', { name: 'Take a backup before AI changes' });
+  await expect(afterReload).toHaveAttribute('aria-checked', 'false');
+
+  // Toggle back on and verify persistence.
+  await afterReload.click();
+  await expect(afterReload).toHaveAttribute('aria-checked', 'true');
+  await expect.poll(() => page.evaluate(async () => {
+    const state = (window as unknown as { __noesis: { getState(): { repos: Repos } } }).__noesis.getState();
+    const saved = await state.repos.settings.get<{ backupBeforeAi?: boolean }>('prefs', {});
+    await state.repos.db.flushNow();
+    return saved.backupBeforeAi;
+  })).toBe(true);
+});

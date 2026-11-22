@@ -34,15 +34,24 @@ export const BACKUP_TABLES = [
 /** Tables added after the first backup format, with the schema version that introduced them. */
 const TABLE_SINCE: Partial<Record<(typeof BACKUP_TABLES)[number], number>> = { agent_activity: 6, daily_notes: 7 };
 
+/** Label written into backup manifests created automatically before destructive AI changes. */
+export const BEFORE_AI_BACKUP_LABEL = 'before AI changes';
+
 export interface BackupManifest {
   format: 'noesis-backup';
   formatVersion: 1;
   schemaVersion: number;
   createdAt: string;
   appVersion: string;
+  /** Optional human-readable label (for example "before AI changes"). */
+  label?: string;
   tables: Record<string, number>;
   attachments: { key: string; sha256: string; size: number }[];
   dataSha256: string;
+}
+
+export interface CreateBackupOptions {
+  label?: string;
 }
 
 export interface BlobAccess {
@@ -50,7 +59,12 @@ export interface BlobAccess {
   put(fileName: string, bytes: Uint8Array): Promise<string>;
 }
 
-export async function createBackup(db: Database, blobs: BlobAccess | null, appVersion = '0.1.0'): Promise<Uint8Array> {
+export async function createBackup(
+  db: Database,
+  blobs: BlobAccess | null,
+  appVersion = '0.1.0',
+  options?: CreateBackupOptions,
+): Promise<Uint8Array> {
   const data: Record<string, Row[]> = {};
   // Read every table under the same lock and SQLite snapshot. An autosave or
   // source import cannot leave the archive with mismatched parent/child rows.
@@ -81,6 +95,7 @@ export async function createBackup(db: Database, blobs: BlobAccess | null, appVe
     schemaVersion: LATEST_VERSION,
     createdAt: new Date().toISOString(),
     appVersion,
+    ...(options?.label ? { label: options.label } : {}),
     tables: Object.fromEntries(BACKUP_TABLES.map((t) => [t, data[t].length])),
     attachments,
     dataSha256: await sha256Hex(dataBytes),
