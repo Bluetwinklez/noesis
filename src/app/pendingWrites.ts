@@ -9,23 +9,37 @@ import { useApp } from './state';
 import { t } from '../i18n';
 
 type Flusher = () => Promise<void> | void;
-const flushers = new Set<Flusher>();
+interface FlusherEntry {
+  fn: Flusher;
+  pageId?: string;
+}
+const flushers = new Set<FlusherEntry>();
 
-export function registerFlusher(fn: Flusher): () => void {
-  flushers.add(fn);
-  return () => flushers.delete(fn);
+export function registerFlusher(fn: Flusher, pageId?: string): () => void {
+  const entry: FlusherEntry = { fn, pageId };
+  flushers.add(entry);
+  return () => flushers.delete(entry);
 }
 
-/** Runs every pending delayed save, waits for it, then drains the database queue. */
-export async function flushAllWrites(): Promise<void> {
-  await Promise.all([...flushers].map(async (f) => {
+async function runFlushers(entries: Iterable<FlusherEntry>): Promise<void> {
+  await Promise.all([...entries].map(async ({ fn }) => {
     try {
-      await f();
+      await fn();
     } catch (e) {
       console.warn('flush', e);
     }
   }));
   await useApp.getState().repos?.db.flushNow();
+}
+
+/** Runs every pending delayed save, waits for it, then drains the database queue. */
+export async function flushAllWrites(): Promise<void> {
+  await runFlushers(flushers);
+}
+
+/** Runs pending delayed saves registered for a specific page and drains the database queue. */
+export async function flushPageWrites(pageId: string): Promise<void> {
+  await runFlushers([...flushers].filter((entry) => entry.pageId === pageId));
 }
 
 let trayAnnounced = false;

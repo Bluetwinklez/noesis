@@ -111,3 +111,59 @@ describe('migration v3 (timeline views)', () => {
     expect(await db.all('SELECT id FROM db_views')).toEqual([]); // cascade still works after the rebuild
   });
 });
+
+describe('migration v8 (agent_activity page management)', () => {
+  it('upgrades a v7 database, keeps existing activity rows and accepts new page-management actions', async () => {
+    const db = new Database(new NodeDriver(':memory:'));
+    await migrate(db, migrations.slice(0, 7)); // a v7 database
+    expect((await db.get<{ v: number }>('SELECT MAX(version) v FROM schema_migrations'))?.v).toBe(7);
+
+    await db.run("INSERT INTO workspaces(id, name, created_at, updated_at) VALUES ('w','W',0,0)");
+    await db.run("INSERT INTO pages(id, workspace_id, title, created_at, updated_at) VALUES ('p','w','Page',0,0)");
+    await db.run(
+      "INSERT INTO agent_activity(id, workspace_id, client, action, page_id, task_id, created_at) VALUES ('a1','w','Claude','create_page','p',NULL,100)",
+    );
+    // v7 CHECK rejects the new page-management actions.
+    await expect(
+      db.run(
+        "INSERT INTO agent_activity(id, workspace_id, client, action, page_id, task_id, created_at) VALUES ('a2','w','Claude','move_page','p',NULL,101)",
+      ),
+    ).rejects.toThrow();
+
+    expect(await migrate(db)).toBe(1);
+    expect((await db.get<{ v: number }>('SELECT MAX(version) v FROM schema_migrations'))?.v).toBe(LATEST_VERSION);
+
+    expect(await db.get("SELECT id, workspace_id, client, action, page_id, task_id, created_at FROM agent_activity WHERE id = 'a1'")).toEqual({
+      id: 'a1',
+      workspace_id: 'w',
+      client: 'Claude',
+      action: 'create_page',
+      page_id: 'p',
+      task_id: null,
+      created_at: 100,
+    });
+
+    const newActions = ['update_page', 'move_page', 'rename_page', 'trash_page', 'restore_page'] as const;
+    for (let i = 0; i < newActions.length; i++) {
+      await db.run(
+        'INSERT INTO agent_activity(id, workspace_id, client, action, page_id, task_id, created_at) VALUES (?,?,?,?,?,?,?)',
+        [`n${i}`, 'w', 'Claude', newActions[i], 'p', null, 200 + i],
+      );
+    }
+    await expect(
+      db.run(
+        "INSERT INTO agent_activity(id, workspace_id, client, action, page_id, task_id, created_at) VALUES ('bad','w','Claude','purge_page','p',NULL,300)",
+      ),
+    ).rejects.toThrow();
+
+    const indexes = (
+      await db.all<{ name: string }>("SELECT name FROM sqlite_master WHERE type = 'index' AND tbl_name = 'agent_activity'")
+    ).map((r) => r.name);
+    expect(indexes).toEqual(expect.arrayContaining(['idx_agent_activity_ws', 'idx_agent_activity_page']));
+    expect((await integrityCheck(db)).ok).toBe(true);
+
+    // Foreign-key cascade still works after the table rebuild.
+    await db.run("DELETE FROM pages WHERE id = 'p'");
+    expect(await db.all('SELECT id FROM agent_activity')).toEqual([]);
+  });
+});
