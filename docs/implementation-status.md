@@ -10,6 +10,13 @@ Security scanning, immutable action references and an English audit were added. 
 
 ## Verification runs (this revision)
 
+### MCP search filters, recent pages and outline tree (unreleased)
+
+- Pushed `SearchOptions.kinds` down into `keywordSearch`, `fullTextSearch`, and `semanticSearch` (`src/search/search.ts`) so kind-filtered queries do not get starved by higher-ranked hits of other kinds.
+- Extended MCP `search_notes` (`src/mcp/server.ts`) with optional `parent_id` (workspace-scoped recursive subtree CTE for pages), `kind` (`'page' | 'row' | 'task' | 'notebook' | 'chunk'`), `updated_since` (ISO 8601 date/time compared against `updated_at`), and `sort` (`'relevance'` default | `'recent'`), preserving existing defaults and `<private>...</private>` redaction.
+- Added two read-only (`readOnlyHint: true`) MCP tools in `src/mcp/server.ts`: `list_recent_pages` (`limit` 1–50 default 10, optional `parent_id` subtree and `since`, returning `id`, `title`, breadcrumb `path` of parent titles, `updated_at`, and a 120-character private-stripped snippet) and `get_page_outline_tree` (optional `parent_id`, `depth` 1–4 default 2, returning breadth-first nested `{ id, title, children, child_count }` capped at 300 nodes with `node_count` and `truncated`). Updated `initialize` instructions and the README MCP tool list.
+- Unit tests in `tests/unit/mcp-search.test.ts` and `tests/unit/mcp.test.ts`. Automated verification run pending by maintainer.
+
 ### MCP permissions in Settings (unreleased)
 
 - Added `McpPermissions` (`{ create, modify, trash }`), `DEFAULT_MCP_PERMISSIONS` (all `true`), and `normalizeMcpPermissions` in `src/app/state.ts`, wired into `Prefs`, `DEFAULT_PREFS`, `loadSettings` (`src/app/services.ts`), and the Settings reset preservation list (`src/features/settings/SettingsPage.tsx`).
@@ -221,7 +228,7 @@ Security scanning, immutable action references and an English audit were added. 
 | Quick capture (global shortcut, tray) | done | `Ctrl+Shift+Space` system-wide; notes go to an Inbox page |
 | Close to tray (desktop) | done in code, not verified interactively | Closing the window hides it (Settings → General, default on); tray left click, tray "Open" and a second launch show it again; "Quit" exits for real. Hide/show must be checked on a Windows desktop (CI cannot) |
 | Web clipper (browser extension) | done | `extensions/web-clipper`, MV3; developer-mode install; not in stores |
-| MCP server for AI assistants | done | 20 tools (paginated/filtered `list_pages`, layered `read_page` with `outline_only`/`heading`/`max_chars`/`offset`, `search_notes` `detail`/`snippet_chars`, `<private>...</private>` filtering across MCP outputs, `check_links`, `list_trash`, `get_backlinks`, `update_page`, `move_page`, `rename_page`, `merge_pages`, `trash_page`, `restore_page`, `find_duplicate_pages`, plus create/append/clip/tasks/sources), per-group capability permissions (`create`/`modify`/`trash`) in Settings → AI connections, approval for mutating existing pages, no permanent deletion, schema v9 `agent_activity`, one-click config for Claude Desktop/Cursor/Windsurf/LM Studio |
+| MCP server for AI assistants | done | 22 tools (paginated/filtered `list_pages`, `list_recent_pages`, `get_page_outline_tree`, layered `read_page` with `outline_only`/`heading`/`max_chars`/`offset`, `search_notes` with `detail`/`snippet_chars`/`parent_id`/`kind`/`updated_since`/`sort`, `<private>...</private>` filtering across MCP outputs, `check_links`, `list_trash`, `get_backlinks`, `update_page`, `move_page`, `rename_page`, `merge_pages`, `trash_page`, `restore_page`, `find_duplicate_pages`, plus create/append/clip/tasks/sources), per-group capability permissions (`create`/`modify`/`trash`) in Settings → AI connections, approval for mutating existing pages, no permanent deletion, schema v9 `agent_activity`, one-click config for Claude Desktop/Cursor/Windsurf/LM Studio |
 | Auto-update | done (config) | Tauri updater, minisign-signed, every push to `main` publishes a build. Needs the `TAURI_SIGNING_PRIVATE_KEY` secret; end-to-end update not yet observed |
 | Code signing | blocked | No certificate |
 | Performance benchmarks | done | Reproducible 5,000-page / 100,000-row / 1,000-source seed, data and browser startup, search, paginated table and full export/import measurements. Packaged WebView2 cold start remains manual |
