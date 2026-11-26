@@ -47,3 +47,13 @@ For this Windows application, `cargo tree --locked --target x86_64-pc-windows-ms
 ## Import reliability follow-up
 
 The percent-sign import fix from PR #16 was updated against current main. Paths with literal percent signs no longer abort the whole import; valid percent escapes still resolve internal links. Type checking, unit tests, benchmarks and all 29 main-branch browser scenarios passed locally. Windows installer validation runs in CI.
+
+## 2026-11-19 follow-up: unresolved SQLite security advisory
+
+The latest inspected `main` CI run ([run 42619548454](https://github.com/Bluetwinklez/noesis/actions/runs/42619548454), 2026-11-09) passed Windows build/tests but **failed** its Linux-side `cargo audit` step. The audit found **RUSTSEC-2026-0459** (CVE-2026-119375, medium severity 6.8) in bundled SQLite through `libsqlite3-sys 0.35.0`. The lockfile currently resolves `rusqlite 0.37.0`, which requires that older SQLite binding. Six further informational/unmaintained/unsound/yanked warnings were reported separately.
+
+The advisory reports patched `libsqlite3-sys >=0.39.0` through newer `rusqlite` releases. Upgrading to `rusqlite 0.41` or newer also raises the documented Rust minimum (at least Rust 1.89 for 0.41); the manifest currently advertises `rust-version = "1.80"`. **Do not simply silence `cargo audit` or edit Cargo.lock manually.** Review API compatibility, update the manifest and lockfile with Cargo, adjust the minimum supported Rust version if required, then validate `cargo audit`, Windows Rust tests and installer packaging before merging.
+
+This maintenance branch adds weekly Dependabot update PRs for Cargo, npm and GitHub Actions, **but does not claim to fix the existing vulnerability**. The advisory remains open until a tested upgrade lands.
+
+References: [RustSec advisory](https://rustsec.org/advisories/RUSTSEC-2026-0459) · [Cargo manifest](src-tauri/Cargo.toml) · [CI workflow](.github/workflows/ci.yml).
